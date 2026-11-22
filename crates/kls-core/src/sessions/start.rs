@@ -63,6 +63,10 @@ pub struct StartFields {
     /// #55: a worker made from a prompt.
     #[serde(default)]
     pub adhoc: Option<AdhocWorker>,
+    /// #53: files and images on a session's first prompt (stored first with
+    /// [`crate::attachments::store_file`]).
+    #[serde(default)]
+    pub attachments: Vec<crate::attachments::AttachmentRef>,
 }
 
 fn plain(s: &str, extra: &str, max: usize) -> bool {
@@ -134,6 +138,9 @@ pub fn features_needed(spec: &DispatchSpec) -> Vec<&'static str> {
     }
     if GATES.iter().any(|(k, _)| spec.options.contains_key(*k)) {
         out.push("gates");
+    }
+    if !spec.attachments.is_empty() {
+        out.push(crate::attachments::FEATURE);
     }
     out
 }
@@ -422,6 +429,12 @@ impl StartFields {
             }
             check_adhoc(a)?;
         }
+        if !self.attachments.is_empty() {
+            if !session {
+                return Err("attachments apply to a session".into());
+            }
+            crate::attachments::check_list(&self.attachments)?;
+        }
         Ok(())
     }
 
@@ -444,6 +457,7 @@ impl StartFields {
             spec.adhoc = self.adhoc.clone();
             spec.agent.clear();
         }
+        spec.attachments = self.attachments.clone();
     }
 
     /// The fields for an audit line: names and flags, never a value.
@@ -460,6 +474,7 @@ impl StartFields {
             })),
             "gates": self.gates,
             "adhoc": self.adhoc.as_ref().map(adhoc_audit),
+            "attachments": crate::attachments::audit_json(&self.attachments),
         })
     }
 }

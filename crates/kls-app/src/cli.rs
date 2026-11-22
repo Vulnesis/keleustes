@@ -81,6 +81,10 @@ pub enum SessionsCmd {
         /// Plan first: the session runs in plan mode and returns its plan file.
         #[arg(long)]
         plan_first: bool,
+        /// Attach a file or image to the first prompt (PNG, JPEG or UTF-8
+        /// text; repeatable, at most 8).
+        #[arg(long = "attach")]
+        attach: Vec<std::path::PathBuf>,
     },
     /// Continue an ended belai session on its node in a new session, or fork
     /// it at an entry (the belai entry id). Prints the dispatch id first.
@@ -156,7 +160,13 @@ pub enum SessionsCmd {
         since: Option<i64>,
     },
     /// Queue a prompt for a live session (resumes an idle one).
-    Prompt { session: String, text: String },
+    Prompt {
+        session: String,
+        text: String,
+        /// Attach a file or image (PNG, JPEG or UTF-8 text; repeatable, at most 8).
+        #[arg(long = "attach")]
+        attach: Vec<std::path::PathBuf>,
+    },
     /// Move a session to another node (the origin uploads a bundle; run
     /// `belai -teleport <id>` on the target to continue it).
     Teleport {
@@ -331,6 +341,27 @@ fn cli_origin() -> kls_core::hosts::Origin {
     }
 }
 
+/// Stores each file as an attachment (#53), content-addressed.
+async fn store_attachments(
+    core: &Core,
+    paths: &[std::path::PathBuf],
+) -> Result<Vec<kls_core::attachments::AttachmentRef>> {
+    let origin = kls_core::hosts::Origin {
+        actor: "owner".into(),
+        surface: "cli".into(),
+        ..Default::default()
+    };
+    let mut out = Vec::new();
+    for p in paths {
+        out.push(
+            kls_core::attachments::store_file(core, p, &origin)
+                .await
+                .map_err(|e| fail(Code::UsageError, format!("{e:#}")))?,
+        );
+    }
+    Ok(out)
+}
+
 /// A kill-switch check for an outbound frame the CLI is about to queue.
 async fn gate(core: &Core, action: &str, target: &str) -> Result<()> {
     kls_core::control::check(core, action, target, "owner:cli").await
@@ -394,9 +425,13 @@ pub async fn run(core: &Core, hub: &kls_node::Hub, cmd: &SessionsCmd, ctx: &Ctx)
             answers_file,
             gate: gates,
             plan_first,
+            attach,
         } => {
             // Parse before anything is queued.
-            let mut fields = kls_core::sessions::start::StartFields::default();
+            let mut fields = kls_core::sessions::start::StartFields {
+                attachments: store_attachments(core, attach).await?,
+                ..Default::default()
+            };
             if let Some(p) = answers_file {
                 fields.answers_json = std::fs::read_to_string(p)
                     .map_err(|e| fail(Code::UsageError, format!("{}: {e}", p.display())))?
@@ -992,10 +1027,17 @@ pub async fn run(core: &Core, hub: &kls_node::Hub, cmd: &SessionsCmd, ctx: &Ctx)
             }
             Ok(d)
         }
-        SessionsCmd::Prompt { session, text } => {
+        SessionsCmd::Prompt {
+            session,
+            text,
+            attach,
+        } => {
             let session = &resolve(core, session).await?;
-            // Core checks the kill switch (and audits a refusal).
-            let item = core.queue_prompt_from(session, text, "owner:cli").await?;
+            let atts = store_attachments(core, attach).await?;
+            // Core checks the kill switch (and audits a refusal), and with
+            // attachments the caps, the host feature and the hashes (#53).
+            let item =
+                kls_core::attachments::queue_prompt(core, session, text, atts, "owner:cli").await?;
             ctx.out(&item.id);
             let mut d = with_view(core, session, json!({ "itemId": item.id })).await?;
             d.next = vec![format!(

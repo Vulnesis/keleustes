@@ -371,17 +371,26 @@ async fn step_start_fields_reach_the_dispatch() {
     assert_eq!(spec.git_sync, Some(true));
     assert_eq!(spec.workspace, "acme/api/fix");
 
-    // Stay on a session does not fit: refused, audited, nothing sent.
-    let wf = published(
+    // Stay on a session does not fit: the validator refuses to save it (the
+    // same check the dispatch runs), so it never reaches a node.
+    let e = ops::create_workflow(
         &t.core,
-        simple(json!({"id":"b","type":"crew","title":"Bad","config":{
-            "dispatch":"session","brief":"Fix it","stay":true}})),
+        NewWorkflow {
+            name: "Bad flow".into(),
+            graph: Some(simple(
+                json!({"id":"b","type":"crew","title":"Bad","config":{
+                "dispatch":"session","brief":"Fix it","stay":true}}),
+            )),
+            ..Default::default()
+        },
     )
-    .await;
-    let r = start(&t, &wf).await;
+    .await
+    .unwrap_err();
+    assert!(
+        format!("{e:#}").contains("stay applies to a worker"),
+        "{e:#}"
+    );
     assert_eq!(t.gw.dispatched.lock().unwrap().len(), 2);
-    let st = steps(&t, &r.id).await;
-    assert!(st.iter().any(|s| s.error == "invalid_start_fields"));
 }
 
 #[tokio::test]

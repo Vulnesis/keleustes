@@ -16,6 +16,8 @@ use serde_json::json;
 pub use kls_store::board as model;
 
 pub mod cards;
+/// The external kanban binding (agent A).
+pub mod kanban;
 pub mod rules;
 pub mod sync;
 pub use cards::{Cause, Claim, HistoryNote};

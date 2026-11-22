@@ -340,6 +340,16 @@ pub fn is_management_provider(provider: &str) -> bool {
     provider.ends_with(MANAGEMENT_SUFFIX)
 }
 
+/// Prefix of the provider slug a connector secret is filed under:
+/// `connector-slack` holds a Slack bot token Keleustes itself uses.
+pub const CONNECTOR_PREFIX: &str = "connector-";
+
+/// Whether `provider` holds connector secrets: credentials Keleustes uses
+/// to reach a tool, opened only by Keleustes, never granted to a node.
+pub fn is_connector_provider(provider: &str) -> bool {
+    provider.starts_with(CONNECTOR_PREFIX)
+}
+
 /// First 16 hex chars of sha256(value): identifies a value without
 /// revealing it.
 pub fn fingerprint(v: &str) -> String {
@@ -899,6 +909,12 @@ impl Vault {
                     .push(format!("{p}: management keys are never granted"));
                 continue;
             }
+            // Connector secrets are opened by Keleustes only.
+            if is_connector_provider(p) {
+                out.denied
+                    .push(format!("{p}: connector secrets are never granted"));
+                continue;
+            }
             let rows = self.store.vault_sealed_for(p).await?;
             if rows.is_empty() {
                 out.missing.push(p.clone());
@@ -1122,6 +1138,30 @@ mod tests {
             .unwrap();
         assert_eq!(m4.version, 4);
         assert!(!v.versions(&m.id).await.unwrap()[1].sealed);
+    }
+
+    #[tokio::test]
+    async fn connector_secrets_are_never_granted() {
+        let (v, _d) = vault().await;
+        v.put(
+            "connector-slack",
+            "SLACK_BOT_TOKEN",
+            "",
+            SecretString::new(r#"{"botToken":"xoxb-0123456789-secret"}"#),
+        )
+        .await
+        .unwrap();
+        v.put("openai", "OPENAI_API_KEY", "", SecretString::new(KEY))
+            .await
+            .unwrap();
+        let g = v
+            .grant(&["connector-slack".into(), "openai".into()], 60_000, "t")
+            .await
+            .unwrap();
+        assert_eq!(g.secrets.len(), 1);
+        assert_eq!(g.secrets[0].provider, "openai");
+        assert!(g.denied.iter().any(|d| d.contains("connector")));
+        assert!(is_connector_provider("connector-jira") && !is_connector_provider("openai"));
     }
 
     #[tokio::test]

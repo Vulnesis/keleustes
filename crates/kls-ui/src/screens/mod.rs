@@ -1,5 +1,6 @@
 //! One module per Software Factory screen; each owns its state and data.
 
+pub mod attach;
 pub mod audit;
 pub mod board;
 pub mod budgets;

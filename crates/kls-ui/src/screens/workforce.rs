@@ -20,6 +20,7 @@ use kls_core::vault::{
 use std::sync::{Arc, Mutex};
 
 mod controls;
+mod files;
 mod markdown;
 mod offers;
 mod spec;
@@ -78,6 +79,8 @@ struct Builder {
     avatar_busy: bool,
     /// Markdown pasted to import.
     import: Option<String>,
+    /// The files the agent carries (agent B).
+    files: files::FilesBox,
 }
 
 impl Builder {
@@ -98,6 +101,7 @@ impl Builder {
             avatar: Arc::default(),
             avatar_busy: false,
             import: None,
+            files: Default::default(),
         }
     }
 
@@ -1165,6 +1169,9 @@ impl Screen {
                     }
                     pal.retain(|c| !c.is_empty());
                 });
+                ui.add_space(6.0);
+                let agent_id = b.profile.id.clone();
+                b.files.ui(ui, model, &agent_id, full);
                 let pr = &mut b.profile;
                 ui.add_space(6.0);
                 kit::field_label(ui, "Avatar");

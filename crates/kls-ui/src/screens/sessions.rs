@@ -204,6 +204,8 @@ struct NewSession {
     /// #51: harness gates switched on (tighten only); commit mode "" = host.
     gate_on: Vec<&'static str>,
     commit_mode: String,
+    /// #53: files and images on a session's first prompt.
+    attach: super::attach::AttachBox,
 }
 
 impl NewSession {
@@ -262,6 +264,7 @@ impl NewSession {
             f.workspace = self.workspace.trim().to_string();
             f.git_sync = self.git_sync;
             f.answers_json = self.answers.trim().to_string();
+            f.attachments = self.attach.list();
             for (k, v) in GATE_SWITCHES {
                 if self.gate_on.contains(&k) {
                     f.gates.insert(k.into(), v.into());
@@ -307,6 +310,8 @@ pub struct Screen {
     /// The Agent filter: "" all, "belai", or a harness id (K2).
     agent_filter: String,
     composer: String,
+    /// Files and images on the next prompt (#53).
+    composer_attach: super::attach::AttachBox,
     answer: String,
     /// Clarify choices for the open ask: (ask id, chosen per group).
     clarify: (String, Vec<Vec<bool>>),
@@ -324,6 +329,8 @@ pub struct Screen {
     /// Rebuilt when (session, entry count, expansion) changes.
     lines: Vec<Line>,
     lines_key: (String, usize, u64),
+    /// Entries a rewind took off the conversation (#45), with `lines`.
+    rewound: HashSet<i64>,
     expand_gen: u64,
     picked: Option<i64>,
     confirm_stop: bool,
@@ -542,6 +549,7 @@ impl Screen {
             node_filter: String::new(),
             agent_filter: String::new(),
             composer: String::new(),
+            composer_attach: Default::default(),
             answer: String::new(),
             clarify: Default::default(),
             control: None,
@@ -553,6 +561,7 @@ impl Screen {
             expanded: HashSet::new(),
             lines: Vec::new(),
             lines_key: Default::default(),
+            rewound: HashSet::new(),
             expand_gen: 0,
             picked: None,
             confirm_stop: false,
@@ -587,6 +596,7 @@ impl Screen {
             *s = id;
             drop(s);
             self.composer.clear();
+            self.composer_attach.clear();
             self.answer.clear();
             self.expanded.clear();
             self.picked = None;
@@ -1137,7 +1147,14 @@ impl Screen {
                         .as_ref()
                         .map(|x| x.checkpoints.clone())
                         .unwrap_or_default();
-                    self.actions_ui(ui, model, &s.id, accepts.as_ref().unwrap(), &cps);
+                    self.actions_ui(
+                        ui,
+                        model,
+                        &s.id,
+                        accepts.as_ref().unwrap(),
+                        &cps,
+                        &detail.entries,
+                    );
                     ui.add_space(6.0);
                 }
                 if open {
@@ -1274,7 +1291,13 @@ impl Screen {
             .collect();
         for i in open.into_iter().rev() {
             let what = match InboxBody::of(i) {
-                Ok(InboxBody::Prompt { text }) => {
+                Ok(InboxBody::Prompt { text, attachments }) if !attachments.is_empty() => {
+                    icons::label(
+                        icons::PAPER_PLANE_TILT,
+                        &format!("{} · {} attached", one_line(&text, 70), attachments.len()),
+                    )
+                }
+                Ok(InboxBody::Prompt { text, .. }) => {
                     icons::label(icons::PAPER_PLANE_TILT, &one_line(&text, 80))
                 }
                 Ok(InboxBody::Answer { text, .. }) => {
@@ -1611,6 +1634,7 @@ impl Screen {
         session_id: &str,
         a: &Accepts,
         checkpoints: &[kls_core::belai::Checkpoint],
+        entries: &[Entry],
     ) {
         let listed: Vec<&str> = action_buttons()
             .iter()
@@ -1654,6 +1678,16 @@ impl Screen {
                                     );
                                     if ui.button(label).clicked() {
                                         send(name.into(), vec![c.id.clone()]);
+                                        // The rewound prompt goes back for
+                                        // editing, as in belai's TUI.
+                                        if self.composer.trim().is_empty()
+                                            && let Some(p) =
+                                                kls_core::sessions::actions::rewind_prompt(
+                                                    entries, c,
+                                                )
+                                        {
+                                            self.composer = p;
+                                        }
                                         ui.close();
                                     }
                                 }
@@ -1964,13 +1998,31 @@ impl Screen {
                 && !self.composer.trim().is_empty()
             {
                 let (sid, text) = (session_id.to_string(), self.composer.trim().to_string());
+                // #53: a prompt with attachments takes the checked path
+                // (caps, host feature, kill switch, audit with the hashes).
+                let atts = match mode {
+                    Composed::Prompt => self.composer_attach.list(),
+                    _ => Vec::new(),
+                };
                 model.act(move |m| async move {
-                    m.core().queue_composer(&sid, &text, "owner").await?;
+                    if atts.is_empty() {
+                        m.core().queue_composer(&sid, &text, "owner").await?;
+                    } else {
+                        kls_core::attachments::queue_prompt(m.core(), &sid, &text, atts, "owner")
+                            .await?;
+                    }
                     Ok(None)
                 });
                 self.composer.clear();
+                if matches!(mode, Composed::Prompt) {
+                    self.composer_attach.clear();
+                }
             }
         });
+        if matches!(mode, Composed::Prompt) {
+            self.composer_attach
+                .ui(ui, model, &format!("sessions/composer/{session_id}"));
+        }
     }
 
     fn entry_ui(&mut self, ui: &mut egui::Ui, e: &Entry) {
@@ -2026,6 +2078,7 @@ impl Screen {
         let key = (d.id.clone(), d.entries.len(), self.expand_gen);
         if key != self.lines_key {
             self.lines = build_lines(&d.entries, &self.expanded);
+            self.rewound = kls_core::sessions::actions::rewound(&d.entries);
             self.lines_key = key;
         }
         // Fixed-height rows: the role in a mono column on the left, the text
@@ -2043,7 +2096,14 @@ impl Screen {
                 let first = range.start;
                 for (k, line) in self.lines[range].iter().enumerate() {
                     let e = &d.entries[line.entry];
-                    let color = role_color(ui, &e.role);
+                    // A rewound entry stays in the transcript, muted and
+                    // chipped, as belai keeps it in the file.
+                    let gone = self.rewound.contains(&e.idx);
+                    let color = if gone {
+                        p.muted
+                    } else {
+                        role_color(ui, &e.role)
+                    };
                     let (rect, resp) = ui.allocate_exact_size(
                         Vec2::new(ui.available_width(), row_h),
                         Sense::click(),
@@ -2091,7 +2151,12 @@ impl Screen {
                             } else {
                                 0.0
                             };
-                            let time_w = match origin_chip(e) {
+                            let chip = if gone {
+                                Some(icons::label(icons::ARROW_COUNTER_CLOCKWISE, "rewound"))
+                            } else {
+                                origin_chip(e)
+                            };
+                            let time_w = match chip {
                                 Some(chip) => {
                                     text_fit(
                                         &painter,
@@ -2124,7 +2189,7 @@ impl Screen {
                                     Align2::LEFT_CENTER,
                                     &text,
                                     FontId::monospace(12.5),
-                                    p.text,
+                                    if gone { p.muted } else { p.text },
                                     text_w - time_w,
                                 );
                             }
@@ -2146,6 +2211,7 @@ impl Screen {
                                 "tool_result" => (FontId::monospace(12.5), p.muted),
                                 _ => (FontId::proportional(14.0), p.text),
                             };
+                            let c = if gone { p.muted } else { c };
                             text_fit(
                                 &painter,
                                 Pos2::new(text_x, mid),
@@ -2367,6 +2433,12 @@ impl Screen {
                                 .desired_width(320.0),
                         );
                         ui.end_row();
+
+                        if n.kind() == "session" && !n.picker.is_harness() {
+                            ui.label("Attach");
+                            ui.vertical(|ui| n.attach.ui(ui, model, "sessions/new"));
+                            ui.end_row();
+                        }
 
                         if !n.picker.is_harness() {
                             ui.label("Provider");

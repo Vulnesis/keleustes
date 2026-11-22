@@ -16,6 +16,18 @@ pub struct Svc {
 }
 
 type InboxStream = Pin<Box<dyn Stream<Item = Result<pb::InboxItem, Status>> + Send + 'static>>;
+type AttachmentStream =
+    Pin<Box<dyn Stream<Item = Result<pb::AttachmentPart, Status>> + Send + 'static>>;
+
+/// The wire form of an attachment reference (#53).
+pub fn attachment_pb(a: kls_core::attachments::AttachmentRef) -> pb::Attachment {
+    pb::Attachment {
+        name: a.name,
+        mime: a.mime,
+        sha256: a.sha256,
+        size: a.size as i64,
+    }
+}
 
 /// Most entries or audit lines one call may carry.
 const MAX_BATCH: usize = 1000;
@@ -159,7 +171,10 @@ fn index(i: u64) -> Result<i64, Status> {
 /// The protocol form of a stored inbox item.
 pub fn inbox_pb(item: &InboxItem) -> anyhow::Result<pb::InboxItem> {
     let body = match InboxBody::of(item)? {
-        InboxBody::Prompt { text } => inbox_item::Body::Prompt(pb::Prompt { text }),
+        InboxBody::Prompt { text, attachments } => inbox_item::Body::Prompt(pb::Prompt {
+            text,
+            attachments: attachments.into_iter().map(attachment_pb).collect(),
+        }),
         InboxBody::Answer {
             question_id,
             text,
@@ -366,6 +381,67 @@ impl Sessions for Svc {
             .await
             .map_err(status)?;
         Ok(Response::new(pb::Ok {}))
+    }
+
+    type FetchAttachmentStream = AttachmentStream;
+
+    /// #53: an attachment's bytes, for a dispatch to this node or an inbox
+    /// item of its session that lists it (`kls_core::attachments::authorize`:
+    /// kill switch, ownership, audit). Streamed in 64 KiB parts.
+    async fn fetch_attachment(
+        &self,
+        req: Request<pb::AttachmentRequest>,
+    ) -> Result<Response<Self::FetchAttachmentStream>, Status> {
+        use tokio::io::AsyncReadExt;
+        let node = authenticate(&self.hub, &req).await?;
+        let r = req.into_inner();
+        let core = self.hub.core().clone();
+        let a = kls_core::attachments::authorize(
+            &core,
+            &node,
+            &r.sha256,
+            &r.dispatch_id,
+            &r.session_id,
+            &r.item_id,
+        )
+        .await
+        .map_err(|e| {
+            if kls_core::control::is_blocked(&e) {
+                Status::failed_precondition(e.to_string())
+            } else {
+                status(e)
+            }
+        })?;
+        let mut file = core.blobs().open(&a.sha256).await.map_err(internal)?;
+        let (tx, rx) = mpsc::channel::<Result<pb::AttachmentPart, Status>>(4);
+        tokio::spawn(async move {
+            let size = a.size as i64;
+            let mut first = true;
+            let mut sent = 0u64;
+            loop {
+                let mut buf = vec![0u8; kls_core::attachments::CHUNK_BYTES];
+                let n = match file.read(&mut buf).await {
+                    Ok(n) => n,
+                    Err(e) => {
+                        let _ = tx.send(Err(Status::internal(e.to_string()))).await;
+                        return;
+                    }
+                };
+                buf.truncate(n);
+                sent += n as u64;
+                let last = n == 0 || sent >= a.size;
+                let part = pb::AttachmentPart {
+                    chunk: buf,
+                    size: if first { size } else { 0 },
+                    last,
+                };
+                first = false;
+                if tx.send(Ok(part)).await.is_err() || last {
+                    return;
+                }
+            }
+        });
+        Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
     }
 
     async fn audit_head(

@@ -90,7 +90,16 @@ pub struct Screen {
     chat_url: String,
     /// The host of the sealed webhook, if one is set.
     chat_host: Loader<Option<String>>,
+    /// The kanban binding's token being typed (sealed on save, never shown).
+    kanban_token: String,
+    /// The binding's last pass and open conflicts.
+    kanban: Loader<KanbanView>,
 }
+
+type KanbanView = (
+    kls_core::board::kanban::Status,
+    Vec<kls_core::board::kanban::ConflictRow>,
+);
 
 impl Screen {
     pub fn new(model: &Model) -> Self {
@@ -137,6 +146,18 @@ impl Screen {
             chat_host: Loader::new(model, &["notify.", "settings."], |core| async move {
                 kls_core::audit::notify::webhook_host(&core).await
             }),
+            kanban_token: String::new(),
+            kanban: Loader::new(
+                model,
+                &["kanban.", "settings.", "factory.", "card."],
+                |core| async move {
+                    use kls_core::board::kanban;
+                    Ok((
+                        kanban::status(&core).await?,
+                        kanban::conflicts(&core).await?,
+                    ))
+                },
+            ),
         }
     }
 
@@ -355,6 +376,9 @@ impl Screen {
                                             self.fields_ui(ui, model, s.fields, &doc);
                                             if s.id == "notifications" {
                                                 self.chat_ui(ui, model);
+                                            }
+                                            if s.id == "kanban" {
+                                                self.kanban_ui(ui, model);
                                             }
                                         },
                                     );
@@ -1155,6 +1179,146 @@ impl Screen {
         });
     }
 
+    /// The kanban binding's status: last pass, links, conflicts, Sync now,
+    /// and the sealed token for Linear and Jira.
+    fn kanban_ui(&mut self, ui: &mut egui::Ui, model: &Model) {
+        use kls_core::board::kanban;
+        let pal = theme::palette(ui.ctx());
+        let Some((st, rows)) = self.kanban.get().and_then(Result::ok) else {
+            return;
+        };
+        ui.add_space(6.0);
+        let Some(b) = st.binding.clone() else {
+            ui.horizontal_wrapped(|ui| {
+                kit::chip(ui, &icons::label(icons::MINUS, "Not bound"), pal.muted);
+            });
+            return;
+        };
+        let now = kls_store::now_ms();
+        ui.horizontal_wrapped(|ui| {
+            let (chip, color) = kanban_run_chip(&st.run, now, &pal);
+            let errs = st
+                .run
+                .as_ref()
+                .and_then(|r| serde_json::from_str::<Value>(&r.report_json).ok())
+                .and_then(|v| v["errors"].as_array().cloned())
+                .unwrap_or_default();
+            let r = kit::chip(ui, &chip, color);
+            if let Some(e) = errs.first().and_then(Value::as_str) {
+                r.on_hover_text(e);
+            }
+            kit::chip(
+                ui,
+                &icons::label(icons::LINK, &format!("{} linked", st.linked)),
+                pal.muted,
+            );
+            if st.conflicts > 0 {
+                kit::chip(
+                    ui,
+                    &icons::label(icons::WARNING, &format!("{} held", st.conflicts)),
+                    pal.amber,
+                );
+            }
+            if kit::ghost_button(ui, &icons::label(icons::ARROWS_CLOCKWISE, "Sync now")).clicked() {
+                model.act(|m| async move {
+                    let r = kanban::sync_now(m.core(), "owner").await?;
+                    Ok(r.map(|r| {
+                        Notice::Info(format!(
+                            "Kanban: {} in, {} out, {} pushed, {} taken, {} held",
+                            r.imported, r.created, r.pushed, r.taken, r.conflicts
+                        ))
+                    }))
+                });
+            }
+        });
+        if st.token_needed {
+            ui.horizontal_wrapped(|ui| {
+                let what = if b.provider == "jira" {
+                    "email:api-token"
+                } else {
+                    "lin_api_…"
+                };
+                ui.label(
+                    RichText::new(icons::label(icons::KEY, "Token"))
+                        .size(12.0)
+                        .color(pal.muted),
+                )
+                .on_hover_text("Sealed in the vault; never shown, logged or audited");
+                if st.token_set {
+                    kit::chip(ui, &icons::label(icons::LOCK_SIMPLE, "Sealed"), pal.green);
+                } else {
+                    kit::chip(ui, &icons::label(icons::MINUS, "Not set"), pal.muted);
+                }
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.kanban_token)
+                        .password(true)
+                        .hint_text(what)
+                        .desired_width(220.0),
+                );
+                let typed = !self.kanban_token.trim().is_empty();
+                if ui
+                    .add_enabled(
+                        typed,
+                        egui::Button::new(icons::label(icons::FLOPPY_DISK, "Seal")),
+                    )
+                    .clicked()
+                {
+                    let t =
+                        kls_core::vault::SecretString::new(std::mem::take(&mut self.kanban_token));
+                    let p = b.provider.clone();
+                    model.act(move |m| async move {
+                        kanban::set_token(m.core(), &p, t).await?;
+                        Ok(Some(Notice::Info("Token sealed".into())))
+                    });
+                }
+                if st.token_set
+                    && kit::ghost_button(ui, icons::TRASH)
+                        .on_hover_text("Forget the token")
+                        .clicked()
+                {
+                    let p = b.provider.clone();
+                    model.act(move |m| async move {
+                        kanban::set_token(m.core(), &p, kls_core::vault::SecretString::new(""))
+                            .await?;
+                        Ok(Some(Notice::Info("Token removed".into())))
+                    });
+                }
+            });
+        }
+        // Held fields: plain text only (outside text is untrusted).
+        for row in rows.iter().take(20) {
+            for (field, h) in &row.fields {
+                ui.horizontal_wrapped(|ui| {
+                    kit::chip(ui, &icons::label(icons::WARNING, &row.card_key), pal.amber);
+                    ui.label(RichText::new(field).size(12.0).color(pal.muted));
+                    let cut = |s: &str| s.chars().take(40).collect::<String>();
+                    ui.label(RichText::new(format!("Board: {}", cut(&h.board))).size(12.0))
+                        .on_hover_text(&h.board);
+                    ui.label(RichText::new(format!("Outside: {}", cut(&h.remote))).size(12.0))
+                        .on_hover_text(&h.remote);
+                    for (keep, label) in [(true, "Keep board"), (false, "Take outside")] {
+                        if kit::ghost_button(ui, &icons::label(icons::CHECK, label)).clicked() {
+                            let (card, f) = (row.card_id.clone(), field.clone());
+                            model.act(move |m| async move {
+                                kanban::resolve_conflict(m.core(), &card, &f, keep).await?;
+                                Ok(Some(Notice::Info(
+                                    "Resolved; written on the next pass".into(),
+                                )))
+                            });
+                        }
+                    }
+                    if !row.url.is_empty()
+                        && kit::ghost_button(ui, icons::ARROW_SQUARE_OUT)
+                            .on_hover_text(&row.url)
+                            .clicked()
+                    {
+                        ui.ctx().open_url(egui::OpenUrl::new_tab(&row.url));
+                    }
+                });
+            }
+        }
+    }
+
     fn yaml_ui(&mut self, ui: &mut egui::Ui, model: &Model, revision: i64) {
         let pal = theme::palette(ui.ctx());
         ui.horizontal_wrapped(|ui| {
@@ -1283,6 +1447,40 @@ fn export_yaml(model: &Model) {
             path.display()
         ))))
     });
+}
+
+/// The kanban binding's last pass as a chip: icon + label, and its colour.
+fn kanban_run_chip(
+    run: &Option<kls_store::board::kanban::KanbanRun>,
+    now: i64,
+    pal: &theme::Palette,
+) -> (String, Color32) {
+    let Some(r) = run else {
+        return (icons::label(icons::CLOCK, "Not synced yet"), pal.muted);
+    };
+    let ago = fmt::ago(now, r.at);
+    match r.outcome.as_str() {
+        "ok" => (
+            icons::label(icons::CHECK_CIRCLE, &format!("Synced {ago}")),
+            pal.green,
+        ),
+        "partial" => (
+            icons::label(icons::WARNING, &format!("Partly synced {ago}")),
+            pal.amber,
+        ),
+        "refused" => (
+            icons::label(icons::PAUSE, &format!("Held by the kill switch {ago}")),
+            pal.muted,
+        ),
+        "unavailable" => (
+            icons::label(icons::PROHIBIT, &format!("Unavailable {ago}")),
+            pal.red,
+        ),
+        _ => (
+            icons::label(icons::X_CIRCLE, &format!("Failed {ago}")),
+            pal.red,
+        ),
+    }
 }
 
 fn section_icon(id: &str) -> &'static str {

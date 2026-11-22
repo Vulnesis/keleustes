@@ -814,3 +814,75 @@ async fn other_process_dispatch_and_revoke_reach_the_live_link() {
         .expect("revocation within 5s");
     assert!(matches!(f.body, Some(server_frame::Body::Revoked(_))));
 }
+
+/// Row 53: a prompt's attachments cross as references; the node that owns
+/// the session reads the bytes with FetchAttachment, in parts, and no other
+/// node can; a paused factory serves nothing.
+#[tokio::test]
+async fn prompt_attachments_are_fetched_by_their_node_only() {
+    let h = start().await;
+    let caps = pb::Capabilities {
+        dispatch_features: vec!["attachments".into()],
+        ..Default::default()
+    };
+    let a = join(&h, caps.clone()).await;
+    let b = join(&h, caps).await;
+    let mut sa = a.sessions();
+    sa.upsert(upsert("s1")).await.unwrap();
+    let core = h.core();
+    let body = vec![b'x'; kls_core::attachments::CHUNK_BYTES + 10];
+    let owner = kls_core::hosts::Origin::owner("composer");
+    let att = kls_core::attachments::store_bytes(core, "notes.md", &body, &owner)
+        .await
+        .unwrap_err();
+    // Text is capped at 64 KiB; a smaller file goes.
+    assert!(att.to_string().contains("larger than"), "{att}");
+    let body = b"see the attached notes".to_vec();
+    let att = kls_core::attachments::store_bytes(core, "notes.md", &body, &owner)
+        .await
+        .unwrap();
+    let item = kls_core::attachments::queue_prompt(core, "s1", "read", vec![att.clone()], "owner")
+        .await
+        .unwrap();
+    let mut inbox = sa
+        .inbox(pb::InboxRequest {
+            session_id: "s1".into(),
+            after: 0,
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let got = next(&mut inbox).await;
+    let Some(inbox_item::Body::Prompt(p)) = got.body else {
+        panic!("not a prompt");
+    };
+    assert_eq!(p.attachments.len(), 1);
+    assert_eq!(p.attachments[0].sha256, att.sha256);
+    assert_eq!(p.attachments[0].mime, "text/plain");
+    let req = pb::AttachmentRequest {
+        sha256: att.sha256.clone(),
+        session_id: "s1".into(),
+        item_id: item.id.clone(),
+        ..Default::default()
+    };
+    let mut st = sa.fetch_attachment(req.clone()).await.unwrap().into_inner();
+    let mut bytes = Vec::new();
+    let first = next(&mut st).await;
+    assert_eq!(first.size, body.len() as i64);
+    bytes.extend(first.chunk);
+    let mut last = first.last;
+    while !last {
+        let p = next(&mut st).await;
+        bytes.extend(p.chunk);
+        last = p.last;
+    }
+    assert_eq!(bytes, body);
+    // Another node: refused.
+    let mut sb = b.sessions();
+    assert!(sb.fetch_attachment(req.clone()).await.is_err());
+    // Paused: refused, said so.
+    kls_core::control::pause(core, "t").await.unwrap();
+    let e = sa.fetch_attachment(req).await.unwrap_err();
+    assert_eq!(e.code(), tonic::Code::FailedPrecondition);
+    kls_core::control::resume(core).await.unwrap();
+}

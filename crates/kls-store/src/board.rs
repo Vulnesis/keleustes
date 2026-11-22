@@ -6,6 +6,9 @@
 
 use super::*;
 
+/// The external kanban binding's links (agent A, migration 0243).
+pub mod kanban;
+
 /// A board card (the protocol's `KanbanItem`).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Card {
