@@ -589,6 +589,7 @@ pub fn open_in_browser(url: &str) -> bool {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn socket_path_stays_short_and_distinct() {
         let short = std::path::Path::new("/tmp/k");

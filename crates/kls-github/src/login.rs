@@ -677,6 +677,7 @@ mod tests {
         p.to_string_lossy().into_owned()
     }
 
+    #[cfg(unix)]
     fn conn(kind: crate::ForgeKind, host: &str) -> Connection {
         Connection::new(kind, host, "test").unwrap()
     }
