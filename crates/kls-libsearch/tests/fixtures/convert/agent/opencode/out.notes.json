@@ -1,0 +1,22 @@
+[
+  {
+    "field": "model",
+    "kind": "metadata",
+    "text": "kept in metadata; routing picks the model"
+  },
+  {
+    "field": "temperature",
+    "kind": "dropped",
+    "text": ""
+  },
+  {
+    "field": "permission",
+    "kind": "dropped",
+    "text": ""
+  },
+  {
+    "field": "tools",
+    "kind": "warning",
+    "text": "changes things: Write"
+  }
+]

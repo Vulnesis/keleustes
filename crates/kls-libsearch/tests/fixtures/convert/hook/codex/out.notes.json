@@ -1,0 +1,27 @@
+[
+  {
+    "field": "PreModelRequest",
+    "kind": "dropped",
+    "text": "no belai event"
+  },
+  {
+    "field": "command",
+    "kind": "mapped",
+    "text": "hooks/start.sh carried as hooks/start.sh"
+  },
+  {
+    "field": "async",
+    "kind": "dropped",
+    "text": ""
+  },
+  {
+    "field": "statusMessage",
+    "kind": "dropped",
+    "text": ""
+  },
+  {
+    "field": "hooks",
+    "kind": "mapped",
+    "text": "1 command(s), 1 script(s) carried; stored, not installed"
+  }
+]

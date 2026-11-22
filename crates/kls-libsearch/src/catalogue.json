@@ -1,0 +1,112 @@
+{
+  "version": 1,
+  "repos": [
+    {
+      "key": "G1", "owner": "openai", "repo": "skills", "licence": "", "trust": "official", "stars": 28900,
+      "paths": [
+        {"glob": "skills/.curated/*/SKILL.md", "type": "skill", "eco": "codex"},
+        {"glob": "skills/.system/*/SKILL.md", "type": "skill", "eco": "codex"}
+      ],
+      "keep": ["skills/.curated/*/agents/openai.yaml", "skills/.system/*/agents/openai.yaml"]
+    },
+    {
+      "key": "G2", "owner": "NousResearch", "repo": "hermes-agent", "licence": "MIT", "trust": "official", "stars": 265000,
+      "huge": true, "paths": []
+    },
+    {
+      "key": "G3", "owner": "VoltAgent", "repo": "awesome-claude-code-subagents", "licence": "MIT", "trust": "trusted", "stars": 26700,
+      "paths": [{"glob": "categories/*/*.md", "type": "agent", "eco": "claude-code", "exclude": ["README.md"]}]
+    },
+    {
+      "key": "G4", "owner": "obra", "repo": "superpowers", "licence": "MIT", "trust": "trusted", "stars": 323000,
+      "paths": [
+        {"glob": "skills/*/SKILL.md", "type": "skill", "eco": "claude-code"},
+        {"glob": "commands/**/*.md", "type": "command", "eco": "claude-code", "exclude": ["README.md"]},
+        {"glob": "agents/*.md", "type": "agent", "eco": "claude-code", "exclude": ["README.md"]},
+        {"glob": "hooks/hooks.json", "type": "hook", "eco": "claude-code"}
+      ],
+      "marketplaces": [".claude-plugin/marketplace.json"]
+    },
+    {
+      "key": "G5", "owner": "github", "repo": "awesome-copilot", "licence": "MIT", "trust": "official", "stars": 41400,
+      "paths": [
+        {"glob": "agents/*.agent.md", "type": "agent", "eco": "copilot"},
+        {"glob": "instructions/*.instructions.md", "type": "prompt", "eco": "copilot"},
+        {"glob": "skills/*/SKILL.md", "type": "skill", "eco": "copilot"},
+        {"glob": "hooks/*/hooks.json", "type": "hook", "eco": "copilot"}
+      ]
+    },
+    {
+      "key": "G6", "owner": "disler", "repo": "claude-code-hooks-mastery", "licence": "", "trust": "community", "stars": 4000,
+      "paths": [
+        {"glob": ".claude/settings.json", "type": "hook", "eco": "claude-code"},
+        {"glob": ".claude/agents/**/*.md", "type": "agent", "eco": "claude-code"},
+        {"glob": ".claude/commands/*.md", "type": "command", "eco": "claude-code"}
+      ],
+      "keep": [".claude/hooks/**"]
+    },
+    {
+      "key": "G7", "owner": "PatrickJS", "repo": "awesome-cursorrules", "licence": "CC0-1.0", "trust": "community", "stars": 41200,
+      "paths": [{"glob": "rules/*/.cursorrules", "type": "prompt", "eco": "cursor"}]
+    },
+    {
+      "key": "G8", "owner": "sanjeed5", "repo": "awesome-cursor-rules-mdc", "licence": "CC0-1.0", "trust": "community", "stars": 3600,
+      "paths": [{"glob": "rules-mdc/*.mdc", "type": "prompt", "eco": "cursor"}]
+    },
+    {
+      "key": "G9", "owner": "VoltAgent", "repo": "awesome-agent-skills", "licence": "MIT", "trust": "community", "stars": 37400,
+      "paths": [], "discovery": "readme"
+    },
+    {
+      "key": "G12", "owner": "cline", "repo": "prompts", "licence": "", "trust": "official", "stars": 1200,
+      "paths": [
+        {"glob": "**/.clinerules", "type": "prompt", "eco": "cline"},
+        {"glob": ".clinerules/**/*.md", "type": "prompt", "eco": "cline"},
+        {"glob": "**/*.clinerules.md", "type": "prompt", "eco": "cline"}
+      ]
+    },
+    {
+      "key": "G14", "owner": "openclaw", "repo": "openclaw", "licence": "MIT", "trust": "official", "stars": 395000,
+      "huge": true, "paths": []
+    },
+    {
+      "key": "M1", "owner": "anthropics", "repo": "claude-plugins-official", "licence": "Apache-2.0", "trust": "official", "stars": 0,
+      "paths": [
+        {"glob": "plugins/*/agents/*.md", "type": "agent", "eco": "claude-code"},
+        {"glob": "plugins/*/commands/**/*.md", "type": "command", "eco": "claude-code"},
+        {"glob": "plugins/*/skills/*/SKILL.md", "type": "skill", "eco": "claude-code"},
+        {"glob": "plugins/*/hooks/hooks.json", "type": "hook", "eco": "claude-code"},
+        {"glob": "plugins/*/.mcp.json", "type": "mcp", "eco": "claude-code"},
+        {"glob": "external_plugins/*/agents/*.md", "type": "agent", "eco": "claude-code"},
+        {"glob": "external_plugins/*/commands/**/*.md", "type": "command", "eco": "claude-code"},
+        {"glob": "external_plugins/*/skills/*/SKILL.md", "type": "skill", "eco": "claude-code"},
+        {"glob": "external_plugins/*/hooks/hooks.json", "type": "hook", "eco": "claude-code"},
+        {"glob": "external_plugins/*/.mcp.json", "type": "mcp", "eco": "claude-code"}
+      ],
+      "keep": ["plugins/*/hooks/**", "plugins/*/scripts/**", "external_plugins/*/hooks/**", "external_plugins/*/scripts/**"],
+      "marketplaces": [".claude-plugin/marketplace.json"]
+    },
+    {
+      "key": "M2", "owner": "anthropics", "repo": "skills", "licence": "", "trust": "official", "stars": 0,
+      "paths": [{"glob": "skills/*/SKILL.md", "type": "skill", "eco": "claude-code"}],
+      "marketplaces": [".claude-plugin/marketplace.json"]
+    },
+    {
+      "key": "M3", "owner": "openai", "repo": "plugins", "licence": "", "trust": "official", "stars": 0,
+      "paths": [
+        {"glob": "plugins/*/skills/*/SKILL.md", "type": "skill", "eco": "codex"},
+        {"glob": "plugins/*/.mcp.json", "type": "mcp", "eco": "codex"}
+      ],
+      "marketplaces": [".agents/plugins/marketplace.json"]
+    },
+    {
+      "key": "M4", "owner": "wshobson", "repo": "agents", "licence": "MIT", "trust": "trusted", "stars": 0,
+      "paths": [
+        {"glob": "plugins/*/agents/*.md", "type": "agent", "eco": "claude-code"},
+        {"glob": "plugins/*/commands/**/*.md", "type": "command", "eco": "claude-code"},
+        {"glob": "plugins/*/skills/*/SKILL.md", "type": "skill", "eco": "claude-code"}
+      ],
+      "marketplaces": [".claude-plugin/marketplace.json", ".agents/plugins/marketplace.json", ".cursor-plugin/marketplace.json"]
+    }
+  ]
+}

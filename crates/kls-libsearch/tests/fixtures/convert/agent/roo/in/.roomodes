@@ -1,0 +1,16 @@
+customModes:
+  - slug: docs-writer
+    name: 📝 Docs Writer
+    roleDefinition: You are a technical writer.
+    whenToUse: Use for documentation.
+    customInstructions: Prefer short sentences.
+    groups:
+      - read
+      - - edit
+        - fileRegex: \.md$
+      - command
+      - mcp
+  - slug: other
+    name: Other
+    roleDefinition: x
+    groups: [read]

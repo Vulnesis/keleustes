@@ -1,0 +1,122 @@
+[
+  {
+    "mcpId": "github.com/postmanlabs/postman-mcp-server",
+    "githubUrl": "https://github.com/postmanlabs/postman-mcp-server",
+    "name": "Postman API Tools",
+    "author": "postmanlabs",
+    "description": "Enables AI assistants to manage Postman workspaces, collections, environments, and API testing through natural language interactions, with support for code generation and API automation workflows.",
+    "codiconIcon": "server-environment",
+    "logoUrl": "https://avatars.githubusercontent.com/u/10251060?s=200&v=4",
+    "category": "developer-tools",
+    "tags": [
+      "api-management",
+      "testing",
+      "code-generation",
+      "collaboration",
+      "documentation"
+    ],
+    "requiresApiKey": false,
+    "isRecommended": false,
+    "githubStars": 332,
+    "downloadCount": 18076,
+    "createdAt": "2026-03-27T22:30:02.730347Z",
+    "updatedAt": "2026-11-16T03:09:19.241569Z",
+    "lastGithubSync": "2026-11-16T03:09:19.240452Z"
+  },
+  {
+    "mcpId": "github.com/launchdarkly/mcp-server",
+    "githubUrl": "https://github.com/launchdarkly/mcp-server",
+    "name": "LaunchDarkly",
+    "author": "launchdarkly",
+    "description": "Manage feature flags and AI configurations through LaunchDarkly's platform, enabling controlled rollouts, A/B testing, and feature targeting across environments.",
+    "codiconIcon": "preview",
+    "logoUrl": "https://avatars.githubusercontent.com/u/8039656?s=48&v=4",
+    "category": "developer-tools",
+    "tags": [
+      "feature-flags",
+      "continuous-delivery",
+      "ai-config",
+      "targeting",
+      "rollouts"
+    ],
+    "requiresApiKey": false,
+    "isRecommended": false,
+    "githubStars": 27,
+    "downloadCount": 1359,
+    "createdAt": "2026-03-24T17:33:35.537413Z",
+    "updatedAt": "2026-11-16T14:07:26.388474Z",
+    "lastGithubSync": "2026-11-16T14:07:26.386282Z"
+  },
+  {
+    "mcpId": "github.com/Kapeli/dash-mcp-server",
+    "githubUrl": "https://github.com/Kapeli/dash-mcp-server",
+    "name": "Dash Documentation Browser",
+    "author": "Kapeli",
+    "description": "Enables searching and accessing documentation from the Dash macOS documentation browser, with features for listing docsets, searching content, loading documentation pages, and managing full-text search.",
+    "codiconIcon": "book",
+    "logoUrl": "https://avatars.githubusercontent.com/u/1445635?s=48&v=4",
+    "category": "developer-tools",
+    "tags": [
+      "documentation",
+      "search",
+      "macos",
+      "reference",
+      "docsets"
+    ],
+    "requiresApiKey": false,
+    "isRecommended": false,
+    "githubStars": 190,
+    "downloadCount": 1166,
+    "createdAt": "2026-03-20T18:57:25.197483Z",
+    "updatedAt": "2026-11-10T08:32:33.546365Z",
+    "lastGithubSync": "2026-11-10T08:32:33.54533Z"
+  },
+  {
+    "mcpId": "github.com/VapiAI/mcp-server",
+    "githubUrl": "https://github.com/VapiAI/mcp-server",
+    "name": "Voice Assistant",
+    "author": "VapiAI",
+    "description": "Create and manage AI-powered voice assistants and phone agents for making calls, scheduling appointments, and handling customer interactions using Vapi's API.",
+    "codiconIcon": "call",
+    "logoUrl": "https://github.com/VapiAI.png",
+    "category": "speech-processing",
+    "tags": [
+      "voice-assistant",
+      "telephony",
+      "appointment-scheduling",
+      "outbound-calls",
+      "customer-communication"
+    ],
+    "requiresApiKey": false,
+    "isRecommended": false,
+    "githubStars": 58,
+    "downloadCount": 1839,
+    "createdAt": "2026-03-18T23:47:39.17775Z",
+    "updatedAt": "2026-11-16T14:10:37.401306Z",
+    "lastGithubSync": "2026-11-16T14:10:37.398907Z"
+  },
+  {
+    "mcpId": "github.com/DynamicEndpoints/paloalto-mcp-server",
+    "githubUrl": "https://github.com/DynamicEndpoints/paloalto-mcp-server",
+    "name": "Palo Alto Firewall Suite",
+    "author": "DynamicEndpoints",
+    "description": "Comprehensive suite of servers for managing Palo Alto Networks firewalls, including security policies, system configuration, network objects, and device operations through a unified API interface.",
+    "codiconIcon": "shield",
+    "logoUrl": "https://yt3.googleusercontent.com/ytc/AIdro_kxWmgVWVOW2FSiRcm7EKmAf_fdv804HFoBjuvxvYSZVA_W=s900-c-k-c0x00ffffff-no-rj",
+    "category": "security",
+    "tags": [
+      "firewall",
+      "network-security",
+      "policy-management",
+      "infrastructure",
+      "palo-alto"
+    ],
+    "requiresApiKey": false,
+    "isRecommended": false,
+    "githubStars": 12,
+    "downloadCount": 317,
+    "createdAt": "2026-03-18T19:41:26.883876Z",
+    "updatedAt": "2026-11-10T08:32:39.969006Z",
+    "lastGithubSync": "2026-11-10T08:32:39.966824Z"
+  }
+]

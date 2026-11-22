@@ -1,0 +1,8 @@
+---
+name: openai-codex-agents
+description: Repository guidelines
+---
+
+# Repository guidelines
+
+Run `cargo test` before committing.

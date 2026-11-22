@@ -1,0 +1,22 @@
+[
+  {
+    "field": "mcp",
+    "kind": "metadata",
+    "text": "MCP entries named in notes only: {\"gmail\":{\"command\":\"npx\"}}"
+  },
+  {
+    "field": "cron",
+    "kind": "warning",
+    "text": "schedule named in notes only, never carried: [\"0 9 * * *\"]"
+  },
+  {
+    "field": "convert",
+    "kind": "warning",
+    "text": "Keleustes fallback: CLAW.md body only (node conversion carries belai's notes)"
+  },
+  {
+    "field": "tools",
+    "kind": "warning",
+    "text": "no tools named: read-only set (Read, Grep, Glob)"
+  }
+]

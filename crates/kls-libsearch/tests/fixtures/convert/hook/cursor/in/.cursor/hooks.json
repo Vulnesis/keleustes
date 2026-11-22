@@ -1,0 +1,1 @@
+{"version":1,"hooks":{"beforeShellExecution":[{"command":"./audit.sh"}],"afterFileEdit":[{"command":"npx prettier --write"}],"beforeMCPExecution":[{"command":"z"}]}}

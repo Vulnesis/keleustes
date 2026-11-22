@@ -1,0 +1,27 @@
+[
+  {
+    "field": "protocol",
+    "kind": "warning",
+    "text": "Cursor hook converted: its stdin/stdout protocol differs"
+  },
+  {
+    "field": "command",
+    "kind": "warning",
+    "text": "npx is not a bundle file; add it to hooks.allowed_programs on the host"
+  },
+  {
+    "field": "beforeMCPExecution",
+    "kind": "dropped",
+    "text": "no belai event"
+  },
+  {
+    "field": "command",
+    "kind": "mapped",
+    "text": "audit.sh carried as audit.sh"
+  },
+  {
+    "field": "hooks",
+    "kind": "mapped",
+    "text": "2 command(s), 1 script(s) carried; stored, not installed"
+  }
+]

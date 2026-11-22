@@ -1,0 +1,303 @@
+{
+  "results": [
+    {
+      "canonicalUrl": "/awspace/skills/pdf",
+      "displayName": "Pdf",
+      "downloads": 52448,
+      "featured": true,
+      "icon": null,
+      "id": "clawhub:kd74n44stcpmhfvqe02yj7r6ms808nvm",
+      "install": {
+        "kind": "clawhub",
+        "reference": "awspace/pdf",
+        "sourceUrl": null
+      },
+      "links": {
+        "canonical": "/awspace/skills/pdf",
+        "source": null
+      },
+      "metrics": {
+        "bookmarks": 0,
+        "rolling60DayInstalls": 26,
+        "updatedAt": 1789594554485
+      },
+      "native": {
+        "owner": {
+          "_creationTime": 1780781797184.5854,
+          "_id": "s176rb1anzaaw78jd9qd65j08x884mmr",
+          "displayName": "awspace",
+          "handle": "awspace",
+          "image": "https://avatars.githubusercontent.com/u/131568675?v=4",
+          "kind": "user",
+          "linkedUserId": "kn725kyxpr1g1e3rjqtkp26v0s809930"
+        },
+        "ownerHandle": "awspace",
+        "skill": {
+          "_creationTime": 1769847855729.2668,
+          "_id": "kd74n44stcpmhfvqe02yj7r6ms808nvm",
+          "badges": {
+            "highlighted": {
+              "at": 1789594554485,
+              "byUserId": "kn7485dek1erzmvwaqz77rm5vh85pyb3"
+            }
+          },
+          "categories": [
+            "knowledge"
+          ],
+          "createdAt": 1769847855729,
+          "displayName": "Pdf",
+          "isSuspicious": false,
+          "latestVersionId": "k97cz981kj0veqx1m79dd5sy4n809j57",
+          "ownerPublisherId": "s176rb1anzaaw78jd9qd65j08x884mmr",
+          "ownerUserId": "kn725kyxpr1g1e3rjqtkp26v0s809930",
+          "slug": "pdf",
+          "stats": {
+            "comments": 1,
+            "downloads": 52448,
+            "installs": 1502,
+            "stars": 67,
+            "versions": 1
+          },
+          "summary": "Comprehensive PDF manipulation toolkit for extracting text and tables, creating new PDFs, merging/splitting documents, and handling forms. When Claude needs to fill in a PDF form or programmatically process, generate, or analyze PDF documents at scale.",
+          "tags": {
+            "latest": "k97cz981kj0veqx1m79dd5sy4n809j57"
+          },
+          "topics": [
+            "PDF"
+          ],
+          "updatedAt": 1789594554485
+        },
+        "version": null
+      },
+      "official": false,
+      "ownerHandle": "awspace",
+      "publisher": {
+        "displayName": "awspace",
+        "handle": "awspace",
+        "image": "https://avatars.githubusercontent.com/u/131568675?v=4",
+        "kind": "user",
+        "official": false
+      },
+      "score": 6120,
+      "slug": "pdf",
+      "source": "clawhub",
+      "sourceIdentity": {
+        "host": null,
+        "id": "kd74n44stcpmhfvqe02yj7r6ms808nvm",
+        "lifetimeInstalls": null,
+        "owner": "awspace",
+        "repo": null
+      },
+      "summary": "Comprehensive PDF manipulation toolkit for extracting text and tables, creating new PDFs, merging/splitting documents, and handling forms. When Claude needs to fill in a PDF form or programmatically process, generate, or analyze PDF documents at scale.",
+      "trust": {
+        "clawHubVerdict": null,
+        "installability": "installable",
+        "sourceFreshness": "native",
+        "upstreamScanners": null,
+        "visibility": "public"
+      },
+      "updatedAt": 1789594554485,
+      "version": null,
+      "owner": {
+        "handle": "awspace",
+        "displayName": "awspace",
+        "image": "https://avatars.githubusercontent.com/u/131568675?v=4"
+      }
+    },
+    {
+      "canonicalUrl": "/thcjp/skills/pdf",
+      "displayName": "PDF处理工具",
+      "downloads": 814,
+      "featured": false,
+      "icon": null,
+      "id": "clawhub:kd7cm0dz3qm2m2q4gj1982krfs8cegex",
+      "install": {
+        "kind": "clawhub",
+        "reference": "thcjp/pdf",
+        "sourceUrl": null
+      },
+      "links": {
+        "canonical": "/thcjp/skills/pdf",
+        "source": null
+      },
+      "metrics": {
+        "bookmarks": 0,
+        "rolling60DayInstalls": 2,
+        "updatedAt": 1790017028529
+      },
+      "native": {
+        "owner": {
+          "_creationTime": 1784320770231.3508,
+          "_id": "s173q6vayrg64xn0drt9jav6a98aqzb1",
+          "displayName": "天轰穿",
+          "handle": "thcjp",
+          "image": "https://avatars.githubusercontent.com/u/957992?v=4",
+          "kind": "user",
+          "linkedUserId": "kn746s881gfq2c1ewb5nv630yd8aq1ck"
+        },
+        "ownerHandle": "thcjp",
+        "skill": {
+          "_creationTime": 1786702826866.7542,
+          "_id": "kd7cm0dz3qm2m2q4gj1982krfs8cegex",
+          "badges": {},
+          "categories": [
+            "automation"
+          ],
+          "createdAt": 1786702826866,
+          "displayName": "PDF处理工具",
+          "isSuspicious": false,
+          "latestVersionId": "k975b8e62syyzwxgtby6v62yf98cf2y9",
+          "ownerPublisherId": "s173q6vayrg64xn0drt9jav6a98aqzb1",
+          "ownerUserId": "kn746s881gfq2c1ewb5nv630yd8aq1ck",
+          "slug": "pdf",
+          "stats": {
+            "comments": 0,
+            "downloads": 814,
+            "installs": 2,
+            "stars": 0,
+            "versions": 2
+          },
+          "summary": "提供PDF文本和表格提取、PDF创建、合并及表单自动填写的全方位中文PDF处理工具。",
+          "tags": {
+            "latest": "k975b8e62syyzwxgtby6v62yf98cf2y9"
+          },
+          "topics": [
+            "pdf"
+          ],
+          "updatedAt": 1790017028529
+        },
+        "version": null
+      },
+      "official": false,
+      "ownerHandle": "thcjp",
+      "publisher": {
+        "displayName": "天轰穿",
+        "handle": "thcjp",
+        "image": "https://avatars.githubusercontent.com/u/957992?v=4",
+        "kind": "user",
+        "official": false
+      },
+      "score": 6120,
+      "slug": "pdf",
+      "source": "clawhub",
+      "sourceIdentity": {
+        "host": null,
+        "id": "kd7cm0dz3qm2m2q4gj1982krfs8cegex",
+        "lifetimeInstalls": null,
+        "owner": "thcjp",
+        "repo": null
+      },
+      "summary": "提供PDF文本和表格提取、PDF创建、合并及表单自动填写的全方位中文PDF处理工具。",
+      "trust": {
+        "clawHubVerdict": null,
+        "installability": "installable",
+        "sourceFreshness": "native",
+        "upstreamScanners": null,
+        "visibility": "public"
+      },
+      "updatedAt": 1790017028529,
+      "version": null,
+      "owner": {
+        "handle": "thcjp",
+        "displayName": "天轰穿",
+        "image": "https://avatars.githubusercontent.com/u/957992?v=4"
+      }
+    },
+    {
+      "canonicalUrl": "/paudyyin/skills/pdf",
+      "displayName": "pdf",
+      "downloads": 737,
+      "featured": false,
+      "icon": null,
+      "id": "clawhub:kd7b8ss1qm3j396ddwffdqh7gs8bs58e",
+      "install": {
+        "kind": "clawhub",
+        "reference": "paudyyin/pdf",
+        "sourceUrl": null
+      },
+      "links": {
+        "canonical": "/paudyyin/skills/pdf",
+        "source": null
+      },
+      "metrics": {
+        "bookmarks": 0,
+        "rolling60DayInstalls": 1,
+        "updatedAt": 1785720075756
+      },
+      "native": {
+        "owner": {
+          "_creationTime": 1778546830438.7551,
+          "_id": "s172x1s50dh0bgmm3yc9516nr586kk4b",
+          "displayName": "paudyyin",
+          "handle": "paudyyin",
+          "image": "https://avatars.githubusercontent.com/u/46261184?v=4",
+          "kind": "user",
+          "linkedUserId": "kn73z7zhz92tv6skpnmpy5pdfh86j68x"
+        },
+        "ownerHandle": "paudyyin",
+        "skill": {
+          "_creationTime": 1785719998441.045,
+          "_id": "kd7b8ss1qm3j396ddwffdqh7gs8bs58e",
+          "badges": {},
+          "categories": [
+            "other"
+          ],
+          "createdAt": 1785719998441,
+          "displayName": "pdf",
+          "isSuspicious": false,
+          "latestVersionId": "k9795c59hnrcqwjcre5w07a3eh8bshxc",
+          "ownerPublisherId": "s172x1s50dh0bgmm3yc9516nr586kk4b",
+          "ownerUserId": "kn73z7zhz92tv6skpnmpy5pdfh86j68x",
+          "slug": "pdf",
+          "stats": {
+            "comments": 0,
+            "downloads": 737,
+            "installs": 2,
+            "stars": 0,
+            "versions": 1
+          },
+          "summary": "Process PDF files �� read, merge, split, rotate, watermark, create, fill forms, encrypt/decrypt, OCR",
+          "tags": {
+            "latest": "k9795c59hnrcqwjcre5w07a3eh8bshxc"
+          },
+          "updatedAt": 1785720075756
+        },
+        "version": null
+      },
+      "official": false,
+      "ownerHandle": "paudyyin",
+      "publisher": {
+        "displayName": "paudyyin",
+        "handle": "paudyyin",
+        "image": "https://avatars.githubusercontent.com/u/46261184?v=4",
+        "kind": "user",
+        "official": false
+      },
+      "score": 6120,
+      "slug": "pdf",
+      "source": "clawhub",
+      "sourceIdentity": {
+        "host": null,
+        "id": "kd7b8ss1qm3j396ddwffdqh7gs8bs58e",
+        "lifetimeInstalls": null,
+        "owner": "paudyyin",
+        "repo": null
+      },
+      "summary": "Process PDF files �� read, merge, split, rotate, watermark, create, fill forms, encrypt/decrypt, OCR",
+      "trust": {
+        "clawHubVerdict": null,
+        "installability": "installable",
+        "sourceFreshness": "native",
+        "upstreamScanners": null,
+        "visibility": "public"
+      },
+      "updatedAt": 1785720075756,
+      "version": null,
+      "owner": {
+        "handle": "paudyyin",
+        "displayName": "paudyyin",
+        "image": "https://avatars.githubusercontent.com/u/46261184?v=4"
+      }
+    }
+  ]
+}

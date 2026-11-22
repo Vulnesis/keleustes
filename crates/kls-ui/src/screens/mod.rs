@@ -1,0 +1,29 @@
+//! One module per Software Factory screen; each owns its state and data.
+
+pub mod audit;
+pub mod board;
+pub mod budgets;
+pub mod checkpoints;
+pub mod cockpit;
+pub mod conflicts;
+pub mod delivery;
+pub(crate) mod gh_signin;
+pub mod harness_a2a;
+pub mod harness_picker;
+pub mod harness_screen;
+pub mod host;
+pub mod init_draft;
+pub mod knowledge;
+pub mod library;
+pub mod library_search;
+pub mod memory;
+pub(crate) mod project_overrides;
+pub mod repos;
+pub mod runs;
+pub mod sessions;
+pub mod settings;
+pub mod templates;
+pub mod trust;
+pub mod vault;
+pub mod workflows;
+pub mod workforce;

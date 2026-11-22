@@ -1,0 +1,318 @@
+// Keleustes host management, v1 (docs/gaps/host-management.md).
+//
+// A belai host reports what is installed and configured on it (Host.Report)
+// and runs host actions the console asks for: probes, config writes, product
+// provisioning, upgrades and diagnostics. Every RPC requires the node's
+// client certificate; the certificate's node id is the only identity used.
+//
+// Delivery: the node opens Host.Actions and receives every action addressed
+// to it that it has not yet answered, then new ones live. An action stays
+// replayable until the node files its first HostActionUpdate (the ack), so a
+// reconnect re-sends it; the node de-duplicates by action id.
+//
+// Everything the server sends is remote, untrusted content on the node.
+// HostAction.params are typed per kind and checked on the host; none of
+// them ever reaches a model. Nothing in HostInventory or HostActionUpdate
+// carries a secret value. Changes are additive only.
+syntax = "proto3";
+
+package keleustes.node.v1;
+
+import "keleustes/node/v1/node.proto";
+
+option go_package = "github.com/vulnetix/belai/internal/factorylink/nodev1;nodev1";
+
+service Host {
+  // Full snapshot: on link, on change (debounced), and at most every 60 s.
+  rpc Report(HostInventory) returns (Ok);
+  // The host's action stream: unanswered actions first, then live ones.
+  rpc Actions(HostActionsRequest) returns (stream HostAction);
+  // Progress and results of a HostAction, in seq order per action. The
+  // first update for an action acks it.
+  rpc Progress(HostActionUpdate) returns (Ok);
+}
+
+message HostActionsRequest {
+  // belai version, so the server can log skew.
+  string belai_version = 1;
+}
+
+// ---- Inventory ------------------------------------------------------------
+
+message HostInventory {
+  int64 at_ms = 1;
+  BelaiFacts belai = 2;
+  repeated ProductStatus products = 3;
+  repeated HostRepo repos = 4;
+  repeated ToolFact tools = 5;
+  repeated Check preflight = 6;
+  HostLimits limits = 7;
+  RcGates gates = 8;
+  DiskUsage disk = 9;
+  // sha256 of settings.json, for config_set if_match.
+  string settings_sha256 = 10;
+  // Names only. Never env, args or values.
+  repeated string plugins = 11;
+  repeated McpServerFact mcp = 12;
+  repeated ProviderFact providers = 13;
+  SandboxFact sandbox = 14;
+  // What this host lets Keleustes do (from rc flags, never settings).
+  HostManage manage = 15;
+  // Schedules on the host (names, cron, dir; never prompts).
+  repeated HostSchedule schedules = 16;
+  // Built-in agent profiles the host carries (names, never prompts).
+  repeated string builtin_agents = 17;
+  // Global agents.enabled.
+  bool agents_enabled = 18;
+  // Worktrees under the fleet paths.
+  repeated WorktreeFact worktrees = 19;
+}
+
+message HostManage {
+  // HostAction kinds this belai executes (closed list).
+  repeated string host_actions = 1;
+  // Host gate: "off", "read", "config", "provision". From the rc flag
+  // --keleustes-manage.
+  string manage_level = 2;
+  // --keleustes-shell given (HM-15).
+  bool manage_shell = 3;
+}
+
+message BelaiFacts {
+  string version = 1;
+  // brew, scoop, winget, go, direct.
+  string install_method = 2;
+  // From the self-update cache; may be empty.
+  string latest = 3;
+  bool update_available = 4;
+  // $BELAI_HOME, home-relative ("~/.vulnetix/belai").
+  string root = 5;
+}
+
+message ProductStatus {
+  // "cli", "package_firewall", "ai_firewall", "sensor".
+  string product = 1;
+  // "absent", "installed", "configured", "active", "degraded", "error",
+  // "unsupported".
+  string state = 2;
+  string version = 3;
+  string latest = 4;
+  // Home-relative where possible.
+  string path = 5;
+  string install_method = 6;
+  bool authenticated = 7;
+  // Identifier only.
+  string org_id = 8;
+  // "env", "project", "home", "keyring".
+  string auth_source = 9;
+  // Sensor service active.
+  bool running = 10;
+  // Sensor unit enabled.
+  bool enabled = 11;
+  // Sensor: monitor/guard/enforce.
+  string mode = 12;
+  // Package firewall ecosystems, AI firewall clients.
+  repeated Toggle parts = 13;
+  repeated Check checks = 14;
+  int64 probed_at_ms = 15;
+  // Probe steps that failed.
+  repeated string degraded = 16;
+  // "vulnetix-sensor.service: active/enabled".
+  repeated string units = 17;
+  // Add-on entitlement as the host CLI reports it: "entitled",
+  // "not_entitled" or "" (unknown).
+  string entitlement = 18;
+}
+
+message Toggle {
+  // "npm", "pypi", "claude-code", "belai:pr-reviewer".
+  string id = 1;
+  string label = 2;
+  // "user", "project".
+  string scope = 3;
+  bool on = 4;
+  // Config file it lives in.
+  string path = 5;
+  // AI firewall client state as reported; per-repo agent: "on", "off",
+  // "inherit".
+  string state = 6;
+}
+
+message Check {
+  string id = 1;
+  // "ok", "warn", "error", "skip".
+  string status = 2;
+  // At most 160 chars, harness-composed, no tool output.
+  string hint = 3;
+}
+
+message HostRepo {
+  // Home-relative.
+  string path = 1;
+  // Credentials stripped.
+  string remote = 2;
+  string forge_host = 3;
+  string owner = 4;
+  string name = 5;
+  string branch = 6;
+  GitFacts git = 7;
+  bool trusted = 8;
+  bool registered = 9;
+  int64 last_used_ms = 10;
+  RepoDetections detections = 11;
+  // Effective per-repo built-in agent switches.
+  repeated Toggle agents = 12;
+  // ProjectPrefs keys.
+  map<string, string> prefs = 13;
+}
+
+message RepoDetections {
+  repeated string build = 1;
+  repeated string lint = 2;
+  repeated string test = 3;
+  repeated string languages = 4;
+  // Vulnetix scanner subcommands enabled for this repo.
+  repeated string scans = 5;
+  bool dep_watch = 6;
+  bool in_sweep = 7;
+  int64 last_scan_ms = 8;
+}
+
+message ToolFact {
+  string name = 1;
+  string version = 2;
+  bool ok = 3;
+  string note = 4;
+}
+
+message HostLimits {
+  uint32 max_sessions = 1;
+  uint32 max_workers = 2;
+  uint32 reserved_workers = 3;
+  uint32 max_jobs = 4;
+  uint32 idle_s = 5;
+  // Live counts, when the host knows them.
+  uint32 sessions = 6;
+  uint32 workers = 7;
+  uint32 jobs = 8;
+}
+
+message RcGates {
+  bool web_controls = 1;
+  bool web_shell = 2;
+  bool web_project_settings = 3;
+  bool allow_guardrails_off = 4;
+  bool no_clone = 5;
+  bool allow_private_cidr = 6;
+}
+
+message DiskUsage {
+  int64 sessions = 1;
+  int64 worktrees = 2;
+  int64 logs = 3;
+  int64 free = 4;
+}
+
+message McpServerFact {
+  string name = 1;
+  string transport = 2;
+  bool builtin = 3;
+  repeated string keys_bound = 4;
+}
+
+message ProviderFact {
+  string provider = 1;
+  bool key_present = 2;
+  string source = 3;
+}
+
+message SandboxFact {
+  string mode = 1;
+  string network = 2;
+  string backend = 3;
+}
+
+message HostSchedule {
+  string id = 1;
+  // Profile or "crew:<name>".
+  string target = 2;
+  string cron = 3;
+  string tz = 4;
+  // Home-relative.
+  string dir = 5;
+  bool enabled = 6;
+  int64 last_run_ms = 7;
+  // "ok", "failed", "".
+  string last_status = 8;
+}
+
+message WorktreeFact {
+  // Home-relative.
+  string path = 1;
+  string repo = 2;
+  string branch = 3;
+  int64 bytes = 4;
+  bool stale = 5;
+}
+
+// ---- Actions ----------------------------------------------------------------
+
+message HostAction {
+  string id = 1;
+  // Closed list (docs/gaps/host-management.md §6.1). Unknown kinds are
+  // refused.
+  string kind = 2;
+  // Flat typed keys checked per kind on the host. No argv, no paths
+  // outside allowed roots, no free text that reaches a model.
+  map<string, string> params = 3;
+  bool dry_run = 4;
+  // For a non-dry-run: sha256 of the preview the person confirmed. belai
+  // recomputes the plan and refuses if it differs ("preview stale").
+  string preview_sha256 = 5;
+  // config_set: the settings_sha256 the edit was made against.
+  string if_match = 6;
+  // product_auth only: one-shot, memory-only, env of the child process.
+  VaultGrant vault = 7;
+  HostOrigin origin = 8;
+  int64 deadline_ms = 9;
+  // A plan run groups steps; belai runs one action at a time per host.
+  string plan_run_id = 10;
+  uint32 step = 11;
+  // The action class Keleustes assigned ("read", "config", "provision",
+  // "shell"). belai derives its own from the kind and refuses a mismatch.
+  string class = 12;
+}
+
+message HostOrigin {
+  // "owner" (desktop owner); later person ids.
+  string actor = 1;
+  // "fleet.host/products", "plan:<id>", "workflow:<id>".
+  string surface = 2;
+  string run_id = 3;
+  string workflow_id = 4;
+  string plan_id = 5;
+  // Typed by the person, at most 200 chars, audit only.
+  string reason = 6;
+}
+
+message HostActionUpdate {
+  string action_id = 1;
+  uint32 seq = 2;
+  // "accepted", "refused", "running", "needs_human", "done", "failed",
+  // "cancelled".
+  string state = 3;
+  string step = 4;
+  uint32 pct = 5;
+  // Scrubbed (vaultenv), at most 200 lines per update and 64 KiB per action.
+  repeated string lines = 6;
+  // dry_run: the plan (argv shown to the person, file diffs) and its hash.
+  string preview_json = 7;
+  string preview_sha256 = 8;
+  // Result of read kinds (config_get, log_tail, preflight) as JSON.
+  string result_json = 9;
+  string error = 10;
+  // needs_human: exact command for a person to run on the host, and why.
+  string handoff_command = 11;
+  // Closed list: "needs_root", "needs_browser".
+  string handoff_reason = 12;
+}

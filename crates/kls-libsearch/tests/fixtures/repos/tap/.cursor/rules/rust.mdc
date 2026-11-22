@@ -1,0 +1,6 @@
+---
+description: Rust rules
+globs: "*.rs"
+alwaysApply: false
+---
+Use clippy.

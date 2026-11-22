@@ -1,0 +1,18 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+    # One pull request for a batch of bumps, since each must re-run gh actions-lock.
+    groups:
+      actions:
+        patterns: ["*"]
+    ignore:
+      # cosign-installer v4 installs cosign v3, which ignores the
+      # --output-signature and --output-certificate flags release.yml signs
+      # the SBOM with. Move the release to --bundle before taking v4.
+      - dependency-name: sigstore/cosign-installer
+        update-types: ["version-update:semver-major"]

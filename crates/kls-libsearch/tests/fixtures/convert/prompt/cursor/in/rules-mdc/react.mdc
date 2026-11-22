@@ -1,0 +1,7 @@
+---
+description: React component rules
+globs: "**/*.tsx"
+alwaysApply: false
+---
+
+Use function components.

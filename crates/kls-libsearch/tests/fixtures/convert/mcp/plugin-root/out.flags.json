@@ -1,0 +1,5 @@
+[
+  "Refused:the config uses ${CLAUDE_PLUGIN_ROOT}: it needs the plugin's files",
+  "LicenceUnknown",
+  "RunsCode"
+]

@@ -1,0 +1,67 @@
+[
+  {
+    "field": "tools",
+    "kind": "dropped",
+    "text": "tools with no match: mcp__x__y, Task(security-auditor)"
+  },
+  {
+    "field": "tools",
+    "kind": "warning",
+    "text": "Task-to-named-agent binding dropped: no A2A path for imported agents"
+  },
+  {
+    "field": "model",
+    "kind": "mapped",
+    "text": "provider anthropic; alias sonnet kept, routing picks the model"
+  },
+  {
+    "field": "color",
+    "kind": "dropped",
+    "text": ""
+  },
+  {
+    "field": "permissionMode",
+    "kind": "warning",
+    "text": "not carried (permissions, hooks, MCP, env, endpoints)"
+  },
+  {
+    "field": "hooks",
+    "kind": "warning",
+    "text": "not carried (permissions, hooks, MCP, env, endpoints)"
+  },
+  {
+    "field": "mcpServers",
+    "kind": "warning",
+    "text": "not carried (permissions, hooks, MCP, env, endpoints)"
+  },
+  {
+    "field": "a2a",
+    "kind": "warning",
+    "text": "A2A / peer setting dropped: imported agents are single-mode and supervised"
+  },
+  {
+    "field": "allow_agents",
+    "kind": "warning",
+    "text": "A2A / peer setting dropped: imported agents are single-mode and supervised"
+  },
+  {
+    "field": "subagents",
+    "kind": "warning",
+    "text": "A2A / peer setting dropped: imported agents are single-mode and supervised"
+  },
+  {
+    "field": "schedule",
+    "kind": "warning",
+    "text": "A2A / peer setting dropped: imported agents are single-mode and supervised"
+  },
+  {
+    "field": "name",
+    "kind": "mapped",
+    "text": "Code-Reviewer → code-reviewer"
+  },
+  {
+    "field": "tools",
+    "kind": "warning",
+    "text": "changes things: Bash"
+  }
+]

@@ -1,0 +1,8 @@
+---
+name: release
+description: Prepare a release
+---
+
+Prepare a release
+
+1. Bump the version.

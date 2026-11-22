@@ -1,0 +1,27 @@
+[package]
+name = "kls-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kls-store.workspace = true
+kls-vault.workspace = true
+kls-libsearch.workspace = true
+anyhow.workspace = true
+tokio = { workspace = true, features = ["io-util"] }
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+async-trait.workspace = true
+sha2.workspace = true
+hex.workspace = true
+base64.workspace = true
+serde_norway.workspace = true
+jiff.workspace = true
+reqwest.workspace = true
+ed25519-dalek.workspace = true
+rand.workspace = true
+[dev-dependencies]
+tempfile.workspace = true

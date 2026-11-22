@@ -1,0 +1,47 @@
+{
+  "name": "claude-code-workflows",
+  "owner": {
+    "name": "Seth Hobson",
+    "email": "seth@major7apps.com",
+    "url": "https://github.com/wshobson"
+  },
+  "metadata": {
+    "description": "Plugins with agents, skills, and commands for Claude Code and six other coding tools. Local plugins are maintained as one Markdown source and adapted to each tool.",
+    "version": "1.7.1"
+  },
+  "plugins": [
+    {
+      "name": "accessibility-compliance",
+      "source": "./plugins/accessibility-compliance",
+      "version": "1.2.4",
+      "description": "WCAG accessibility auditing, compliance validation, UI testing for screen readers, keyboard navigation, and inclusive design",
+      "author": {
+        "name": "Seth Hobson",
+        "email": "seth@major7apps.com"
+      },
+      "license": "MIT"
+    },
+    {
+      "name": "agent-orchestration",
+      "source": "./plugins/agent-orchestration",
+      "version": "1.2.3",
+      "description": "Multi-agent system optimization, agent improvement workflows, and context management",
+      "author": {
+        "name": "Seth Hobson",
+        "email": "seth@major7apps.com"
+      },
+      "license": "MIT"
+    },
+    {
+      "name": "agent-teams",
+      "source": "./plugins/agent-teams",
+      "version": "1.0.4",
+      "description": "Orchestrate multi-agent teams for parallel code review, hypothesis-driven debugging, and coordinated feature development using Claude Code's Agent Teams",
+      "author": {
+        "name": "Seth Hobson",
+        "email": "seth@major7apps.com"
+      },
+      "license": "MIT"
+    }
+  ]
+}

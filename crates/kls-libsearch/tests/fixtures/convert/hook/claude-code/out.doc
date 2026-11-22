@@ -1,0 +1,1 @@
+{"description":"Guards dangerous shell commands","hooks":{"PreToolUse":[{"hooks":[{"command":"scripts/guard.sh --strict","timeout":30,"type":"command"}],"matcher":"Bash"}],"Stop":[{"hooks":[{"command":"uv run scripts/notify.py","type":"command"}]}]},"name":"imported-hooks"}

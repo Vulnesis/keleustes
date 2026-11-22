@@ -1,0 +1,12 @@
+[
+  {
+    "field": "globs",
+    "kind": "dropped",
+    "text": "belai prompts are global"
+  },
+  {
+    "field": "alwaysApply",
+    "kind": "mapped",
+    "text": "false → enabled: false"
+  }
+]

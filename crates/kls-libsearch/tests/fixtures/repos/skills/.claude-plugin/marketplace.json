@@ -1,0 +1,1 @@
+{"name":"anthropic-agent-skills","owner":{"name":"Fixture"},"plugins":[{"name":"document-skills","description":"Docs","source":"./","strict":false,"skills":["./skills/xlsx","./skills/pdf"]}]}

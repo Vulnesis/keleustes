@@ -1,0 +1,32 @@
+[
+  {
+    "field": "protocol",
+    "kind": "warning",
+    "text": "Copilot hook converted: its stdin/stdout protocol differs"
+  },
+  {
+    "field": "errorOccurred",
+    "kind": "dropped",
+    "text": "no belai event"
+  },
+  {
+    "field": "command",
+    "kind": "mapped",
+    "text": "log.sh carried as log.sh"
+  },
+  {
+    "field": "cwd",
+    "kind": "warning",
+    "text": "dropped (Copilot handler field)"
+  },
+  {
+    "field": "powershell",
+    "kind": "warning",
+    "text": "dropped (Copilot handler field)"
+  },
+  {
+    "field": "hooks",
+    "kind": "mapped",
+    "text": "1 command(s), 1 script(s) carried; stored, not installed"
+  }
+]

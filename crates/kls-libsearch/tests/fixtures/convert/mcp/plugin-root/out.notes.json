@@ -1,0 +1,7 @@
+[
+  {
+    "field": "argv",
+    "kind": "mapped",
+    "text": "${CLAUDE_PLUGIN_ROOT}/bin/server"
+  }
+]

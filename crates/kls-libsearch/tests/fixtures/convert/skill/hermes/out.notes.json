@@ -1,0 +1,27 @@
+[
+  {
+    "field": "version",
+    "kind": "metadata",
+    "text": "kept in metadata"
+  },
+  {
+    "field": "author",
+    "kind": "metadata",
+    "text": "kept in metadata"
+  },
+  {
+    "field": "platforms",
+    "kind": "metadata",
+    "text": "kept in metadata"
+  },
+  {
+    "field": "required_environment_variables",
+    "kind": "metadata",
+    "text": "named in notes only, never env: [\"ARXIV_TOKEN\"]"
+  },
+  {
+    "field": "metadata",
+    "kind": "metadata",
+    "text": "kept as one line"
+  }
+]

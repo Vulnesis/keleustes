@@ -1,0 +1,32 @@
+[
+  {
+    "field": "protocol",
+    "kind": "warning",
+    "text": "Gemini CLI hook converted: its stdin/stdout protocol differs"
+  },
+  {
+    "field": "command",
+    "kind": "warning",
+    "text": "node is not a bundle file; add it to hooks.allowed_programs on the host"
+  },
+  {
+    "field": "command",
+    "kind": "mapped",
+    "text": "done.js carried as done.js"
+  },
+  {
+    "field": "BeforeModel",
+    "kind": "dropped",
+    "text": "no belai event"
+  },
+  {
+    "field": "command",
+    "kind": "mapped",
+    "text": "check.sh carried as check.sh"
+  },
+  {
+    "field": "hooks",
+    "kind": "mapped",
+    "text": "2 command(s), 2 script(s) carried; stored, not installed"
+  }
+]

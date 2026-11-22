@@ -1,0 +1,32 @@
+[
+  {
+    "field": "PermissionRequest",
+    "kind": "dropped",
+    "text": "no belai event"
+  },
+  {
+    "field": "command",
+    "kind": "mapped",
+    "text": "scripts/guard.sh carried as scripts/guard.sh"
+  },
+  {
+    "field": "command",
+    "kind": "warning",
+    "text": "uv is not a bundle file; add it to hooks.allowed_programs on the host"
+  },
+  {
+    "field": "command",
+    "kind": "mapped",
+    "text": "scripts/notify.py carried as scripts/notify.py"
+  },
+  {
+    "field": "prompt handler",
+    "kind": "dropped",
+    "text": ""
+  },
+  {
+    "field": "hooks",
+    "kind": "mapped",
+    "text": "2 command(s), 2 script(s) carried; stored, not installed"
+  }
+]

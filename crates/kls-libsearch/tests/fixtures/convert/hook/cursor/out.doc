@@ -1,0 +1,1 @@
+{"hooks":{"PostToolUse":[{"hooks":[{"command":"npx prettier --write","type":"command"}],"matcher":"Edit|Write"}],"PreToolUse":[{"hooks":[{"command":"audit.sh","type":"command"}],"matcher":"Bash"}]},"name":"imported-hooks"}

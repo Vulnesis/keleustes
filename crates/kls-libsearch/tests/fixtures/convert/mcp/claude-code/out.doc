@@ -1,0 +1,1 @@
+{"args":["-y","@modelcontextprotocol/server-postgres@0.6.2","postgresql://localhost/db"],"command":"npx","env":{"PGHOST":"env:PGHOST","PGPASSWORD":"cred:PGPASSWORD"},"name":"postgres","transport":"stdio"}

@@ -1,0 +1,1 @@
+{"hooks":{"SessionStart":[{"hooks":[{"command":"log.sh","timeout":15,"type":"command"}]}]},"name":"imported-hooks"}

@@ -1,0 +1,91 @@
+[package]
+name = "kls-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Keleustes: the desktop Software Factory"
+
+[[bin]]
+name = "keleustes"
+path = "src/main.rs"
+
+[dependencies]
+kls-core.workspace = true
+kls-store.workspace = true
+kls-node.workspace = true
+kls-ui.workspace = true
+kls-engine.workspace = true
+kls-github.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+directories.workspace = true
+eframe.workspace = true
+egui.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
+notify-rust.workspace = true
+tray-icon.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+# The cold-agent CLI test (tests/cold_agent.rs) runs a fake node over mTLS.
+kls-proto.workspace = true
+tonic.workspace = true
+rcgen.workspace = true
+base64.workspace = true
+pem.workspace = true
+tokio-stream.workspace = true
+
+# Installers: `just package` (cargo install cargo-packager --locked).
+# deb, AppImage and pacman on Linux, dmg/app on macOS, msi (WiX) and NSIS on
+# Windows. RPM is not a cargo-packager format; see generate-rpm below.
+[package.metadata.packager]
+product-name = "Keleustes"
+identifier = "is.vulnes.keleustes"
+description = "The desktop Software Factory for a fleet of belai hosts"
+long-description = "Keleustes serves belai hosts over gRPC with mutual TLS: sessions, board, workflows, GitHub, vault, trust and a hash-chained audit ledger, in one native window."
+homepage = "https://vulnes.is"
+authors = ["Vulnetix"]
+publisher = "Vulnetix"
+category = "DeveloperTool"
+before-packaging-command = "cargo build --release -p kls-app"
+out-dir = "../../target/packages"
+formats = ["deb", "appimage", "pacman", "dmg", "app", "wix", "nsis"]
+icons = [
+    "../../packaging/icons/keleustes-32.png",
+    "../../packaging/icons/keleustes-128.png",
+    "../../packaging/icons/keleustes-256.png",
+    "../../packaging/icons/keleustes-512.png",
+    "../../packaging/icons/keleustes.ico",
+]
+binaries = [{ path = "keleustes", main = true }]
+deep-link-protocols = [{ schemes = ["keleustes"], role = "viewer" }]
+
+[package.metadata.packager.deb]
+desktop-template = "../../packaging/main.desktop.hbs"
+section = "devel"
+depends = ["libgtk-3-0"]
+
+[package.metadata.packager.appimage]
+bins = ["keleustes"]
+
+[package.metadata.packager.macos]
+minimum-system-version = "11.0"
+
+# RPM through cargo-generate-rpm (`just package-rpm`).
+[package.metadata.generate-rpm]
+name = "keleustes"
+assets = [
+    { source = "target/release/keleustes", dest = "/usr/bin/keleustes", mode = "755" },
+    { source = "packaging/keleustes.desktop", dest = "/usr/share/applications/keleustes.desktop", mode = "644" },
+    { source = "packaging/icons/keleustes.svg", dest = "/usr/share/icons/hicolor/scalable/apps/keleustes.svg", mode = "644" },
+    { source = "packaging/icons/keleustes-256.png", dest = "/usr/share/icons/hicolor/256x256/apps/keleustes.png", mode = "644" },
+]

@@ -1,0 +1,27 @@
+[
+  {
+    "field": "name",
+    "kind": "mapped",
+    "text": "io.github.github/github-mcp-server → github-mcp-server"
+  },
+  {
+    "field": "env",
+    "kind": "mapped",
+    "text": "GITHUB_PERSONAL_ACCESS_TOKEN → cred:GITHUB_PERSONAL_ACCESS_TOKEN"
+  },
+  {
+    "field": "env",
+    "kind": "warning",
+    "text": "GITHUB_TOOLSETS is required: set it on the host"
+  },
+  {
+    "field": "packages",
+    "kind": "mapped",
+    "text": "npm package @github/mcp-server"
+  },
+  {
+    "field": "argv",
+    "kind": "mapped",
+    "text": "npx -y @github/mcp-server@0.20.1 stdio"
+  }
+]

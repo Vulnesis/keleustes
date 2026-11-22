@@ -1,0 +1,1 @@
+{"args":[],"command":"${CLAUDE_PLUGIN_ROOT}/bin/server","name":"local","transport":"stdio"}

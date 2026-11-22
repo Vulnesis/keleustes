@@ -1,0 +1,13 @@
+{
+  "description": "Guards dangerous shell commands",
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Bash", "hooks": [
+        {"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/guard.sh --strict", "timeout": 30},
+        {"type": "prompt", "prompt": "Is this safe?"}
+      ]}
+    ],
+    "PermissionRequest": [{"hooks": [{"type": "command", "command": "echo"}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "uv run $CLAUDE_PLUGIN_ROOT/scripts/notify.py"}]}]
+  }
+}

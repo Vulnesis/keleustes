@@ -1,0 +1,12 @@
+[
+  {
+    "field": "prompt",
+    "kind": "mapped",
+    "text": "{{args}} → $ARGUMENTS"
+  },
+  {
+    "field": "prompt",
+    "kind": "mapped",
+    "text": "TOML prompt became the body"
+  }
+]

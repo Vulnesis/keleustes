@@ -1,0 +1,9 @@
+---
+name: "planner"
+description: "Plans work"
+tools: ["Read","Glob"]
+mode: "single"
+autonomy: "supervised"
+metadata: {"source.format":"gemini-cli"}
+---
+Make a plan.

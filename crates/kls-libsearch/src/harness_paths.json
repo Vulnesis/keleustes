@@ -1,0 +1,1314 @@
+{
+  "source": "belai/internal/harness/harnesses.json",
+  "source_sha256": "ffa77bfc42772c5de0fa4cd648954f393ffa1ddf1af612bebee60459d26bcb72",
+  "harnesses": [
+    {
+      "id": "adal",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".adal/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "aider",
+      "dirs": {
+        "skill": {
+          "project": [
+            ".aider/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "amazon-q",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "prompt": {
+          "project": [
+            ".amazonq/prompts"
+          ],
+          "shape": "md-file"
+        },
+        "skill": {
+          "project": [
+            ".amazonq/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "amp",
+      "dirs": {
+        "command": {
+          "project": [
+            ".agents/commands"
+          ],
+          "shape": "md-file"
+        },
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".agents/skills",
+            ".amp/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "antigravity",
+      "dirs": {
+        "command": {
+          "project": [
+            ".agents/workflows",
+            ".agent/workflows"
+          ],
+          "shape": "md-file"
+        },
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md",
+            "GEMINI.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".agents/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "augment",
+      "dirs": {
+        "command": {
+          "project": [
+            ".augment/commands"
+          ],
+          "shape": "md-file"
+        },
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            ".augment-guidelines",
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".augment/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "bob",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".bob/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "claude-code",
+      "dirs": {
+        "agent": {
+          "project": [
+            ".claude/agents"
+          ],
+          "shape": "md-file"
+        },
+        "command": {
+          "project": [
+            ".claude/commands"
+          ],
+          "shape": "md-file"
+        },
+        "document": {
+          "project": [
+            ".",
+            ".claude"
+          ],
+          "shape": "doc-file",
+          "files": [
+            "CLAUDE.md",
+            "AGENTS.md",
+            "CLAUDE.local.md"
+          ]
+        },
+        "hook": {
+          "project": [
+            ".claude/settings.json",
+            ".claude/settings.local.json"
+          ],
+          "shape": "json-key",
+          "key": "hooks"
+        },
+        "skill": {
+          "project": [
+            ".claude/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "cline",
+      "dirs": {
+        "command": {
+          "project": [
+            ".clinerules/workflows"
+          ],
+          "shape": "md-file"
+        },
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            ".clinerules",
+            "AGENTS.md"
+          ]
+        },
+        "hook": {
+          "project": [
+            ".clinerules/hooks"
+          ],
+          "shape": "unsupported"
+        },
+        "skill": {
+          "project": [
+            ".cline/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "codebuddy",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".codebuddy/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "codebuff",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".codebuff/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "codex",
+      "dirs": {
+        "document": {
+          "project": [
+            ".",
+            ".codex"
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md",
+            "AGENTS.override.md"
+          ]
+        },
+        "hook": {
+          "project": [
+            ".codex/hooks.json"
+          ],
+          "shape": "json-file"
+        },
+        "skill": {
+          "project": [
+            ".agents/skills",
+            ".codex/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "command-code",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".commandcode/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "continue",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "prompt": {
+          "project": [
+            ".continue/prompts"
+          ],
+          "shape": "unsupported"
+        },
+        "skill": {
+          "project": [
+            ".continue/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "cortex",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".cortex/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "crush",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "CRUSH.md",
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".crush/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "cursor",
+      "dirs": {
+        "command": {
+          "project": [
+            ".cursor/commands"
+          ],
+          "shape": "md-file"
+        },
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            ".cursorrules",
+            "AGENTS.md"
+          ]
+        },
+        "hook": {
+          "project": [
+            ".cursor/hooks.json"
+          ],
+          "shape": "unsupported"
+        },
+        "skill": {
+          "project": [
+            ".agents/skills",
+            ".cursor/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "droid",
+      "dirs": {
+        "agent": {
+          "project": [
+            ".factory/droids"
+          ],
+          "shape": "md-file"
+        },
+        "command": {
+          "project": [
+            ".factory/commands"
+          ],
+          "shape": "md-file"
+        },
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".factory/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "forgecode",
+      "dirs": {
+        "agent": {
+          "project": [
+            ".forge/agents"
+          ],
+          "shape": "md-file"
+        },
+        "command": {
+          "project": [
+            ".forge/commands"
+          ],
+          "shape": "md-file"
+        },
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".forge/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "g3",
+      "dirs": {
+        "skill": {
+          "project": [
+            ".g3/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "gemini-cli",
+      "dirs": {
+        "command": {
+          "project": [
+            ".gemini/commands"
+          ],
+          "shape": "unsupported"
+        },
+        "document": {
+          "project": [
+            ".",
+            ".gemini"
+          ],
+          "shape": "doc-file",
+          "files": [
+            "GEMINI.md",
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".agents/skills",
+            ".gemini/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "github-copilot",
+      "dirs": {
+        "agent": {
+          "project": [
+            ".github/agents"
+          ],
+          "shape": "md-file"
+        },
+        "document": {
+          "project": [
+            ".github",
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "copilot-instructions.md",
+            "AGENTS.md"
+          ]
+        },
+        "prompt": {
+          "project": [
+            ".github/prompts"
+          ],
+          "shape": "md-file"
+        },
+        "skill": {
+          "project": [
+            ".github/skills",
+            ".copilot/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "goose",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            ".goosehints",
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".goose/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "gptme",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".gptme/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "iflow-cli",
+      "dirs": {
+        "command": {
+          "project": [
+            ".iflow/commands"
+          ],
+          "shape": "unsupported"
+        },
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "IFLOW.md",
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".iflow/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "jetbrains-ai-assistant",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "junie",
+      "dirs": {
+        "document": {
+          "project": [
+            ".junie",
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "guidelines.md",
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".junie/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "kilo",
+      "dirs": {
+        "command": {
+          "project": [
+            ".kilocode/workflows"
+          ],
+          "shape": "md-file"
+        },
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".kilocode/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "kimi-code-cli",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".kimi/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "kiro-cli",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "hook": {
+          "project": [
+            ".kiro/hooks"
+          ],
+          "shape": "unsupported"
+        },
+        "skill": {
+          "project": [
+            ".kiro/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "kode",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".kode/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "letta-code",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".letta/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "lingma",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "mcpjam",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".mcpjam/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "mistral-vibe",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".vibe/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "mux",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".mux/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "nanocoder",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "neovate",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".neovate/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "octofriend",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "OCTO.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "openclaw",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".openclaw/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "opencode",
+      "dirs": {
+        "agent": {
+          "project": [
+            ".opencode/agent",
+            ".opencode/agents"
+          ],
+          "shape": "md-file"
+        },
+        "command": {
+          "project": [
+            ".opencode/command",
+            ".opencode/commands"
+          ],
+          "shape": "md-file"
+        },
+        "document": {
+          "project": [
+            ".",
+            ".opencode"
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".opencode/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "openhands",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".openhands/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "pi",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "prompt": {
+          "project": [
+            ".pi/prompts"
+          ],
+          "shape": "md-file"
+        },
+        "skill": {
+          "project": [
+            ".agents/skills",
+            ".pi/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "pochi",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".pochi/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "promptscript",
+      "dirs": {
+        "skill": {
+          "project": [
+            ".agents/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "qoder",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".qoder/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "qwen-code",
+      "dirs": {
+        "command": {
+          "project": [
+            ".qwen/commands"
+          ],
+          "shape": "unsupported"
+        },
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "QWEN.md",
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".qwen/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "roo",
+      "dirs": {
+        "command": {
+          "project": [
+            ".roo/commands"
+          ],
+          "shape": "md-file"
+        },
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            ".roorules",
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".roo/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "sourcegraph-cody",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".cody/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "tabnine",
+      "dirs": {
+        "skill": {
+          "project": [
+            ".tabnine/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "trae",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".trae/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "trae-cn",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".trae/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "traycer",
+      "dirs": {
+        "agent": {
+          "project": [
+            ".traycer/cli-agents"
+          ],
+          "shape": "md-file"
+        }
+      }
+    },
+    {
+      "id": "vtcode",
+      "dirs": {
+        "agent": {
+          "project": [
+            ".vtcode/agents"
+          ],
+          "shape": "md-file"
+        },
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".vtcode/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "warp",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "WARP.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "windsurf",
+      "dirs": {
+        "command": {
+          "project": [
+            ".windsurf/workflows"
+          ],
+          "shape": "md-file"
+        },
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            ".windsurfrules",
+            "AGENTS.md",
+            "global_rules.md"
+          ]
+        },
+        "hook": {
+          "project": [
+            ".windsurf/hooks.json"
+          ],
+          "shape": "unsupported"
+        },
+        "skill": {
+          "project": [
+            ".windsurf/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "zed",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            ".rules",
+            "AGENT.md",
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".agents/skills",
+            ".zed/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    },
+    {
+      "id": "zencoder",
+      "dirs": {
+        "document": {
+          "project": [
+            "."
+          ],
+          "shape": "doc-file",
+          "files": [
+            "AGENTS.md"
+          ]
+        },
+        "skill": {
+          "project": [
+            ".zencoder/skills"
+          ],
+          "shape": "skill-dir"
+        }
+      }
+    }
+  ]
+}

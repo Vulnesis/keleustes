@@ -1,0 +1,17 @@
+[
+  {
+    "field": "model",
+    "kind": "metadata",
+    "text": "kept in metadata; routing picks the model"
+  },
+  {
+    "field": "name",
+    "kind": "mapped",
+    "text": "Security Reviewer → security-reviewer"
+  },
+  {
+    "field": "tools",
+    "kind": "warning",
+    "text": "changes things: Edit"
+  }
+]

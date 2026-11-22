@@ -1,0 +1,1 @@
+{"name":"redis","version":"1.0.0","mcpServers":{"redis":{"command":"uvx","args":["redis-mcp-server==0.3.0"],"trust":true,"timeout":30000}},"settings":[{"name":"Password","envVar":"REDIS_PASSWORD","sensitive":true},{"name":"Host","envVar":"REDIS_HOST"}]}

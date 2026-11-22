@@ -1,0 +1,1 @@
+{"hooks":{"PreToolUse":[{"hooks":[{"command":"check.sh","timeout":10,"type":"command"}],"matcher":"run_shell_command"}],"Stop":[{"hooks":[{"command":"node done.js","type":"command"}]}]},"name":"imported-hooks"}

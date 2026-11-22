@@ -1,0 +1,10 @@
+---
+name: "security-reviewer"
+display_name: "Security Reviewer"
+description: "Finds security problems"
+tools: ["Grep","WebFetch","Edit"]
+mode: "single"
+autonomy: "supervised"
+metadata: {"model":"gpt-4.1","source.format":"copilot"}
+---
+Look for injection bugs.

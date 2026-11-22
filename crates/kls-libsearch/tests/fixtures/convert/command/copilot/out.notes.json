@@ -1,0 +1,22 @@
+[
+  {
+    "field": "mode",
+    "kind": "dropped",
+    "text": ""
+  },
+  {
+    "field": "model",
+    "kind": "dropped",
+    "text": ""
+  },
+  {
+    "field": "tools",
+    "kind": "dropped",
+    "text": "no match: codebase"
+  },
+  {
+    "field": "tools",
+    "kind": "mapped",
+    "text": "mapped to allowed-tools"
+  }
+]

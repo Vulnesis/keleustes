@@ -1,0 +1,1 @@
+{"args":["redis-mcp-server==0.3.0"],"command":"uvx","env":{"REDIS_PASSWORD":"cred:REDIS_PASSWORD"},"name":"redis","timeout_ms":30000,"transport":"stdio"}

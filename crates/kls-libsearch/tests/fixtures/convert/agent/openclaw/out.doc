@@ -1,0 +1,10 @@
+---
+name: "inbox-triage"
+display_name: "Inbox Triage"
+description: "Imported OpenClaw agent"
+tools: ["Read","Grep","Glob"]
+mode: "single"
+autonomy: "supervised"
+metadata: {"source.format":"openclaw"}
+---
+Sort the inbox.

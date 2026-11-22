@@ -1,0 +1,36 @@
+{
+  "id": "6a9c1750b37d513a43987b574953fceb50b03ce7",
+  "individual_note": false,
+  "notes": [
+    {
+      "id": 1126,
+      "type": "DiffNote",
+      "body": "here",
+      "attachment": null,
+      "author": {
+        "id": 9,
+        "username": "ana",
+        "name": "Ana",
+        "state": "active"
+      },
+      "created_at": "2026-10-20T02:00:00.000Z",
+      "updated_at": "2026-10-20T02:00:00.000Z",
+      "system": false,
+      "noteable_id": 310221,
+      "noteable_type": "MergeRequest",
+      "noteable_iid": 3,
+      "position": {
+        "base_sha": "b0",
+        "start_sha": "b1",
+        "head_sha": "h3",
+        "old_path": "a.rs",
+        "new_path": "a.rs",
+        "position_type": "text",
+        "old_line": null,
+        "new_line": 3
+      },
+      "resolvable": true,
+      "resolved": false
+    }
+  ]
+}

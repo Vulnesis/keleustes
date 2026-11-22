@@ -1,0 +1,1 @@
+{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"./hooks/start.sh","statusMessage":"Starting","async":true}]}],"PreModelRequest":[{"hooks":[{"type":"command","command":"x"}]}]}}

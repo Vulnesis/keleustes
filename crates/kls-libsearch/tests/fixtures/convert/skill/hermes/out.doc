@@ -1,0 +1,7 @@
+---
+name: arxiv
+description: Search arXiv papers
+metadata: "{\"author\":\"Nous Research\",\"category\":\"research\",\"platforms\":[\"linux\",\"macos\"],\"tags\":[\"research\",\"papers\"],\"version\":\"1.0.0\"}"
+---
+
+Search arXiv with the API.

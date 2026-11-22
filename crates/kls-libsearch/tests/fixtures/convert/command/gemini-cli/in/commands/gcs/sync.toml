@@ -1,0 +1,6 @@
+description = "Sync a bucket"
+prompt = """
+Sync {{args}} to the bucket.
+Files: !{ls -la}
+Read @{README.md}
+"""

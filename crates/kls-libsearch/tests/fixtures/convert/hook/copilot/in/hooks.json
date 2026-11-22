@@ -1,0 +1,1 @@
+{"version":1,"hooks":{"sessionStart":[{"type":"command","bash":"./log.sh","powershell":"./log.ps1","cwd":".","timeoutSec":15}],"errorOccurred":[{"type":"command","bash":"x"}]}}

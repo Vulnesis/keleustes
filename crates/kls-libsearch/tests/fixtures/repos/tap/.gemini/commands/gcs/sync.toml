@@ -1,0 +1,2 @@
+description = "Sync the bucket"
+prompt = "Sync {{args}}"

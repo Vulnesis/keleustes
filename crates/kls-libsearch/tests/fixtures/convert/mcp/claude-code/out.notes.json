@@ -1,0 +1,17 @@
+[
+  {
+    "field": "mcpServers",
+    "kind": "metadata",
+    "text": "2 servers; postgres imported"
+  },
+  {
+    "field": "env",
+    "kind": "mapped",
+    "text": "PGPASSWORD → cred:PGPASSWORD"
+  },
+  {
+    "field": "argv",
+    "kind": "mapped",
+    "text": "npx -y @modelcontextprotocol/server-postgres@0.6.2 postgresql://localhost/db"
+  }
+]

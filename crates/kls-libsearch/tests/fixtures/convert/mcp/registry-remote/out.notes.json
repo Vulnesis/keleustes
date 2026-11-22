@@ -1,0 +1,12 @@
+[
+  {
+    "field": "name",
+    "kind": "mapped",
+    "text": "com.example/weather → weather"
+  },
+  {
+    "field": "headers",
+    "kind": "mapped",
+    "text": "X-API-Key → cred:X_API_KEY"
+  }
+]

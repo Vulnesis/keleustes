@@ -1,0 +1,4 @@
+name: researcher
+description: Research assistant
+toolsets: [web_search, terminal]
+peers: [writer]

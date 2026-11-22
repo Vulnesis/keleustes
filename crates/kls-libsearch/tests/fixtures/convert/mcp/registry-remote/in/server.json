@@ -1,0 +1,1 @@
+{"name":"com.example/weather","description":"Weather over HTTP","version":"2.0.0","remotes":[{"type":"streamable-http","url":"https://mcp.example.com/mcp","headers":[{"name":"X-API-Key","isSecret":true,"isRequired":true},{"name":"X-Region","value":"eu"}]}]}

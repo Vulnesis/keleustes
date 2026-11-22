@@ -1,0 +1,109 @@
+{
+  "roles": [
+    {
+      "role": "sse",
+      "agentHours": 3.5,
+      "counted": true,
+      "mult": 2.4,
+      "rate": 95.0,
+      "engineerHours": 8.4,
+      "value": 798.0
+    },
+    {
+      "role": "security",
+      "agentHours": 1.25,
+      "counted": true,
+      "mult": 2.0,
+      "rate": 110.0,
+      "engineerHours": 2.5,
+      "value": 275.0
+    },
+    {
+      "role": "qa",
+      "agentHours": 0.5,
+      "counted": true,
+      "mult": 2.2,
+      "rate": 70.0,
+      "engineerHours": 1.1,
+      "value": 77.0
+    },
+    {
+      "role": "devops",
+      "agentHours": 0.0,
+      "counted": true,
+      "mult": 2.0,
+      "rate": 90.0,
+      "engineerHours": 0.0,
+      "value": 0.0
+    },
+    {
+      "role": "reviewer",
+      "agentHours": 0.0,
+      "counted": true,
+      "mult": 1.5,
+      "rate": 95.0,
+      "engineerHours": 0.0,
+      "value": 0.0
+    },
+    {
+      "role": "planner",
+      "agentHours": 0.0,
+      "counted": true,
+      "mult": 1.6,
+      "rate": 120.0,
+      "engineerHours": 0.0,
+      "value": 0.0
+    },
+    {
+      "role": "writer",
+      "agentHours": 0.0,
+      "counted": true,
+      "mult": 1.8,
+      "rate": 60.0,
+      "engineerHours": 0.0,
+      "value": 0.0
+    }
+  ],
+  "agentHours": 5.25,
+  "engineerHours": 12.0,
+  "agentValue": 1150.0,
+  "decisionHours": 0.3,
+  "decisionValue": 36.0,
+  "overheadHours": 2.5,
+  "overheadValue": 263.0,
+  "byHandHours": 15.0,
+  "byHandValue": 1449.0,
+  "peopleHours": 1.5,
+  "peopleCost": 165.0,
+  "modelCost": 12.4,
+  "factoryCost": 177.0,
+  "returnOnModel": 116.9,
+  "returnOnTotal": 8.2,
+  "conservative": {
+    "agentValue": 805.0,
+    "decisionValue": 18.0,
+    "value": 823.0,
+    "returnX": 4.6
+  },
+  "hoursGivenBack": 13.0,
+  "baselinePeople": 0.0,
+  "givenBackPeople": 0.0,
+  "inputs": {
+    "agentHours": {
+      "qa": 0.5,
+      "security": 1.25,
+      "sse": 3.5
+    },
+    "decisions": {
+      "merge": 1,
+      "plan": 2,
+      "toolcall": 40
+    },
+    "peopleHours": 1.5,
+    "modelCostUsd": 12.4,
+    "sources": [
+      "card:K-golden"
+    ]
+  },
+  "settingsRevision": 0
+}

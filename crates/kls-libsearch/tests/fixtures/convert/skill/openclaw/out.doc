@@ -1,0 +1,8 @@
+---
+name: weather
+description: Current weather by city
+license: Proprietary
+metadata: "{\"openclaw\":{\"emoji\":\"🌤\",\"requires\":{\"bins\":[\"curl\"]}}}"
+---
+
+Run curl wttr.in/<city>.

@@ -1,0 +1,1 @@
+{"hooks":{"BeforeTool":[{"matcher":"run_shell_command","hooks":[{"type":"command","command":"${extensionPath}/check.sh","timeout":10}]}],"BeforeModel":[{"hooks":[{"type":"command","command":"y"}]}],"AfterAgent":[{"hooks":[{"type":"command","command":"node ${extensionPath}/done.js"}]}]}}

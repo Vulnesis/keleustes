@@ -1,0 +1,9 @@
+{
+  "name": "@modelcontextprotocol/server-github",
+  "license": "MIT",
+  "dist-tags": {
+    "latest": "2025.4.8"
+  },
+  "repository": null,
+  "description": "MCP server for using the GitHub API"
+}

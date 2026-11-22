@@ -1,0 +1,22 @@
+[
+  {
+    "field": "settings",
+    "kind": "mapped",
+    "text": "REDIS_PASSWORD → cred:REDIS_PASSWORD"
+  },
+  {
+    "field": "settings",
+    "kind": "warning",
+    "text": "REDIS_HOST is required: set it on the host"
+  },
+  {
+    "field": "trust",
+    "kind": "warning",
+    "text": "never carried"
+  },
+  {
+    "field": "argv",
+    "kind": "mapped",
+    "text": "uvx redis-mcp-server==0.3.0"
+  }
+]

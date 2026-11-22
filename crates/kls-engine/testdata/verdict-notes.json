@@ -1,0 +1,33 @@
+[
+  {
+    "name": "request changes with an inline finding and one off the diff",
+    "notes": [
+      "claimed by belai:pr-reviewer",
+      "Looked at the change.\nverdict: request_changes\n- finding: src/db.rs:12: query built from user input\nfinding: src/db.rs:99 not in the diff\nfinding: tests are missing for @alice's path"
+    ],
+    "patches": { "src/db.rs": "@@ -10,3 +10,4 @@ fn q() {\n line10\n-old\n+new11\n+new12\n line13" }
+  },
+  {
+    "name": "the newest verdict wins and earlier findings are dropped",
+    "notes": [
+      "verdict: request_changes\nfinding: a.rs:1: old",
+      "Verdict: Approve\nfinding: nothing blocking"
+    ],
+    "patches": {}
+  },
+  {
+    "name": "comment verdict with a hyphen and a ./ path",
+    "notes": ["* Verdict: Request-Changes\n* finding: ./lib/x.go:3 tidy this"],
+    "patches": { "lib/x.go": "@@ -1,2 +1,3 @@\n a\n b\n+c" }
+  },
+  {
+    "name": "no verdict line",
+    "notes": ["finding: a.rs:1: x", "looks fine"],
+    "patches": {}
+  },
+  {
+    "name": "an unknown verdict word is not a verdict",
+    "notes": ["verdict: ship it"],
+    "patches": {}
+  }
+]

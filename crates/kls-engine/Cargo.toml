@@ -1,0 +1,26 @@
+[package]
+name = "kls-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Keleustes workflow engine: graph, validation, dry run, executor, cron, templates"
+
+[dependencies]
+kls-core.workspace = true
+kls-store.workspace = true
+kls-github.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+sha2.workspace = true
+hex.workspace = true
+async-trait.workspace = true
+jiff.workspace = true
+croner.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

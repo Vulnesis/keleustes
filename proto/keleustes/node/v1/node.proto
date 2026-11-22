@@ -1,0 +1,1378 @@
+// Keleustes node protocol, v1.
+//
+// A belai host ("node") joins a Keleustes server once with a single-use
+// join token (Node.Join) and receives a client certificate signed by the
+// server's local CA. Every other RPC requires that certificate (mutual TLS).
+//
+// Two kinds of traffic:
+//
+// * Node.Link — one long-lived control stream per host, held by exactly one
+//   belai process (an OS file lock decides which). Presence, host advert,
+//   and server→node work that is addressed to the host rather than to a
+//   session: dispatches (start a session/worker/crew), jobs (GitHub or model
+//   work), factory control (stop, A2A blackout). Server frames carry a seq;
+//   the node acks the highest it applied and the server replays the rest
+//   after a reconnect.
+//
+// * Sessions, Board, Jobs, Teleport — ordinary RPCs any belai process on the
+//   host may call with the node certificate. A session process mirrors its
+//   transcript (idempotent by entry index) and subscribes to its own inbox
+//   (prompts, answers, commands) with explicit acks, so no process needs the
+//   link to sync a session.
+//
+// Everything the server sends is remote, untrusted content on the node.
+// Changes are additive only (checked with `buf breaking`).
+syntax = "proto3";
+
+package keleustes.node.v1;
+
+option go_package = "github.com/vulnetix/belai/internal/factorylink/nodev1;nodev1";
+
+service Node {
+  // Redeems a join token. Server-authenticated TLS only: the client pins
+  // the server certificate's SPKI SHA-256 from the token.
+  rpc Join(JoinRequest) returns (JoinResponse);
+  // The host's control stream.
+  rpc Link(stream NodeFrame) returns (stream ServerFrame);
+}
+
+service Sessions {
+  // Creates or updates a session's metadata.
+  rpc Upsert(SessionUpsert) returns (Ok);
+  // Appends transcript entries. Idempotent: entries at or below the stored
+  // high-water index are ignored. Returns the next index the server expects.
+  rpc Append(SessionEntries) returns (AppendResult);
+  rpc End(SessionEnd) returns (Ok);
+  // Streams the session's undelivered inbox items (prompts, answers,
+  // commands) after `after`, then new ones as they arrive. An item stays
+  // undelivered until acked.
+  rpc Inbox(InboxRequest) returns (stream InboxItem);
+  rpc Ack(InboxAck) returns (Ok);
+  // Host audit log lines for the hash-chained ledger.
+  rpc Audit(AuditBatch) returns (Ok);
+  // The highest line index the server holds for a host audit stream, so a
+  // host resumes after it (WP-C).
+  rpc AuditHead(AuditStreamRequest) returns (AuditStreamHead);
+}
+
+service Board {
+  // Kanban items changed since a cursor (server is the source of truth).
+  rpc KanbanPull(KanbanPullRequest) returns (KanbanPage);
+  // Node-side edits. Each item carries the version it was based on; a stale
+  // version is returned as a conflict with the server copy.
+  rpc KanbanPush(KanbanBatch) returns (KanbanPushResult);
+  // Shared repository memory.
+  rpc MemoryPull(MemoryPullRequest) returns (MemoryPage);
+  rpc MemoryPush(MemoryNote) returns (MemoryNote);
+  // Agent-to-agent messages. Refused while the A2A blackout is on.
+  rpc A2ASend(A2AEnvelope) returns (A2ASendResult);
+  rpc A2AReceive(A2AReceiveRequest) returns (stream A2AEnvelope);
+  // Factory control state (also pushed on Link as FactoryControl).
+  rpc State(StateRequest) returns (FactoryControl);
+  // A host asks a person for something (WP-J): identifiers only.
+  rpc Attention(AttentionRequest) returns (AttentionReceipt);
+  // Live sessions any node may message, newest first (harnesses.md).
+  rpc A2APeers(A2APeersRequest) returns (A2APeerList);
+  // Host schedules (WP-G): the host's scheduled workers, versioned like
+  // cards. The owner may edit them in Keleustes; only the host fires them
+  // and writes the run record.
+  rpc SchedulePull(SchedulePullRequest) returns (SchedulePage);
+  rpc SchedulePush(ScheduleBatch) returns (SchedulePushResult);
+}
+
+service Jobs {
+  // Result of a Job or the outcome of a Dispatch delivered on Link.
+  rpc Complete(JobResult) returns (Ok);
+}
+
+service Teleport {
+  // Upload a session bundle (replay, patch, files) for another host.
+  rpc Upload(stream TeleportPart) returns (TeleportReceipt);
+  // Download a bundle addressed to this host.
+  rpc Download(TeleportRequest) returns (stream TeleportPart);
+}
+
+// Node-originated coordination (host A asks Keleustes to run work on host B).
+// Every call is checked against the factory's node policy, which is off by
+// default; a request a model made (initiated_by "agent") always waits for a
+// person in Keleustes. The kill switch refuses every request.
+// Forge relay (WP-H): a worker that cannot publish its branch itself files a
+// request; Keleustes's forge coordinator answers with a "steer" dispatch.
+// The first part carries the request; later parts would carry a git bundle,
+// which this version neither sends nor accepts.
+service Forge {
+  rpc File(stream ForgePart) returns (ForgeFiled);
+}
+
+// Library distribution (WP-E). A document is answered only for a delivered
+// dispatch (or teleport) addressed to the calling node that names it.
+service Library {
+  rpc Fetch(LibraryFetch) returns (LibraryDoc);
+  // A host's copy, for a library_backup dispatch.
+  rpc Backup(LibraryDoc) returns (LibraryReceipt);
+  // Automatic sync: the host's hashes in, one verdict per item out.
+  // Never "install" for kind hook or mcp.
+  rpc Reconcile(LibraryInventory) returns (LibraryVerdicts);
+  // What a library_scan dispatch found: names, paths and hashes only.
+  rpc ScanReport(LibraryScanReport) returns (Ok);
+}
+
+// The live terminal of a harness session. Output only: keys go through the
+// inbox as Command{name:"key"}.
+service Screen {
+  rpc Stream(stream ScreenUp) returns (stream ScreenDown);
+}
+
+service Fleet {
+  // Nodes this node may address, as policy shares them.
+  rpc Nodes(NodesRequest) returns (NodeList);
+  // Ask for work on another node (or any eligible node).
+  rpc Request(DispatchRequest) returns (DispatchTicket);
+  // Status of requests this node made, then live changes.
+  rpc Watch(WatchRequest) returns (stream DispatchStatus);
+  // Prompt a session on another node. The target still needs its own
+  // sync.remote_prompts and admits the text as a remote prompt.
+  rpc Prompt(PeerPrompt) returns (DispatchTicket);
+}
+
+message Ok {}
+
+// ---- Join ----------------------------------------------------------------
+
+message JoinRequest {
+  string token_id = 1;
+  // The raw 32-byte secret (the token carries it base64url-encoded).
+  bytes secret = 2;
+  // PKCS#10 CSR (DER) for the node's fresh key. Only its key is used.
+  bytes csr_der = 3;
+  HostAdvert host = 4;
+}
+
+message JoinResponse {
+  string node_id = 1;
+  string server_id = 2;
+  string server_name = 3;
+  bytes client_cert_der = 4;
+  bytes ca_cert_der = 5;
+  // TLS server name to verify on later connections.
+  string tls_server_name = 6;
+}
+
+// ---- Link ----------------------------------------------------------------
+
+message NodeFrame {
+  // 0: not replayable (all node frames today).
+  uint64 seq = 1;
+  // Highest ServerFrame seq this node has applied.
+  uint64 ack = 2;
+  oneof body {
+    Hello hello = 10;
+    Heartbeat heartbeat = 11;
+    HostAdvert host = 12;
+    // Live workers, crew runs and spend (WP-B). Live-only (seq 0).
+    HostStatus status = 13;
+    // A host asks a person (WP-J). Hosts may also file it with
+    // Board.Attention, which answers with the request id.
+    AttentionRequest attention = 14;
+  }
+}
+
+message ServerFrame {
+  // 0 for live-only frames; otherwise replayable and must be acked.
+  uint64 seq = 1;
+  // Highest NodeFrame seq the server has applied.
+  uint64 ack = 2;
+  oneof body {
+    Welcome welcome = 10;
+    Ping ping = 11;
+    Revoked revoked = 12;
+    Dispatch dispatch = 16;
+    Job job = 17;
+    FactoryControl control = 18;
+    // The owner decided an attention request (replayable).
+    AttentionDecided attention_decided = 19;
+  }
+}
+
+message Hello {
+  // Highest ServerFrame seq applied before this connection.
+  uint64 resume_after = 1;
+  string belai_version = 2;
+}
+
+message Welcome {
+  string node_id = 1;
+  string server_name = 2;
+  uint64 resume_after = 3;
+  uint32 heartbeat_seconds = 4;
+  FactoryControl control = 5;
+}
+
+// Sent on change and at most every heartbeat. Registry facts only: ids,
+// states, counts and spend, never a prompt, a model reply or a secret.
+message HostStatus {
+  int64 at_ms = 1;
+  uint32 running_sessions = 2;
+  repeated WorkerStatus workers = 3;
+  repeated CrewRunStatus crew_runs = 4;
+  // Provider plan windows on this host (row 48): routing skips a host
+  // whose window is nearly used.
+  repeated PlanLimit plan_limits = 5;
+}
+
+message WorkerStatus {
+  string id = 1;
+  string profile = 2;
+  string crew = 3;
+  string run = 4;
+  // "starting", "working", "idle", "paused", "stopped", "failed".
+  string state = 5;
+  string card_id = 6;
+  string cwd = 7;
+  string session_id = 8;
+  int64 started_at_ms = 9;
+  int64 beat_at_ms = 10;
+  string reason = 11;
+  uint32 done = 12;
+  uint32 failed = 13;
+  string branch = 14;
+  // Monotonic while the worker lives. The server charges the difference.
+  int64 tokens = 15;
+  int64 cost_micro_usd = 16;
+  int64 cost_live_micro_usd = 17;
+}
+
+message CrewRunStatus {
+  string id = 1;
+  string crew = 2;
+  string state = 3;
+  string reason = 4;
+  repeated string scope_dirs = 5;
+  // member profile -> replicas wanted / running, as JSON (RCMember shape).
+  string members_json = 6;
+  uint32 max_workers = 7;
+  bool stay = 8;
+}
+
+message Heartbeat { int64 sent_at_ms = 1; }
+message Ping { int64 sent_at_ms = 1; }
+message Revoked { string reason = 1; }
+
+message HostAdvert {
+  string hostname = 1;
+  string os = 2;
+  string arch = 3;
+  string belai_version = 4;
+  // The host's belai host id (~/.vulnetix/belai/sync/host-id).
+  string host_id = 5;
+  Capabilities capabilities = 6;
+  // Directories the host offers for dispatched sessions (/trusted).
+  repeated string trusted_dirs = 7;
+  // Agent profiles and crews installed on the host.
+  repeated string agents = 8;
+  repeated string crews = 9;
+  // The host's library inventory: profiles, crews and items by kind, name
+  // and hash (WP-E). Hashes only, never a document.
+  repeated LibraryRef inventory = 10;
+  // How each worker profile routes cards (builtin agents P1a).
+  repeated AgentRoute agent_routes = 11;
+  // Third-party harnesses detected on the host (belai registry ids).
+  repeated Harness harnesses = 12;
+}
+
+message Capabilities {
+  bool gh_authenticated = 1;
+  bool terminal = 2;
+  // A `belai rc` daemon owns the link and accepts dispatches.
+  bool remote_control = 3;
+  // Providers the host can run with its own configuration.
+  repeated string providers = 4;
+  // Max concurrent dispatched sessions the host accepts (0 = default).
+  uint32 max_sessions = 5;
+  // Dispatch kinds this belai understands. Old hosts send none, which
+  // means {"session","worker","crew"}.
+  repeated string dispatch_kinds = 6;
+  repeated string job_kinds = 7;
+  bool can_clone = 8;
+  // provider -> models offered, so the console's pickers are real.
+  repeated ProviderModels models = 9;
+  // Every forge CLI login on the host (forges.md WP-9).
+  repeated ForgeLogin forges = 10;
+  // The host runs third-party harness sessions (false on Windows).
+  bool harness_sessions = 11;
+  // Optional Dispatch fields this belai applies (belai-counterparts #45,
+  // #46, #51, #52, #55): "resume" (resume_session), "fork" (fork_entry),
+  // "answers" (answers_json), "gates" (the gate keys in options), "adhoc"
+  // (adhoc), "plan_upload" (a plan-mode session returns its plan file),
+  // "session_actions" (the console session actions in Command.name). An
+  // older host sends none; Keleustes then sends none of those fields.
+  repeated string dispatch_features = 12;
+}
+
+message ForgeLogin {
+  // "gh" | "glab" | "tea"
+  string cli = 1;
+  // Lower-case, no scheme, may carry :port.
+  string host = 2;
+  // "github" | "ghes" | "gitlab" | "gitea" | "forgejo" | "" (unknown)
+  string kind = 3;
+  string login = 4;
+  // The CLI's status check passed this minute.
+  bool signed_in = 5;
+}
+
+message ProviderModels {
+  string provider = 1;
+  repeated string models = 2;
+}
+
+// How a worker profile on the host claims board cards.
+message AgentRoute {
+  string name = 1;
+  // "single", "worker", "background", ...
+  string mode = 2;
+  // Kanban lists it claims from, and the labels it requires.
+  repeated string lists = 3;
+  repeated string labels = 4;
+  bool read_only = 5;
+}
+
+// Stop / resume everything, and the A2A blackout.
+message FactoryControl {
+  bool stopped = 1;
+  bool a2a_blackout = 2;
+  string reason = 3;
+}
+
+// Start work on the host (belai rc). Acked on Link when accepted; the
+// outcome (session id, or failure) comes back through Jobs.Complete with
+// job_id = dispatch id.
+message Dispatch {
+  string id = 1;
+  // "session", "worker", "crew".
+  string kind = 2;
+  string cwd = 3;
+  string repo = 4;
+  string branch = 5;
+  string prompt = 6;
+  string provider = 7;
+  string model = 8;
+  // Agent profile or crew name.
+  string agent = 9;
+  string crew = 10;
+  // Board card and workflow run this work belongs to, if any.
+  string card_id = 11;
+  string run_id = 12;
+  // "agent", "plan", "goal", "auto".
+  string mode = 13;
+  VaultGrant vault = 14;
+  int64 deadline_ms = 15;
+  // Extra workspace directories (each must be one the host offers).
+  repeated string dirs = 16;
+  string workspace = 17;
+  string effort = 18;
+  // Unset leaves the host default.
+  optional bool git_sync = 19;
+  optional bool ask = 20;
+  // What started this work (cleaned on the host; provenance only).
+  Trigger trigger = 21;
+  // worker / crew: per-item budget layered over the profiles' own.
+  WorkerBudget budget = 22;
+  bool fill = 23;
+  bool stay = 24;
+  uint32 stay_idle_max_s = 25;
+  // crew: member profile -> "provider/model".
+  map<string, string> member_models = 26;
+  CloneSpec clone = 27;
+  // kind "pause"/"resume": the worker. kind "stop": the session.
+  string worker_id = 28;
+  string session_id = 29;
+  CrewControl control = 30;
+  // Model tier for the work: "" (the request's model), "fast" (the host's
+  // fast tier, after a budget downgrade).
+  string tier = 45;
+  // Harness sessions (harnesses.md): the registry id ("" = belai, kind
+  // "session" only), its mode, a native session id to resume, and the key
+  // mode Keleustes resolved ("own_login" (default), "handoff", "always";
+  // with own_login the node drops any vault grant unread).
+  string harness = 46;
+  string harness_mode = 47;
+  string harness_resume = 48;
+  string harness_keys = 49;
+  // Origin for the node's audit lines: {"actor","runId","cardId","keyId","modeSetBy"}.
+  string origin_json = 50;
+  // kind "project_prefs" (WP-K): an offered directory in cwd, flat
+  // config.ProjectPrefs keys to set (values "true"/"false", a word or a
+  // number) and to clear. The host needs --web-project-settings.
+  // kind "library_install" / "library_backup" (WP-E): identifiers only; the
+  // node fetches each document with Library.Fetch naming this dispatch.
+  repeated LibraryRef library = 31;
+  bool overwrite = 32;
+  map<string, string> prefs_set = 38;
+  repeated string prefs_unset = 39;
+  // kind "library_scan" / "library_import" (WP-K): the kind to scan or
+  // import, the scan an import comes from, the file the scan reported, the
+  // hash it saw and, for a document, the agent that receives it.
+  string item_kind = 40;
+  string scan_dispatch = 41;
+  string path = 42;
+  string sha256 = 43;
+  string target = 44;
+  // Crew and step settings from the factory's Effective settings
+  // ("guardrails", "tests_post_end", "tests_on_fail", "show_internal_work",
+  // "auto_commit_per_task", "a2a_show", "crew_lease_ms"). The host checks
+  // each against its own gates and refuses keys it does not know; a
+  // setting never widens what the host allows (guardrails stay on).
+  map<string, string> options = 51;
+  // kind "steer" (WP-H): the forge coordinator's answer to a request a
+  // worker filed. worker_id names the worker, card_id the item.
+  string steer_request = 33;
+  string steer_event = 34;
+  string steer_pr_url = 35;
+  int64 steer_until_ms = 36;
+  string steer_reason = 37;
+  int32 steer_pr = 52;
+  // kind "budget_update" (P5, belai-counterparts #33): a budget limit
+  // changed or was hit while work runs. budget carries the new limits;
+  // run_id / worker_id / session_id narrow it (all empty: every running
+  // session and worker of this host). The host applies it to live work.
+  BudgetPush budget_push = 53;
+  // kind "knowledge_reindex" (row 49): options carry "scope" ("profile" or
+  // "project") and "key" or "root"; the host re-runs its own ingestion
+  // (classified as always) and re-advertises its catalogue.
+  //
+  // Row 51, harness gates: options may also carry "finish_review" ("on"),
+  // "lint_loop" ("on"), "checkpoints" ("on"), "code_mode" ("off") and
+  // "commit_mode" ("off", "ask", "auto"; aliases "none", "end",
+  // "per_task"). Each only tightens: a value that would loosen what the
+  // host's own settings say is ignored and audited ("option_ignored").
+  //
+  // Row 46, kind "session" only: resume_session is a belai session id of
+  // this host (its cwd must still be offered). The host starts a new
+  // session that continues its conversation; with fork_entry (a belai entry
+  // id, Entry.meta_json "id") the new session continues from that entry (a
+  // user entry continues from the entry before it). prompt is the first
+  // prompt of the new session.
+  string resume_session = 54;
+  string fork_entry = 55;
+  // Row 52, kind "session": the questions the session asks are answered
+  // from this list (belai -answers shape: [{"choose","note","skip","match"}],
+  // at most 64 KiB). Each note is admitted by the host's classifier, like a
+  // prompt; a refusal refuses the start.
+  string answers_json = 56;
+  // Row 55, kind "worker" with agent empty: a worker made from a prompt,
+  // with no stored profile. Refused together with agent.
+  AdhocWorker adhoc = 57;
+}
+
+// A worker with no stored profile (belai `agent start -prompt`). The host
+// classifies the prompt, checks the tools against its catalogue and
+// validates the profile it builds as a stored one.
+message AdhocWorker {
+  // The worker's instructions (at most 16 KiB).
+  string prompt = 1;
+  // Tool names; empty keeps the full surface.
+  repeated string tools = 2;
+  // The list it claims from (at most one) and the labels it requires.
+  repeated string claim_lists = 3;
+  repeated string claim_labels = 4;
+  // The list a success goes to ("" = review, or done for a worker that
+  // only decides).
+  string to = 5;
+  // "none", "draft_pr", "agent" ("" = agent).
+  string publish = 6;
+  bool read_only = 7;
+}
+// Dispatch kinds beyond "session", "worker", "crew": "stop", "pause",
+// "resume", "crew_control". A host lists the kinds it understands in
+// Capabilities.dispatch_kinds.
+
+message Trigger {
+  // "console", "workflow", "schedule", "card", "node".
+  string source = 1;
+  string run_id = 2;
+  string workflow_id = 3;
+  string workflow_name = 4;
+  string card_id = 5;
+  string subject = 6;
+  // For source "node": who asked (Fleet.Request).
+  string origin_node = 7;
+  string origin_session = 8;
+  // The origin node's display name, for the provenance sentence.
+  string origin_name = 9;
+}
+
+message WorkerBudget {
+  double max_cost_usd = 1;
+  double finalize_at = 2;
+  uint32 max_continuations = 3;
+  uint32 max_attempts = 4;
+  // Go duration ("90m").
+  string max_wall = 5;
+  uint32 max_passes = 6;
+  uint32 max_tokens = 7;
+  uint32 max_iterations = 8;
+  double price_input_per_mtok = 9;
+  double price_output_per_mtok = 10;
+}
+
+message CloneSpec {
+  string owner = 1;
+  string name = 2;
+  string branch = 3;
+}
+
+message CrewControl {
+  string run = 1;
+  // "worker_pause", "worker_resume", "worker_weight", "scope_add",
+  // "scope_remove", "replicas", "stop".
+  string op = 2;
+  string worker = 3;
+  string dir = 4;
+  string profile = 5;
+  int32 weight = 6;
+  bool paused = 7;
+  uint32 replicas = 8;
+}
+
+// Work Keleustes asks a capable node to do on its behalf.
+message Job {
+  string id = 1;
+  // "github" (payload: {"args":[...gh args], "stdin":...}),
+  // "forge" (payload: {"cli","host","args","stdin"}; forges.md WP-9),
+  // "forge_push" (payload: {"host","repo_url","bundle_b64","ref","expect_sha"};
+  // forges.md WP-9),
+  // "library" (payload: {"task":"convert","kind","format","name","files"};
+  // library-search.md WP9),
+  // "model" (payload: {"task":"draft|classify|avatar|systemone", ...}).
+  string kind = 2;
+  string payload_json = 3;
+  VaultGrant vault = 4;
+  int64 deadline_ms = 5;
+}
+
+message JobResult {
+  string job_id = 1;
+  // "ok", "failed", "refused".
+  string status = 2;
+  string output_json = 3;
+  string error = 4;
+  // For a dispatch: the session it started.
+  string session_id = 5;
+}
+
+// Provider keys from the Keleustes vault, for one dispatch or job. Held in
+// memory only on the node and never written to disk or logs.
+message VaultGrant {
+  string grant_id = 1;
+  repeated VaultSecret secrets = 2;
+  int64 expires_at_ms = 3;
+  // MCP server credentials (WP-F): fed only to the named server's bound key.
+  repeated McpSecret mcp = 4;
+}
+
+message McpSecret {
+  // An MCP server installed on the host, and one of the keys its entry binds.
+  string server = 1;
+  string key = 2;
+  string value = 3;
+}
+
+message VaultSecret {
+  string provider = 1;
+  // Environment variable the provider reads, e.g. ANTHROPIC_API_KEY.
+  string env = 2;
+  string value = 3;
+}
+
+// ---- Sessions ------------------------------------------------------------
+
+message SessionUpsert {
+  string session_id = 1;
+  string title = 2;
+  string cwd = 3;
+  string repo = 4;
+  string branch = 5;
+  string provider = 6;
+  string model = 7;
+  // "tui", "worker", "rc", "acp", "headless".
+  string kind = 8;
+  // "live", "idle", "waiting", "ended".
+  string state = 9;
+  int64 started_at_ms = 10;
+  int64 updated_at_ms = 11;
+  string mode = 12;
+  string agent = 13;
+  // The dispatch that started it, if any.
+  string dispatch_id = 14;
+  string card_id = 15;
+  string run_id = 16;
+  // Cumulative usage.
+  int64 input_tokens = 17;
+  int64 output_tokens = 18;
+  double cost_usd = 19;
+  // An open question the session is waiting on.
+  string pending_question_id = 20;
+  string pending_question = 21;
+  // Structured open ask. pending_question_id/pending_question stay filled
+  // (id and title) for servers that predate it.
+  PendingAsk pending_ask = 22;
+  // What remote input this session admits. The console offers only these.
+  SessionAccepts accepts = 23;
+  GitFacts git = 24;
+  // Per provider/model usage so far (cumulative, like input_tokens).
+  repeated ModelUsage usage = 25;
+  // Harness sessions (kind "harness").
+  string harness = 26;
+  string harness_version = 27;
+  string harness_session_id = 28;
+  // "native" or "screen".
+  string transcript_source = 29;
+  // Provider plan windows this session last saw (row 48, belai
+  // intel_state).
+  repeated PlanLimit plan_limits = 30;
+  // File checkpoints the console can rewind to (row 45), newest first, at
+  // most 50. Empty when checkpoints are off or none was made yet.
+  repeated Checkpoint checkpoints = 31;
+}
+
+// One file checkpoint (belai internal/checkpoint): what a prompt's file
+// changes can be put back to with Command "rewind <id>".
+message Checkpoint {
+  string id = 1;
+  int64 at_ms = 2;
+  // The prompt's first line, cleaned, at most 120 chars (user text:
+  // untrusted on the server).
+  string label = 3;
+  // The session entry the checkpoint belongs to: its index when known, and
+  // its belai entry id (Entry.meta_json "id").
+  uint64 entry_index = 4;
+  string entry_id = 5;
+  // Files it holds.
+  uint32 files = 6;
+}
+
+// An ask the session waits on. Every string is the host's harness text or a
+// model's (a clarify questionnaire): untrusted on the server.
+message PendingAsk {
+  string id = 1;
+  // "permission", "clarify", "mode_choice", "plan_review", "relay_review"
+  // (row 45: options "approve", "edit" (Answer.text is the edited note) and
+  // "drop"; the handoff goes out only on approve or edit).
+  string kind = 2;
+  // Harness-composed one-line summary (tool name and target), capped.
+  string title = 3;
+  string tool = 4;
+  // Decisions the host will accept for this ask, e.g. "allow_once", "deny".
+  repeated AskOption options = 5;
+  // clarify / mode_choice: the questionnaire in webask's JSON shape.
+  string questions_json = 6;
+  int64 asked_at_ms = 7;
+  // relay_review: the handoff draft for review, {"text","direction"} (model
+  // text: untrusted).
+  string relay_json = 8;
+}
+
+message AskOption {
+  string id = 1;
+  string label = 2;
+}
+
+message SessionAccepts {
+  // sync.remote_prompts
+  bool prompts = 1;
+  // sync.remote_answers
+  bool answers = 2;
+  // --web-controls
+  bool controls = 3;
+  // --web-shell
+  bool shell = 4;
+  // sessionctl names the host takes.
+  repeated string controls_allowed = 5;
+  // Custom command names (no templates).
+  repeated string commands = 6;
+}
+
+message GitFacts {
+  string commit = 1;
+  bool dirty = 2;
+  int32 ahead = 3;
+  int32 behind = 4;
+  bool detached = 5;
+}
+
+message ModelUsage {
+  string provider = 1;
+  string model = 2;
+  int64 input_tokens = 3;
+  int64 output_tokens = 4;
+  int64 cache_read_tokens = 5;
+  int64 cache_write_tokens = 6;
+  double cost_usd = 7;
+}
+
+message SessionEntries {
+  string session_id = 1;
+  repeated Entry entries = 2;
+}
+
+message Entry {
+  // Strictly increasing from 0 within a session.
+  uint64 index = 1;
+  // "user", "assistant", "tool", "tool_result", "system", "a2a", "shell", "error".
+  string role = 2;
+  string text = 3;
+  int64 at_ms = 4;
+  // Structured extras (tool name/args, usage...) as JSON.
+  string meta_json = 5;
+}
+
+message AppendResult { uint64 next_index = 1; }
+
+message SessionEnd {
+  string session_id = 1;
+  int64 ended_at_ms = 2;
+  string reason = 3;
+  // The session's rollup per provider/model (final totals, not a delta).
+  repeated ModelUsage usage = 4;
+  uint32 turns = 5;
+  uint32 tool_calls = 6;
+  // A harness session (OP-2): the process group is gone (kill -0 ESRCH),
+  // no reply and no change in the work tree, a typed prompt got no final
+  // assistant turn, and how long it took.
+  bool termination_verified = 10;
+  bool empty_result = 11;
+  bool adapter_error = 12;
+  HarnessTiming timing = 13;
+  // Row 52, mode "plan": the SHA-256 of the plan file the session wrote. The
+  // file rides in the transcript as a role "system" entry whose meta_json
+  // meta.kind is "plan_file" ({"name","sha256","bytes"}; the text is
+  // model-written and untrusted).
+  string plan_sha256 = 14;
+}
+
+message InboxRequest {
+  string session_id = 1;
+  // Highest item seq already applied.
+  uint64 after = 2;
+}
+
+message InboxItem {
+  uint64 seq = 1;
+  string id = 2;
+  string session_id = 3;
+  oneof body {
+    Prompt prompt = 10;
+    Answer answer = 11;
+    Command command = 12;
+  }
+}
+
+message Prompt { string text = 1; }
+
+message Answer {
+  string question_id = 1;
+  string text = 2;
+  // Structured answer: one of the PendingAsk option ids, or for "clarify"
+  // the webask answer JSON in payload_json. When set, text is a note.
+  string decision = 3;
+  string payload_json = 4;
+}
+
+// Session controls: "stop", "interrupt", "mode", "model", ... Row 45 adds
+// the console session actions (hosts listing "session_actions"; each also
+// in SessionAccepts.controls_allowed when the session takes it):
+//   compact [focus...]   summarise the conversation and continue from it
+//   relay [direction...] draft a handoff note; it replaces the conversation
+//                        only after a person answers its relay_review ask
+//   undo                 put back the files the last prompt changed
+//   rewind <checkpoint>  put back the files to a checkpoint
+//   commit [message...]  commit what the session changed
+//   btw <question...>    a side question, answered out of the conversation
+//   rename <title...>    rename the session
+// A finish-review result rides in the transcript as a role "system" entry
+// whose meta_json meta.kind is "finish_review", with meta.findings
+// [{"path","line","severity","criterion","verdict"}].
+message Command {
+  string name = 1;
+  repeated string args = 2;
+}
+
+message InboxAck {
+  string session_id = 1;
+  string item_id = 2;
+  // "done", "failed", "refused".
+  string status = 3;
+  string detail = 4;
+}
+
+message AuditBatch {
+  // Empty for a host stream.
+  string session_id = 1;
+  repeated AuditLine lines = 2;
+  // Host audit stream id (belai's audit stream); set when session_id is empty.
+  string stream_id = 3;
+}
+
+message AuditStreamRequest { string stream_id = 1; }
+
+message AuditStreamHead {
+  // -1 when the server holds none.
+  int64 last_index = 1;
+}
+
+message AuditLine {
+  uint64 index = 1;
+  int64 at_ms = 2;
+  string kind = 3;
+  string json = 4;
+}
+
+// ---- Board ---------------------------------------------------------------
+
+message KanbanItem {
+  string id = 1;
+  // Display key, e.g. K-7f21.
+  string key = 2;
+  string title = 3;
+  string body = 4;
+  // "triage", "backlog", "todo", "doing", "review", "done".
+  string status = 5;
+  int32 priority = 6;
+  repeated string labels = 7;
+  string assignee = 8;
+  string repo = 9;
+  string branch = 10;
+  string pr_url = 11;
+  int64 created_at_ms = 12;
+  int64 updated_at_ms = 13;
+  // Monotonic per item; edits carry the version they were based on.
+  int64 version = 14;
+  bool deleted = 15;
+  string meta_json = 16;
+}
+
+message KanbanPullRequest {
+  int64 since_ms = 1;
+  uint32 limit = 2;
+}
+
+message KanbanPage {
+  repeated KanbanItem items = 1;
+  int64 next_since_ms = 2;
+  bool more = 3;
+}
+
+message KanbanBatch { repeated KanbanItem items = 1; }
+
+message KanbanPushResult {
+  repeated KanbanItem accepted = 1;
+  // Server copies of items whose pushed version was stale.
+  repeated KanbanItem conflicts = 2;
+}
+
+message MemoryNote {
+  string id = 1;
+  // Repository scope, e.g. "github.com/org/repo", or "global".
+  string scope = 2;
+  string text = 3;
+  repeated string tags = 4;
+  string author = 5;
+  int64 created_at_ms = 6;
+  int64 updated_at_ms = 7;
+  bool deleted = 8;
+  // The node that wrote the note (set by the server from the certificate).
+  string host = 9;
+  // The A2A message the note came from, "<from>#<id>", if any.
+  string a2a_ref = 10;
+}
+
+message MemoryPullRequest {
+  string scope = 1;
+  int64 since_ms = 2;
+}
+
+message MemoryPage {
+  repeated MemoryNote notes = 1;
+  int64 next_since_ms = 2;
+}
+
+message A2AEnvelope {
+  string id = 1;
+  // Agent ids are "<nodeId>:<sessionId>".
+  string from = 2;
+  string to = 3;
+  string thread_id = 4;
+  string text = 5;
+  int64 at_ms = 6;
+  uint64 seq = 7;
+  string meta_json = 8;
+}
+
+message A2ASendResult {
+  string id = 1;
+  bool delivered = 2;
+  string refused = 3;
+}
+
+message A2AReceiveRequest {
+  // Agent ids on this host to receive for.
+  repeated string to = 1;
+  uint64 after = 2;
+}
+
+message StateRequest {}
+
+// ---- Teleport ------------------------------------------------------------
+
+message TeleportPart {
+  string teleport_id = 1;
+  // Present on the first part.
+  TeleportHeader header = 2;
+  bytes chunk = 3;
+  bool last = 4;
+}
+
+message TeleportHeader {
+  string session_id = 1;
+  string from_node = 2;
+  string to_node = 3;
+  string title = 4;
+  int64 size = 5;
+  string sha256 = 6;
+  // Profile and crews the session ran under; the target fetches any it
+  // lacks with Library.Fetch(teleport_id).
+  repeated LibraryRef needs = 7;
+}
+
+message TeleportReceipt {
+  string teleport_id = 1;
+  int64 size = 2;
+}
+
+message TeleportRequest { string teleport_id = 1; }
+
+// ---- Fleet ---------------------------------------------------------------
+
+message NodesRequest {}
+
+message NodeList { repeated NodeSummary nodes = 1; }
+
+message NodeSummary {
+  string node_id = 1;
+  string name = 2;
+  bool online = 3;
+  bool remote_control = 4;
+  // Only when the policy shares directories.
+  repeated string trusted_dirs = 5;
+  repeated string agents = 6;
+  repeated string crews = 7;
+  repeated string providers = 8;
+  uint32 running_sessions = 9;
+  uint32 max_sessions = 10;
+  // Live sessions as A2A agent ids "<nodeId>:<sessionId>".
+  repeated string agent_ids = 11;
+}
+
+message DispatchRequest {
+  // Node id or name; empty: Keleustes picks an eligible node.
+  string target_node = 1;
+  // Same shape the console sends. Kinds limited by policy.
+  Dispatch spec = 2;
+  // The session on this node that asked, for provenance.
+  string origin_session = 3;
+  // "user" (typed by a person: slash command or CLI) or "agent" (a model's
+  // tool call). Anything else reads as "agent".
+  string initiated_by = 4;
+}
+
+message DispatchTicket {
+  string request_id = 1;
+  // "queued", "awaiting_approval", "refused".
+  string state = 2;
+  string reason = 3;
+  string dispatch_id = 4;
+  string target_node = 5;
+}
+
+message WatchRequest { repeated string request_ids = 1; }
+
+message DispatchStatus {
+  string request_id = 1;
+  string dispatch_id = 2;
+  // "awaiting_approval", "queued", "delivered", "started", "refused",
+  // "failed", "finished".
+  string state = 3;
+  string session_id = 4;
+  string reason = 5;
+  string target_node = 6;
+}
+
+message PeerPrompt {
+  // "<nodeId>:<sessionId>"
+  string target_session = 1;
+  string text = 2;
+  string origin_session = 3;
+  string initiated_by = 4;
+}
+
+// ---- Attention -----------------------------------------------------------
+
+message AttentionRequest {
+  // The host's own id for the request (16+ identifier characters); the
+  // server de-duplicates on (node, id).
+  string id = 1;
+  // Closed list: "gh_login", "provider_credentials", "approve", "action".
+  string kind = 2;
+  // Closed list: "credential_expiring", "reauth_needed",
+  // "approval_needed", "action_needed".
+  string reason = 3;
+  // An identifier only (provider slug, profile name, card id).
+  string subject = 4;
+}
+
+message AttentionReceipt {
+  string id = 1;
+  // "open", or "refused" with a reason.
+  string state = 2;
+  string reason = 3;
+}
+
+message AttentionDecided {
+  string id = 1;
+  // "approved", "declined", "lapsed".
+  string state = 2;
+}
+
+// ---- Harnesses -----------------------------------------------------------
+
+message Harness {
+  // Registry id, "claude-code".
+  string id = 1;
+  string name = 2;
+  // First line of --version, sanitized, <= 64.
+  string version = 3;
+  // "launch", "unverified", "broken", "gui", "configured".
+  string state = 4;
+  // <= 200.
+  string detail = 5;
+  bool resume = 6;
+  // The profile can wire the belai A2A bridge.
+  bool a2a = 7;
+  // Native login present (no values).
+  bool logged_in = 8;
+  // Env names a vault key may be handed to.
+  repeated string grant_env = 9;
+  // "default", "plan", "accept_edits", ...
+  repeated string modes = 10;
+  // Dialect; "" = screen only.
+  string transcript = 11;
+  // Key names the Screen view may send.
+  repeated string allow_keys = 12;
+  // Resolved binary (provenance).
+  string path = 13;
+  // sha256 of the probe output.
+  string version_hash = 14;
+  int64 probed_at_ms = 15;
+  // "H" host-checked, "M" vendor docs.
+  string conf = 16;
+  // OP-2 harness hardening: process-group stop (POSIX), dialogs become
+  // asks, the native session is named (kls-<sid8>), continuity checks
+  // ("session-id-match"; resume is offered only with one), caveats, and
+  // startup overhead measured on this node (spawn to first output).
+  bool kill = 17;
+  bool asks = 18;
+  bool named = 19;
+  repeated string continuity = 20;
+  repeated HarnessCaveat caveats = 21;
+  int64 startup_p50_ms = 22;
+  int64 startup_p95_ms = 23;
+  uint32 startup_samples = 24;
+  int64 startup_measured_at_ms = 25;
+}
+
+message A2APeersRequest {
+  string repo = 1;
+  uint32 limit = 2;
+}
+
+message A2APeer {
+  string agent_id = 1;
+  string node_name = 2;
+  string title = 3;
+  string repo = 4;
+  string branch = 5;
+  string harness = 6;
+  string agent = 7;
+  int64 updated_at_ms = 8;
+}
+
+message A2APeerList { repeated A2APeer peers = 1; }
+
+message ScreenUp {
+  string session_id = 1;
+  uint64 offset = 2;
+  oneof body {
+    ScreenOpen open = 10;
+    // <= 32 KiB, already scrubbed on the node.
+    bytes output = 11;
+    ScreenSize size = 12;
+    ScreenExit exit = 13;
+  }
+}
+
+message ScreenOpen {
+  ScreenSize size = 1;
+  bytes replay = 2;
+}
+
+message ScreenSize {
+  uint32 cols = 1;
+  uint32 rows = 2;
+}
+
+message ScreenExit {
+  int32 code = 1;
+  string signal = 2;
+}
+
+message ScreenDown {
+  oneof body {
+    ScreenSize resize = 10;
+    bool pause = 11;
+  }
+}
+
+// ---- Schedules -----------------------------------------------------------
+
+message ScheduleItem {
+  string id = 1;
+  // A worker profile in the host's catalogue.
+  string profile = 2;
+  string crew = 3;
+  // Five fields or @hourly/@daily/@weekly/@monthly, in tz (host local when empty).
+  string cron = 4;
+  string tz = 5;
+  // A directory the host offers.
+  string cwd = 6;
+  bool enabled = 7;
+  // The run record: written by the host only.
+  int64 last_fired_ms = 8;
+  string last_status = 9;
+  // Monotonic per item; edits carry the version they were based on.
+  int64 version = 10;
+  bool deleted = 11;
+  string meta_json = 12;
+  int64 created_at_ms = 13;
+  int64 updated_at_ms = 14;
+  int64 next_run_ms = 15;
+}
+
+message SchedulePullRequest {
+  int64 since_ms = 1;
+  uint32 limit = 2;
+}
+
+message SchedulePage {
+  repeated ScheduleItem items = 1;
+  int64 next_since_ms = 2;
+  bool more = 3;
+}
+
+message ScheduleBatch { repeated ScheduleItem items = 1; }
+
+message SchedulePushResult {
+  repeated ScheduleItem accepted = 1;
+  // Server copies of items whose pushed version was stale.
+  repeated ScheduleItem conflicts = 2;
+}
+
+// ---- Library -------------------------------------------------------------
+
+message LibraryRef {
+  // "profile", "crew", or a libitem kind ("skill", "prompt", "command",
+  // "process", "repo", "budget", "provider", "rewrite", "mcp", "hook").
+  // In HostAdvert.inventory also "knowledge" (one knowledge index: id
+  // "scope:key-or-root", version its document count, sha256 over its
+  // documents' addresses and hashes) and "plugin" (id the installed
+  // commit, version 1 when enabled, 0 when not). Facts only.
+  string kind = 1;
+  string id = 2;
+  string name = 3;
+  int64 version = 4;
+  string sha256 = 5;
+}
+
+message LibraryFetch {
+  // The dispatch or teleport this fetch serves.
+  string dispatch_id = 1;
+  string teleport_id = 2;
+  LibraryRef ref = 3;
+}
+
+message LibraryDoc {
+  string dispatch_id = 1;
+  LibraryRef ref = 2;
+  // The document bytes: a profile's markdown (or Keleustes's agent JSON,
+  // which the host converts and validates), an item's canonical text.
+  bytes doc = 3;
+  // Hook bundles: script files, each hashed.
+  repeated LibraryFile files = 4;
+}
+
+message LibraryFile {
+  string path = 1;
+  bytes data = 2;
+  string sha256 = 3;
+}
+
+message LibraryReceipt { LibraryRef stored = 1; }
+
+message LibraryInventory { repeated LibraryRef items = 1; }
+
+message LibraryVerdicts { repeated LibraryVerdict verdicts = 1; }
+
+message LibraryVerdict {
+  LibraryRef ref = 1;
+  // "push", "current", "diverged", "install".
+  string verdict = 2;
+}
+
+// ---- Forge relay ---------------------------------------------------------
+
+message ForgePart {
+  ForgeRequest request = 1;
+  bytes chunk = 2;
+  bool last = 3;
+}
+
+message ForgeRequest {
+  // 16 hex.
+  string request_id = 1;
+  string item_id = 2;
+  string worker_id = 3;
+  // "push", "pull_request", "issue_sync", "commit".
+  string kind = 4;
+  string repo_owner = 5;
+  string repo_name = 6;
+  // The item's attempt branch only (belai/<item>/...).
+  string branch = 7;
+  string base_sha = 8;
+  string head_sha = 9;
+  string bundle_sha256 = 10;
+  int64 bundle_bytes = 11;
+  // Closed list (auth, rate_limited, ...).
+  string failure = 12;
+  // The item title, cleaned for the pull request (untrusted).
+  string title = 13;
+}
+
+message ForgeFiled {
+  string request_id = 1;
+  bool duplicate = 2;
+}
+
+message LibraryScanReport {
+  string dispatch_id = 1;
+  // Names, kinds and hashes only (rc/scan.go report items).
+  repeated LibraryRef found = 2;
+  // The path of each found item, in the same order.
+  repeated string paths = 3;
+  // Per item: the harness, the scan verdict and a note (<= 160 bytes), in
+  // the same order.
+  repeated string harnesses = 4;
+  repeated string verdicts = 5;
+  bool partial = 6;
+}
+
+message HarnessCaveat {
+  string code = 1;
+  // <= 200.
+  string note = 2;
+}
+
+message HarnessTiming {
+  int64 startup_ms = 1;
+  int64 ready_ms = 2;
+  int64 first_reply_ms = 3;
+  int64 wall_ms = 4;
+}
+
+// ---- Plan limits, budgets, knowledge, AGENTS.md drafts (P5) ---------------
+
+// One provider plan window (belai internal/budget planlimit/intel).
+message PlanLimit {
+  string provider = 1;
+  // "5h", "7d", "rpm", "tpm".
+  string window = 2;
+  // 0..1 of the window used.
+  double used_fraction = 3;
+  int64 reset_at_ms = 4;
+  // Spend rate against an even pace (1 = on pace) and the time left at it.
+  double pace = 5;
+  int64 runway_ms = 6;
+  // "exact" (provider headers) or "estimate".
+  string source = 7;
+}
+
+// A budget change for running work (Dispatch kind "budget_update").
+message BudgetPush {
+  // "limits" (new caps only), "downgrade" (switch to tier), "pause"
+  // (finish the current step, start nothing new), "resume".
+  string action = 1;
+  // With "downgrade": the routing tier to move to ("fast").
+  string tier = 2;
+  // The budget that changed or was hit: id, name, and why (audit text).
+  string budget_id = 3;
+  string budget_name = 4;
+  string reason = 5;
+  repeated string session_ids = 6;
+}
+
+// Job kind "knowledge_search" (row 49): payload_json is this message in
+// proto3 JSON; output_json a KnowledgeSearchResult. A search calls no
+// model: the host answers from its index, whose chunks were classified when
+// they were ingested.
+message KnowledgeSearchRequest {
+  string query = 1;
+  // "" (every index), "profile" or "project".
+  string scope = 2;
+  string key = 3;
+  uint32 limit = 4;
+}
+
+message KnowledgeHit {
+  // The knowledge address (kb://...) and the index it came from.
+  string address = 1;
+  string index = 2;
+  double score = 3;
+  // A short passage from the index (<= 320 bytes, cleaned as a line).
+  string snippet = 4;
+  string sha256 = 5;
+}
+
+message KnowledgeSearchResult {
+  repeated KnowledgeHit hits = 1;
+  bool partial = 2;
+}
+
+// Job kind "init_draft" (row 54): draft an AGENTS.md for a repository the
+// host has. payload_json is an InitDraftRequest; output_json an
+// InitDraftResult. Nothing is written: a person accepts the draft in
+// Keleustes, which then opens a pull request through the forge.
+message InitDraftRequest {
+  // A trusted directory on the host, or owner/name of a clone.
+  string cwd = 1;
+  string repo = 2;
+  string provider = 3;
+  string model = 4;
+}
+
+message InitDraftResult {
+  // "AGENTS.md" (or the instruction file the repo already uses).
+  string path = 1;
+  string markdown = 2;
+  string sha256 = 3;
+  // The existing file's hash when the draft replaces one.
+  string base_sha256 = 4;
+}

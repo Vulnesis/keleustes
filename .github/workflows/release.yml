@@ -1,0 +1,535 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.2.3)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+# Never run two releases for the same version at once.
+concurrency:
+  group: release-${{ inputs.version || github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  CARGO_TERM_COLOR: always
+  # protoc for kls-proto's build script. Downloaded rather than taken from the
+  # distro: ubuntu-22.04's protobuf-compiler (3.12) rejects proto3 `optional`.
+  PROTOC_VERSION: "29.3"
+
+jobs:
+  version:
+    runs-on: [self-hosted, Linux, X64, vulnetix-local]
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref }}
+
+      # The binary's --version, the Nix package and the installers all read the
+      # workspace version in Cargo.toml, so the tag must name that version:
+      # bump `[workspace.package] version`, commit, then tag.
+      - name: Get version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          CARGO_VERSION=$(awk '/^\[workspace.package\]/{s=1;next} /^\[/{s=0} s && $1=="version" {gsub(/"/,"",$3); print $3; exit}' Cargo.toml)
+          if [ "v${CARGO_VERSION}" != "$VERSION" ]; then
+            echo "::error::tag $VERSION does not match Cargo.toml workspace version $CARGO_VERSION; bump Cargo.toml and tag again" >&2
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing $VERSION"
+
+  # Keleustes links GTK on Linux and the Apple frameworks on macOS, so unlike
+  # belai (pure Go) it builds natively per platform. Linux builds on 22.04 so
+  # the binary runs on any glibc from 2.35 on. GitHub-hosted runners, because
+  # the self-hosted pool has no GTK development packages.
+  build:
+    needs: version
+    name: build (${{ matrix.asset }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { asset: keleustes-linux-amd64,       runner: ubuntu-22.04,     target: x86_64-unknown-linux-gnu,  protoc: linux-x86_64,      smoke: true }
+          - { asset: keleustes-linux-arm64,       runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, protoc: linux-aarch_64,    smoke: true }
+          - { asset: keleustes-darwin-arm64,      runner: macos-latest,     target: aarch64-apple-darwin,      protoc: osx-universal_binary, smoke: true }
+          - { asset: keleustes-darwin-amd64,      runner: macos-latest,     target: x86_64-apple-darwin,       protoc: osx-universal_binary, smoke: false }
+          - { asset: keleustes-windows-amd64.exe, runner: windows-latest,   target: x86_64-pc-windows-msvc,    protoc: win64,             smoke: true }
+    defaults:
+      run:
+        shell: bash
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.version }}
+
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends \
+            build-essential pkg-config \
+            libgtk-3-dev libayatana-appindicator3-dev libdbus-1-dev \
+            libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+
+      - name: protoc
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/protoc"
+          curl -fsSL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/protoc.zip" \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-${{ matrix.protoc }}.zip"
+          mkdir -p "$dir"
+          unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$dir"
+          echo "$dir/bin" >> "$GITHUB_PATH"
+          "$dir/bin/protoc" --version
+
+      - name: Rust toolchain
+        run: |
+          set -euo pipefail
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl -fsSL --retry 5 https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
+          rustup default stable
+          rustc --version
+
+      - uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: release-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: release-${{ matrix.target }}-
+
+      # Stripped, as belai and the cli link with -s -w.
+      - name: Build
+        env:
+          CARGO_PROFILE_RELEASE_STRIP: symbols
+        run: cargo build --release --locked -p kls-app --target ${{ matrix.target }}
+
+      - name: Stage binary
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ext=""
+          case "${{ matrix.target }}" in *windows*) ext=".exe" ;; esac
+          cp "target/${{ matrix.target }}/release/keleustes${ext}" "dist/${{ matrix.asset }}"
+          ls -l dist
+
+      # --version exits in clap before any window, store or GTK init, but the
+      # loader still resolves every linked library, so this also catches a
+      # binary that would not start.
+      - name: Smoke test
+        if: matrix.smoke
+        run: |
+          set -euo pipefail
+          out=$("dist/${{ matrix.asset }}" --version)
+          echo "$out"
+          want="${{ needs.version.outputs.version }}"
+          case "$out" in *"${want#v}"*) ;; *) echo "::error::--version printed '$out', want ${want#v}"; exit 1 ;; esac
+
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: bin-${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          retention-days: 1
+          if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    runs-on: [self-hosted, Linux, X64, vulnetix-local]
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
+    outputs:
+      version: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.version }}
+
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          pattern: bin-*
+          path: bin
+          merge-multiple: true
+
+      # Ship the installer with the release so a vanity host can redirect to
+      # releases/latest/download/install.sh, and so the script that fetches a
+      # release is versioned alongside it.
+      - name: Stage installer
+        run: cp install.sh bin/install.sh
+
+      - name: Generate checksums
+        run: |
+          set -euo pipefail
+          cd bin
+          for want in keleustes-linux-amd64 keleustes-linux-arm64 keleustes-darwin-amd64 keleustes-darwin-arm64 keleustes-windows-amd64.exe install.sh; do
+            test -s "$want" || { echo "::error::missing release asset $want" >&2; exit 1; }
+          done
+          sha256sum -- * > checksums.txt
+          cat checksums.txt
+
+      # As in the CLI's release: checksums.txt is signed with the Ed25519 key
+      # whose public half is the VULNETIX_RELEASE_PUBLIC_KEY variable (base64
+      # of the raw 32 bytes). install.sh pins the same public key and refuses a
+      # release whose checksums.txt.sig is missing or does not verify, so the
+      # pinned value must equal the variable: a mismatch, or a variable set
+      # without the secret, fails here before anything is published. The
+      # secret is the private key as PEM (openssl genpkey -algorithm ed25519).
+      - name: Sign checksums
+        env:
+          RELEASE_PUBLIC_KEY: ${{ vars.VULNETIX_RELEASE_PUBLIC_KEY }}
+          RELEASE_SIGNING_KEY: ${{ secrets.VULNETIX_RELEASE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          PINNED=$(sed -n 's/^RELEASE_PUBLIC_KEY="\([^"]*\)"$/\1/p' install.sh)
+          if [ "$PINNED" != "$RELEASE_PUBLIC_KEY" ]; then
+            echo "::error::install.sh pins RELEASE_PUBLIC_KEY=\"$PINNED\" but vars.VULNETIX_RELEASE_PUBLIC_KEY is \"$RELEASE_PUBLIC_KEY\"; installs would refuse this release" >&2
+            exit 1
+          fi
+          if [ -z "$RELEASE_PUBLIC_KEY" ]; then
+            echo "No release public key pinned: checksums.txt is not signed."
+            exit 0
+          fi
+          if [ -z "$RELEASE_SIGNING_KEY" ]; then
+            echo "::error::VULNETIX_RELEASE_PUBLIC_KEY is set but the VULNETIX_RELEASE_SIGNING_KEY secret is not" >&2
+            exit 1
+          fi
+          umask 077
+          printf '%s\n' "$RELEASE_SIGNING_KEY" > "$RUNNER_TEMP/release-key.pem"
+          openssl pkeyutl -sign -inkey "$RUNNER_TEMP/release-key.pem" -rawin -in bin/checksums.txt | base64 -w0 > bin/checksums.txt.sig
+          rm -f "$RUNNER_TEMP/release-key.pem"
+          # Verify against the pinned public key before anything is published.
+          { printf '\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00'; printf '%s' "$RELEASE_PUBLIC_KEY" | base64 -d; } > "$RUNNER_TEMP/release-pub.der"
+          base64 -d bin/checksums.txt.sig > "$RUNNER_TEMP/checksums.sig.raw"
+          openssl pkeyutl -verify -pubin -keyform DER -inkey "$RUNNER_TEMP/release-pub.der" -rawin -in bin/checksums.txt -sigfile "$RUNNER_TEMP/checksums.sig.raw"
+
+      # The subject list for the provenance job: the same bytes as the release
+      # asset, so the signed statement names exactly what a user downloads.
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: release-subjects
+          path: bin/checksums.txt
+          retention-days: 1
+
+      - name: Create or update Release
+        run: |
+          VERSION=${{ needs.version.outputs.version }}
+          if gh release view "$VERSION" > /dev/null 2>&1; then
+            gh release upload "$VERSION" bin/* --clobber
+          else
+            gh release create "$VERSION" bin/* \
+              --title "Release $VERSION" \
+              --generate-notes
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # SLSA v1 build provenance for every binary in the release, signed and
+  # verified by the reusable workflow in Vulnetix/cli, at the commit belai's
+  # release pins. install.sh verifies it when cosign is on PATH.
+  provenance:
+    needs: release
+    permissions:
+      contents: write
+      id-token: write
+    uses: Vulnetix/cli/.github/workflows/slsa-provenance.yml@397ab8905b860c351d75a8fea222de8413989fbc
+    with:
+      subjects_artifact: release-subjects
+      version: ${{ needs.release.outputs.version }}
+
+  update-packages:
+    needs: release
+    runs-on: [self-hosted, Linux, X64, vulnetix-local]
+    timeout-minutes: 20
+    # One package update at a time across versions, and never a downgrade:
+    # an older release finishing last leaves the newer formula in place.
+    concurrency:
+      group: keleustes-package-managers
+      cancel-in-progress: false
+    steps:
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v7.0.1
+        with:
+          repository: Vulnesis/homebrew-tap
+          ref: main
+          token: ${{ secrets.PACKAGES_TOKEN }}
+          path: homebrew-tap
+
+      - name: Checkout scoop-bucket
+        uses: actions/checkout@v7.0.1
+        with:
+          repository: Vulnesis/scoop-bucket
+          ref: main
+          token: ${{ secrets.PACKAGES_TOKEN }}
+          path: scoop-bucket
+
+      - name: Download checksums
+        run: |
+          curl -fsSL --retry 8 --retry-all-errors --retry-delay 5 \
+            "https://github.com/${{ github.repository }}/releases/download/${{ needs.release.outputs.version }}/checksums.txt" \
+            -o checksums.txt
+
+      - name: Update Homebrew formula
+        run: |
+          set -euo pipefail
+          VER_NUM="${{ needs.release.outputs.version }}"
+          VER_NUM="${VER_NUM#v}"
+
+          hash_for() {
+            local sum
+            sum=$(awk -v f="$1" '$2 == f || $2 == "*" f { print $1 }' checksums.txt)
+            if [ ${#sum} -ne 64 ]; then
+              echo "::error::no SHA-256 for $1 in checksums.txt" >&2
+              exit 1
+            fi
+            printf '%s' "$sum"
+          }
+          DARWIN_ARM64=$(hash_for keleustes-darwin-arm64)
+          DARWIN_AMD64=$(hash_for keleustes-darwin-amd64)
+          LINUX_ARM64=$(hash_for keleustes-linux-arm64)
+          LINUX_AMD64=$(hash_for keleustes-linux-amd64)
+
+          cd homebrew-tap
+          BREW="Formula/keleustes.rb"
+          if [ ! -f "$BREW" ]; then
+            echo "::error::homebrew-tap has no $BREW" >&2
+            exit 1
+          fi
+          CUR=$(sed -n 's/^ *version "\([^"]*\)".*/\1/p' "$BREW" | head -n1)
+          if [ -n "$CUR" ] && [ "$CUR" != "$VER_NUM" ] && \
+             [ "$(printf '%s\n%s\n' "$CUR" "$VER_NUM" | sort -V | tail -n1)" = "$CUR" ]; then
+            echo "::notice::homebrew-tap already has keleustes ${CUR}, newer than ${VER_NUM}; not updating"
+            exit 0
+          fi
+
+          sed -i "s/version \"[^\"]*\"/version \"${VER_NUM}\"/" "$BREW"
+          sed -i "/keleustes-darwin-arm64/{n;s/sha256 \"[a-f0-9]*\"/sha256 \"${DARWIN_ARM64}\"/}" "$BREW"
+          sed -i "/keleustes-darwin-amd64/{n;s/sha256 \"[a-f0-9]*\"/sha256 \"${DARWIN_AMD64}\"/}" "$BREW"
+          sed -i "/keleustes-linux-arm64/{n;s/sha256 \"[a-f0-9]*\"/sha256 \"${LINUX_ARM64}\"/}" "$BREW"
+          sed -i "/keleustes-linux-amd64/{n;s/sha256 \"[a-f0-9]*\"/sha256 \"${LINUX_AMD64}\"/}" "$BREW"
+
+          # Every sed above is positional (the line after a URL). A moved
+          # layout would match nothing and keep the old checksums, the one
+          # failure that looks like success.
+          for want in "${VER_NUM}" "${DARWIN_ARM64}" "${DARWIN_AMD64}" "${LINUX_ARM64}" "${LINUX_AMD64}"; do
+            if ! grep -q "$want" "$BREW"; then
+              echo "::error::$BREW does not contain $want after the edit; the formula layout has moved" >&2
+              exit 1
+            fi
+          done
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$BREW"
+          if ! git diff --cached --quiet; then
+            git commit -m "keleustes ${VER_NUM}"
+            for attempt in 1 2 3 4; do
+              git push && break
+              [ "$attempt" = 4 ] && { echo "::error::could not push to homebrew-tap" >&2; exit 1; }
+              sleep $((attempt * 5))
+              git pull --rebase origin main
+            done
+          fi
+
+      - name: Update Scoop manifest
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VER_NUM="${{ needs.release.outputs.version }}"
+          VER_NUM="${VER_NUM#v}"
+          WIN_AMD64=$(awk '$2 == "keleustes-windows-amd64.exe" || $2 == "*keleustes-windows-amd64.exe" { print $1 }' checksums.txt)
+          if [ ${#WIN_AMD64} -ne 64 ]; then
+            echo "::error::no SHA-256 for keleustes-windows-amd64.exe in checksums.txt" >&2
+            exit 1
+          fi
+
+          cd scoop-bucket
+          if [ ! -f bucket/keleustes.json ]; then
+            echo "::error::scoop-bucket has no bucket/keleustes.json" >&2
+            exit 1
+          fi
+          CUR=$(jq -r '.version // ""' bucket/keleustes.json)
+          if [ -n "$CUR" ] && [ "$CUR" != "$VER_NUM" ] && \
+             [ "$(printf '%s\n%s\n' "$CUR" "$VER_NUM" | sort -V | tail -n1)" = "$CUR" ]; then
+            echo "::notice::scoop-bucket already has keleustes ${CUR}, newer than ${VER_NUM}; not updating"
+            exit 0
+          fi
+          jq --indent 4 \
+            --arg v "$VER_NUM" \
+            --arg h64 "$WIN_AMD64" \
+            --arg repo "$REPO" \
+            '.version = $v |
+             .architecture."64bit".url = "https://github.com/\($repo)/releases/download/v\($v)/keleustes-windows-amd64.exe#/keleustes.exe" |
+             .architecture."64bit".hash = $h64' bucket/keleustes.json > "$RUNNER_TEMP/keleustes.json"
+          mv "$RUNNER_TEMP/keleustes.json" bucket/keleustes.json
+
+          test "$(jq -r .version bucket/keleustes.json)" = "$VER_NUM"
+          test "$(jq -r '.architecture."64bit".hash' bucket/keleustes.json)" = "$WIN_AMD64"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bucket/keleustes.json
+          if ! git diff --cached --quiet; then
+            git commit -m "keleustes ${VER_NUM}"
+            for attempt in 1 2 3 4; do
+              git push && break
+              [ "$attempt" = 4 ] && { echo "::error::could not push to scoop-bucket" >&2; exit 1; }
+              sleep $((attempt * 5))
+              git pull --rebase origin main
+            done
+          fi
+
+  # Publish the release to the Transparency Exchange API, as belai's release
+  # does: after update-packages, so the Homebrew and Scoop channels it names
+  # already carry the version.
+  publish-tea:
+    needs: [release, update-packages, provenance]
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.update-packages.result == 'success' }}
+    runs-on: [self-hosted, Linux, X64, vulnetix-local]
+    timeout-minutes: 20
+    # id-token: keyless signing against public Fulcio.
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      VULNETIX_ORG_ID: ${{ secrets.VULNETIX_ORG_ID }}
+      VULNETIX_API_KEY: ${{ secrets.VULNETIX_API_KEY }}
+      # Pinned, as in belai's release.
+      CLI_VERSION: v3.126.7
+    steps:
+      - name: Require the Vulnetix credentials
+        run: |
+          if [ -z "$VULNETIX_ORG_ID" ] || [ -z "$VULNETIX_API_KEY" ]; then
+            echo "::error::VULNETIX_ORG_ID and VULNETIX_API_KEY are not set for this repository; nothing can be published to TEA"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.release.outputs.version }}
+
+      - name: Install the Vulnetix CLI
+        run: |
+          # Download to a file, never `curl | sh`: a failed download would
+          # otherwise run an empty script and pass the step.
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 \
+            -o "$RUNNER_TEMP/vulnetix-install.sh" https://cli.vulnetix.com/install.sh
+          sh "$RUNNER_TEMP/vulnetix-install.sh" --install-dir "$HOME/.local/bin" --version "$CLI_VERSION"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Download the provenance bundle
+        continue-on-error: true
+        uses: actions/download-artifact@v8.0.2
+        with:
+          name: slsa-provenance
+          path: provenance
+
+      - name: Download checksums
+        run: |
+          curl -fsSL --retry 8 --retry-all-errors --retry-delay 5 \
+            "https://github.com/${{ github.repository }}/releases/download/${{ needs.release.outputs.version }}/checksums.txt" \
+            -o checksums.txt
+
+      # A quality-gate breach makes `sca` exit non-zero after it writes the
+      # SBOM; that is a scan verdict, not a publication failure.
+      - name: Generate the release SBOM
+        continue-on-error: true
+        run: vulnetix sca --no-banner --no-progress -o keleustes.cdx.json
+
+      - name: Report what was produced
+        run: |
+          if [ -s keleustes.cdx.json ]; then
+            echo "SBOM: $(wc -c < keleustes.cdx.json) bytes"
+          else
+            echo "::warning::no SBOM was produced; publishing the release without one"
+          fi
+          if [ -s provenance/provenance.sigstore.json ]; then
+            echo "provenance: $(wc -c < provenance/provenance.sigstore.json) bytes"
+          else
+            echo "::warning::no provenance bundle was produced; publishing the release without it"
+          fi
+
+      # v3 of the installer, as in belai and the cli: the cosign it installs
+      # honours --output-signature and --output-certificate.
+      - name: Install cosign
+        if: hashFiles('keleustes.cdx.json') != ''
+        uses: sigstore/cosign-installer@v3.10.1
+
+      - name: Sign the SBOM (keyless)
+        if: hashFiles('keleustes.cdx.json') != ''
+        run: |
+          set -euo pipefail
+
+          cosign sign-blob --yes \
+            --output-signature keleustes.cdx.json.sig \
+            --output-certificate keleustes.cdx.json.pem \
+            keleustes.cdx.json
+
+          cosign attest-blob --yes \
+            --type cyclonedx \
+            --predicate keleustes.cdx.json \
+            --output-attestation keleustes.cdx.json.intoto.jsonl \
+            keleustes.cdx.json
+
+          cosign verify-blob \
+            --signature keleustes.cdx.json.sig \
+            --certificate keleustes.cdx.json.pem \
+            --certificate-identity-regexp '^https://github.com/${{ github.repository }}/' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            keleustes.cdx.json
+
+          gh release upload "${{ needs.release.outputs.version }}" \
+            keleustes.cdx.json.sig keleustes.cdx.json.pem \
+            keleustes.cdx.json.intoto.jsonl --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish product, release, artifacts and distributions
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.release.outputs.version }}"
+          REPO="${{ github.repository }}"
+          vulnetix tea release keleustes.cdx.json provenance/provenance.sigstore.json \
+            --version "$VERSION" \
+            --checksums checksums.txt \
+            --exclude checksums.txt \
+            --channel "name=Homebrew: brew install vulnetix/tap/keleustes,url=https://github.com/Vulnesis/homebrew-tap" \
+            --channel "name=Scoop: scoop bucket add vulnetix https://github.com/Vulnesis/scoop-bucket && scoop install keleustes,url=https://github.com/Vulnesis/scoop-bucket" \
+            --channel "name=Nix: nix profile install github:${REPO}/${VERSION},url=https://github.com/${REPO}/blob/${VERSION}/flake.nix" \
+            --channel "name=Install script: curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | sh,url=https://raw.githubusercontent.com/${REPO}/main/install.sh" \
+            --visibility public

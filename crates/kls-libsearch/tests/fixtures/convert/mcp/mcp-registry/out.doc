@@ -1,0 +1,1 @@
+{"args":["-y","@github/mcp-server@0.20.1","stdio"],"command":"npx","env":{"GITHUB_HOST":"github.com","GITHUB_PERSONAL_ACCESS_TOKEN":"cred:GITHUB_PERSONAL_ACCESS_TOKEN"},"name":"github-mcp-server","transport":"stdio"}

@@ -1,0 +1,17 @@
+[
+  {
+    "field": "homepage",
+    "kind": "mapped",
+    "text": "kept in provenance"
+  },
+  {
+    "field": "metadata",
+    "kind": "metadata",
+    "text": "kept as one line"
+  },
+  {
+    "field": "requires.bins",
+    "kind": "warning",
+    "text": "[\"curl\"]"
+  }
+]

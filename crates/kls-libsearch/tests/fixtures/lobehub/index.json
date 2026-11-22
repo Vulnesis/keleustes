@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "agents": [
+    {
+      "author": "CSY2022",
+      "createdAt": "2025-06-19",
+      "homepage": "https://github.com/CSY2022",
+      "identifier": "lateral-thinking-puzzle",
+      "knowledgeCount": 0,
+      "meta": {
+        "avatar": "🐢",
+        "description": "A turtle soup host needs to provide the scenario, the complete story (truth of the event), and the key point (the condition for guessing correctly).",
+        "tags": [
+          "Turtle Soup",
+          "Reasoning",
+          "Interaction",
+          "Puzzle",
+          "Role-playing"
+        ],
+        "title": "Turtle Soup Host",
+        "category": "games"
+      },
+      "pluginCount": 0,
+      "schemaVersion": 1,
+      "tokenUsage": 1531
+    },
+    {
+      "author": "swarfte",
+      "createdAt": "2025-06-17",
+      "homepage": "https://github.com/swarfte",
+      "identifier": "academic-writing-assistant",
+      "knowledgeCount": 0,
+      "meta": {
+        "avatar": "📘",
+        "description": "Expert in academic research paper writing and formal documentation",
+        "tags": [
+          "academic-writing",
+          "research",
+          "formal-style"
+        ],
+        "title": "Academic Writing Assistant",
+        "category": "academic"
+      },
+      "pluginCount": 0,
+      "schemaVersion": 1,
+      "tokenUsage": 314
+    },
+    {
+      "author": "renhai-lab",
+      "createdAt": "2025-06-17",
+      "homepage": "https://github.com/renhai-lab",
+      "identifier": "food-reviewer",
+      "knowledgeCount": 0,
+      "meta": {
+        "avatar": "😋",
+        "description": "Food critique expert",
+        "tags": [
+          "gourmet",
+          "review",
+          "writing"
+        ],
+        "title": "Gourmet Reviewer🍟",
+        "category": "entertainment"
+      },
+      "pluginCount": 0,
+      "schemaVersion": 1,
+      "tokenUsage": 64
+    },
+    {
+      "author": "iamyuuk",
+      "createdAt": "2025-06-17",
+      "homepage": "https://github.com/iamyuuk",
+      "identifier": "java-development",
+      "knowledgeCount": 0,
+      "meta": {
+        "avatar": "♦️",
+        "description": "Expert in advanced Java development and Minecraft mod and server plugin development",
+        "tags": [
+          "Development",
+          "Programming",
+          "minecraft",
+          "java"
+        ],
+        "title": "Minecraft Senior Developer",
+        "category": "programming"
+      },
+      "pluginCount": 0,
+      "schemaVersion": 1,
+      "tokenUsage": 448
+    },
+    {
+      "author": "ashreo",
+      "createdAt": "2025-06-17",
+      "homepage": "https://github.com/ashreo",
+      "identifier": "opensource-licence-analyst",
+      "knowledgeCount": 0,
+      "meta": {
+        "avatar": "💡",
+        "description": "Expert in open source license analysis and project matching",
+        "tags": [
+          "Open Source",
+          "Analysis",
+          "License",
+          "Project"
+        ],
+        "title": "Open Source License Analyst",
+        "category": "programming"
+      },
+      "pluginCount": 0,
+      "schemaVersion": 1,
+      "tokenUsage": 395
+    }
+  ],
+  "tags": [
+    "writing",
+    "programming",
+    "Writing",
+    "code",
+    "education"
+  ]
+}

@@ -1,0 +1,1 @@
+{"headers":{"X-API-Key":"cred:X_API_KEY","X-Region":"eu"},"name":"weather","transport":"http","url":"https://mcp.example.com/mcp"}

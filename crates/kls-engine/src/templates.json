@@ -1,0 +1,3795 @@
+[
+  {
+    "id": "feature-from-card",
+    "category": "Delivery",
+    "name": "Feature from a card",
+    "description": "A card moved to To do goes to a builder; you approve the result before the card moves to Review.",
+    "flow": [
+      "card to todo",
+      "belai:builder",
+      "approval",
+      "card to review"
+    ],
+    "trigger": {
+      "kind": "kanban",
+      "label": "card moved to todo"
+    },
+    "output": "card in review",
+    "badges": [],
+    "requires": {
+      "crews": [
+        "belai:builder"
+      ],
+      "integrations": []
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Card ready",
+          "config": {
+            "kind": "kanban",
+            "fromList": "",
+            "toList": "todo",
+            "overlap": "queue"
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Build the feature",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:builder",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 2,
+            "brief": "Implement the card's request on a branch, with tests. Keep the change small and say what you changed."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "human",
+          "title": "Approve the change",
+          "config": {
+            "approvers": [
+              "owner"
+            ],
+            "slaHours": 24,
+            "onTimeout": "park_and_renotify"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        },
+        {
+          "id": "n4",
+          "type": "card",
+          "title": "Move to review",
+          "config": {
+            "action": "move",
+            "status": "review"
+          },
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        },
+        {
+          "from": "n3",
+          "to": "n4"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 400000,
+        "concurrency": 2
+      }
+    }
+  },
+  {
+    "id": "bug-repro-to-fix",
+    "category": "Testing",
+    "name": "Bug: reproduce, then fix",
+    "description": "A reproducer confirms the bug first; only a confirmed bug goes to the builder, and a gate checks the fix.",
+    "flow": [
+      "manual",
+      "belai:repro",
+      "confirmed?",
+      "belai:builder",
+      "gate",
+      "notify"
+    ],
+    "trigger": {
+      "kind": "manual",
+      "label": "by hand"
+    },
+    "output": "notice",
+    "badges": [],
+    "requires": {
+      "crews": [
+        "belai:repro",
+        "belai:builder"
+      ],
+      "integrations": []
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Start by hand",
+          "config": {
+            "kind": "manual"
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Reproduce the bug",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:repro",
+            "await": "session",
+            "maxAttempts": 2
+          },
+          "position": {
+            "x": 240,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "condition",
+          "title": "Reproduced?",
+          "config": {
+            "rules": [
+              {
+                "path": "steps.n2.status",
+                "op": "eq",
+                "value": "succeeded",
+                "outcome": "confirmed"
+              }
+            ],
+            "default": "not_reproduced",
+            "outcomes": [
+              {
+                "value": "confirmed"
+              },
+              {
+                "value": "not_reproduced",
+                "end": true
+              }
+            ]
+          },
+          "position": {
+            "x": 440,
+            "y": 80
+          }
+        },
+        {
+          "id": "n4",
+          "type": "crew",
+          "title": "Fix the bug",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:builder",
+            "await": "session",
+            "maxAttempts": 2
+          },
+          "position": {
+            "x": 640,
+            "y": 40
+          }
+        },
+        {
+          "id": "n5",
+          "type": "gate",
+          "title": "Fix verified",
+          "config": {
+            "check": "manual",
+            "onFail": "return_to_crew"
+          },
+          "position": {
+            "x": 840,
+            "y": 40
+          }
+        },
+        {
+          "id": "n6",
+          "type": "notify",
+          "title": "Tell me",
+          "config": {
+            "message": "{workflow}: the bug is fixed ({run})",
+            "severity": "notice"
+          },
+          "position": {
+            "x": 1040,
+            "y": 40
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        },
+        {
+          "from": "n3",
+          "to": "n4",
+          "outcome": "confirmed"
+        },
+        {
+          "from": "n4",
+          "to": "n5"
+        },
+        {
+          "from": "n5",
+          "to": "n4",
+          "outcome": "fail",
+          "loop": true
+        },
+        {
+          "from": "n5",
+          "to": "n6",
+          "outcome": "pass"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 500000,
+        "stopTheLineAttempts": 3
+      }
+    }
+  },
+  {
+    "id": "nightly-regression",
+    "category": "Testing",
+    "name": "Nightly regression",
+    "description": "Every night the test fixer runs the test suite; failing tests are fixed on a branch and opened as a draft pull request.",
+    "flow": [
+      "nightly",
+      "belai:test-fixer",
+      "draft PR"
+    ],
+    "trigger": {
+      "kind": "cron",
+      "label": "nightly"
+    },
+    "output": "Draft PR",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:test-fixer"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Nightly",
+          "config": {
+            "kind": "cron",
+            "cron": "0 2 * * *",
+            "tz": "UTC",
+            "overlap": "skip_if_running",
+            "catchUp": "once"
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Run and fix the tests",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:test-fixer",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Run the project's test suite. If tests fail, fix them on a branch with the smallest change and prove it."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "github",
+          "title": "Open a draft PR",
+          "config": {
+            "action": "draft_pr",
+            "prState": "draft",
+            "ifNoBranch": "skip"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        },
+        {
+          "id": "n4",
+          "type": "notify",
+          "title": "Notify",
+          "config": {
+            "message": "{workflow}: nightly tests done ({run})",
+            "severity": "info"
+          },
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        },
+        {
+          "from": "n3",
+          "to": "n4"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 300000
+      }
+    }
+  },
+  {
+    "id": "dependency-hygiene",
+    "category": "Hygiene",
+    "name": "Dependency hygiene",
+    "description": "Weekly, a builder upgrades Go modules and another JavaScript packages; you approve both.",
+    "flow": [
+      "cron mon 06:00",
+      "Go modules",
+      "JavaScript packages",
+      "approval"
+    ],
+    "trigger": {
+      "kind": "cron",
+      "label": "weekly"
+    },
+    "output": "approval",
+    "badges": [],
+    "requires": {
+      "crews": [
+        "belai:builder"
+      ],
+      "integrations": []
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Weekly sweep",
+          "config": {
+            "kind": "cron",
+            "cron": "0 6 * * 1",
+            "tz": "UTC",
+            "overlap": "skip_if_running",
+            "catchUp": "once"
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Go modules",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:builder",
+            "await": "session",
+            "brief": "Upgrade the Go modules in go.mod and go.sum to their latest patch and minor versions. Run go build and go test. Write upgrades.json listing each module, its old and new version."
+          },
+          "position": {
+            "x": 260,
+            "y": 20
+          }
+        },
+        {
+          "id": "n3",
+          "type": "crew",
+          "title": "JavaScript packages",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:builder",
+            "await": "session",
+            "brief": "Upgrade the packages in package.json and the lockfile to their latest patch and minor versions. Run the build and the tests. Write upgrades.json listing each package, its old and new version."
+          },
+          "position": {
+            "x": 260,
+            "y": 140
+          }
+        },
+        {
+          "id": "n4",
+          "type": "human",
+          "title": "Approve the upgrades",
+          "config": {
+            "approvers": [
+              "owner"
+            ],
+            "slaHours": 72,
+            "onTimeout": "end_run"
+          },
+          "position": {
+            "x": 500,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n1",
+          "to": "n3"
+        },
+        {
+          "from": "n2",
+          "to": "n4"
+        },
+        {
+          "from": "n3",
+          "to": "n4"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 400000,
+        "concurrency": 1
+      }
+    }
+  },
+  {
+    "id": "session-follow-up",
+    "category": "Operations",
+    "name": "Session follow-up",
+    "description": "When a session ends, a reviewer looks at what it did and posts a notice.",
+    "flow": [
+      "session.ended",
+      "belai:reviewer",
+      "notify"
+    ],
+    "trigger": {
+      "kind": "event",
+      "label": "session ended"
+    },
+    "output": "notice",
+    "badges": [],
+    "requires": {
+      "crews": [
+        "belai:reviewer"
+      ],
+      "integrations": []
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Session ended",
+          "config": {
+            "kind": "event",
+            "event": "session.ended",
+            "overlap": "queue"
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Review the session's work",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:reviewer",
+            "await": "session",
+            "brief": "Review the changes the session that just ended made. List problems with file and line, and say whether it is ready."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "notify",
+          "title": "Post the review",
+          "config": {
+            "message": "{workflow}: review done ({run})",
+            "severity": "info"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        }
+      ],
+      "limits": {
+        "concurrency": 2
+      }
+    }
+  },
+  {
+    "id": "kanban-triage-autopilot",
+    "category": "Operations",
+    "name": "Kanban triage autopilot",
+    "description": "A card entering Triage is scouted; you decide whether it goes to the backlog.",
+    "flow": [
+      "card to triage",
+      "belai:scout",
+      "approval",
+      "card to backlog"
+    ],
+    "trigger": {
+      "kind": "kanban",
+      "label": "card moved to triage"
+    },
+    "output": "card in backlog",
+    "badges": [],
+    "requires": {
+      "crews": [
+        "belai:scout"
+      ],
+      "integrations": []
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "New in triage",
+          "config": {
+            "kind": "kanban",
+            "toList": "triage",
+            "overlap": "queue"
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Scout the card",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:scout",
+            "mode": "plan",
+            "await": "session"
+          },
+          "position": {
+            "x": 240,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "human",
+          "title": "Accept into backlog",
+          "config": {
+            "approvers": [
+              "owner"
+            ],
+            "slaHours": 48
+          },
+          "position": {
+            "x": 440,
+            "y": 80
+          }
+        },
+        {
+          "id": "n4",
+          "type": "card",
+          "title": "Move to backlog",
+          "config": {
+            "action": "move",
+            "status": "backlog"
+          },
+          "position": {
+            "x": 640,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        },
+        {
+          "from": "n3",
+          "to": "n4"
+        }
+      ],
+      "limits": {
+        "concurrency": 3
+      }
+    }
+  },
+  {
+    "id": "delivery-sweep",
+    "category": "Delivery",
+    "name": "Friday delivery sweep",
+    "description": "Every Friday a delivery crew gathers what shipped this week and you get a summary.",
+    "flow": [
+      "cron fri 16:00",
+      "belai:delivery",
+      "notify"
+    ],
+    "trigger": {
+      "kind": "cron",
+      "label": "fridays"
+    },
+    "output": "notice",
+    "badges": [],
+    "requires": {
+      "crews": [
+        "belai:delivery"
+      ],
+      "integrations": []
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Friday delivery sweep",
+          "config": {
+            "kind": "cron",
+            "cron": "0 16 * * 5",
+            "tz": "UTC",
+            "overlap": "skip_if_running",
+            "catchUp": "skip"
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Summarise the week",
+          "config": {
+            "dispatch": "crew",
+            "crew": "belai:delivery",
+            "mode": "goal",
+            "await": "session"
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "notify",
+          "title": "Send the summary",
+          "config": {
+            "message": "{workflow}: weekly delivery summary is ready ({run})",
+            "severity": "info"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        }
+      ]
+    }
+  },
+  {
+    "id": "pr-reviewer",
+    "category": "Delivery",
+    "name": "Pull request reviewer",
+    "description": "A pull request opened on GitHub (not a draft) gets a review from the PR reviewer, posted as a review. Needs GitHub connected.",
+    "flow": [
+      "pull_request.opened",
+      "belai:pr-reviewer",
+      "review"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "pull request opened"
+    },
+    "output": "PR review",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:pr-reviewer"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Pull request opened",
+          "config": {
+            "kind": "webhook",
+            "event": "pull_request.opened",
+            "overlap": "queue",
+            "conditions": {
+              "drafts": "exclude"
+            }
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Review the pull request",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:pr-reviewer",
+            "await": "session"
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "github",
+          "title": "Post the review",
+          "config": {
+            "action": "pr_review"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        }
+      ]
+    }
+  },
+  {
+    "id": "ci-failure-fixer",
+    "category": "Testing",
+    "name": "CI failure fixer",
+    "description": "A failing check suite on a pull request gets the bug crew: reproduce, fix, review, then a draft pull request. Needs GitHub connected.",
+    "flow": [
+      "check_suite.completed",
+      "belai:bug",
+      "draft PR"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "checks finished"
+    },
+    "output": "Draft PR",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:bug"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Checks finished",
+          "config": {
+            "kind": "webhook",
+            "event": "check_suite.completed",
+            "overlap": "skip_if_running",
+            "conditions": {
+              "drafts": "exclude",
+              "origin": "same_repo"
+            },
+            "debounceSeconds": 300,
+            "maxRunsPerHour": 6
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Fix the failure",
+          "config": {
+            "dispatch": "crew",
+            "crew": "belai:bug",
+            "mode": "goal",
+            "await": "session",
+            "maxAttempts": 2,
+            "brief": "The pull request's checks failed. Reproduce the failure, fix it with the smallest change and prove it with the failing check."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "github",
+          "title": "Open a draft PR",
+          "config": {
+            "action": "draft_pr",
+            "prState": "draft"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        }
+      ]
+    }
+  },
+  {
+    "id": "dependabot-triage",
+    "category": "Hygiene",
+    "name": "Dependabot triage",
+    "description": "A Dependabot pull request gets a strategy check: is the upgrade safe, does it need code changes. The verdict is posted as a comment. Needs GitHub connected.",
+    "flow": [
+      "pull_request.opened",
+      "belai:dep-strategist",
+      "comment"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "Dependabot pull request"
+    },
+    "output": "PR comment",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:dep-strategist"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Dependabot PR",
+          "config": {
+            "kind": "webhook",
+            "event": "pull_request.opened",
+            "overlap": "queue",
+            "conditions": {
+              "authorType": "bot",
+              "authorsAllow": [
+                "dependabot[bot]",
+                "dependabot"
+              ]
+            }
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Check the upgrade",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:dep-strategist",
+            "await": "session",
+            "maxAttempts": 2
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "github",
+          "title": "Post the verdict",
+          "config": {
+            "action": "issue_comment"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        }
+      ]
+    }
+  },
+  {
+    "id": "ui-polish-pass",
+    "category": "Delivery",
+    "name": "UI polish pass",
+    "description": "The UI crew designs a polish pass, you approve the design, then it is built and opened as a draft pull request.",
+    "flow": [
+      "by hand",
+      "belai:ui",
+      "approval",
+      "draft PR"
+    ],
+    "trigger": {
+      "kind": "manual",
+      "label": "by hand"
+    },
+    "output": "Draft PR",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:ui"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Start by hand",
+          "config": {
+            "kind": "manual"
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Polish the UI",
+          "config": {
+            "dispatch": "crew",
+            "crew": "belai:ui",
+            "mode": "goal",
+            "await": "session",
+            "maxAttempts": 2,
+            "brief": "Find the rough edges in the user interface (spacing, contrast, states, copy) and fix the worst ones."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "human",
+          "title": "Approve the result",
+          "config": {
+            "approvers": [
+              "owner"
+            ],
+            "slaHours": 48,
+            "onTimeout": "park_and_renotify"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        },
+        {
+          "id": "n4",
+          "type": "github",
+          "title": "Open a draft PR",
+          "config": {
+            "action": "draft_pr",
+            "prState": "draft"
+          },
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        },
+        {
+          "from": "n3",
+          "to": "n4"
+        }
+      ]
+    }
+  },
+  {
+    "id": "security-patch-train",
+    "category": "Security",
+    "name": "Security patch train",
+    "description": "Every week the security crew scans for known vulnerabilities, patches them and verifies each fix; green checks gate a draft pull request.",
+    "flow": [
+      "weekly",
+      "belai:security",
+      "checks",
+      "draft PR"
+    ],
+    "trigger": {
+      "kind": "cron",
+      "label": "weekly"
+    },
+    "output": "Draft PR",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:security"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Mondays",
+          "config": {
+            "kind": "cron",
+            "cron": "0 5 * * 1",
+            "tz": "UTC",
+            "overlap": "skip_if_running",
+            "catchUp": "once"
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Patch vulnerabilities",
+          "config": {
+            "dispatch": "crew",
+            "crew": "belai:security",
+            "mode": "goal",
+            "await": "session",
+            "maxAttempts": 2
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "github",
+          "title": "Open a draft PR",
+          "config": {
+            "action": "draft_pr",
+            "prState": "draft"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        },
+        {
+          "id": "n4",
+          "type": "gate",
+          "title": "Checks pass",
+          "config": {
+            "check": "forge",
+            "onFail": "end_run"
+          },
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        },
+        {
+          "from": "n3",
+          "to": "n4"
+        }
+      ]
+    }
+  },
+  {
+    "id": "release-provenance",
+    "category": "Security",
+    "name": "Release provenance",
+    "description": "The release steward checks a release: changelog, signed tags, SBOM and provenance, and files a ticket with what is missing.",
+    "flow": [
+      "by hand",
+      "belai:release-steward",
+      "notice"
+    ],
+    "trigger": {
+      "kind": "manual",
+      "label": "by hand"
+    },
+    "output": "Ticket",
+    "badges": [],
+    "requires": {
+      "crews": [
+        "belai:release-steward"
+      ],
+      "integrations": []
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Start by hand",
+          "config": {
+            "kind": "manual"
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Check the release",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:release-steward",
+            "await": "session",
+            "maxAttempts": 2,
+            "brief": "Check the latest release: changelog, signed tag, SBOM and build provenance. List what is missing."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "notify",
+          "title": "Notify",
+          "config": {
+            "message": "{workflow}: release checked ({run})",
+            "severity": "info"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        }
+      ]
+    }
+  },
+  {
+    "id": "nightly-blackbox",
+    "category": "Testing",
+    "name": "Nightly blackbox regression",
+    "description": "Treats a running build as a black box: the reproducer drives it through scripted scenarios without reading source, the verifier compares with the last good run, and a decision says whether a difference is a regression. A regression becomes an issue.",
+    "flow": [
+      "cron 22:00",
+      "belai:repro",
+      "belai:verifier",
+      "is_regression",
+      "issue"
+    ],
+    "trigger": {
+      "kind": "cron",
+      "label": "nightly 22:00"
+    },
+    "output": "Issue",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:repro",
+        "belai:verifier"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Nightly blackbox run",
+          "config": {
+            "kind": "cron",
+            "cron": "0 22 * * *",
+            "tz": "UTC",
+            "overlap": "skip_if_running",
+            "catchUp": "skip"
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Drive the running build",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:repro",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Treat the running build as a black box and do not read its source. Drive it through scripted scenarios, one for each behaviour a user can see, and record what every scenario did in run.json."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "crew",
+          "title": "Compare to the last good run",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:verifier",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Compare run.json with the last good run and list every difference in diff.json. Report the differences only. Whether a difference is a regression is decided in the next step."
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        },
+        {
+          "id": "n4",
+          "type": "decision",
+          "title": "Is it a regression?",
+          "config": {
+            "question": "Is this difference a regression?",
+            "outcomes": [
+              {
+                "value": "regression"
+              },
+              {
+                "value": "flaky"
+              },
+              {
+                "value": "no_change",
+                "end": true
+              }
+            ],
+            "threshold": 0.8,
+            "belowThreshold": "human",
+            "onAbstain": "human"
+          },
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        },
+        {
+          "id": "n5",
+          "type": "github",
+          "title": "File the regression",
+          "config": {
+            "action": "file_issues",
+            "label": "sf:regression",
+            "title": "Nightly blackbox regression"
+          },
+          "position": {
+            "x": 920,
+            "y": 80
+          }
+        },
+        {
+          "id": "n6",
+          "type": "notify",
+          "title": "Flaky difference",
+          "config": {
+            "message": "{workflow}: a flaky difference was seen ({run})",
+            "severity": "info"
+          },
+          "position": {
+            "x": 1140,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        },
+        {
+          "from": "n3",
+          "to": "n4"
+        },
+        {
+          "from": "n4",
+          "to": "n5",
+          "outcome": "regression"
+        },
+        {
+          "from": "n4",
+          "to": "n6",
+          "outcome": "flaky"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 350000
+      }
+    }
+  },
+  {
+    "id": "feature-from-issue",
+    "category": "Delivery",
+    "name": "Feature from issue",
+    "description": "An issue labelled belai:feature goes to the planner. You sign the plan off, the builder implements it, the reviewer checks it against the acceptance criteria, and a draft pull request opens.",
+    "flow": [
+      "issue labelled",
+      "belai:planner",
+      "plan approval",
+      "belai:builder",
+      "belai:reviewer",
+      "draft PR"
+    ],
+    "trigger": {
+      "kind": "label",
+      "label": "issue label"
+    },
+    "output": "Draft PR",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:planner",
+        "belai:builder",
+        "belai:reviewer"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Issue labelled belai:feature",
+          "config": {
+            "kind": "label",
+            "label": "belai:feature",
+            "overlap": "skip_if_running",
+            "maxRunsPerHour": 10
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Plan the work",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:planner",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Read the issue and write a plan with acceptance criteria, in plan.md."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "human",
+          "title": "Plan approval",
+          "config": {
+            "approvers": [
+              "owner"
+            ],
+            "slaHours": 48,
+            "onTimeout": "park_and_renotify"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        },
+        {
+          "id": "n4",
+          "type": "crew",
+          "title": "Implement",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:builder",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 2,
+            "brief": "Implement the approved plan on a branch. Keep to the acceptance criteria."
+          },
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        },
+        {
+          "id": "n5",
+          "type": "crew",
+          "title": "Review against the criteria",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:reviewer",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Review the branch against the acceptance criteria in the plan and write review.json."
+          },
+          "position": {
+            "x": 920,
+            "y": 80
+          }
+        },
+        {
+          "id": "n6",
+          "type": "gate",
+          "title": "Meets the acceptance criteria",
+          "config": {
+            "check": "manual",
+            "onFail": "return_to_crew"
+          },
+          "position": {
+            "x": 1140,
+            "y": 80
+          }
+        },
+        {
+          "id": "n7",
+          "type": "github",
+          "title": "Draft pull request",
+          "config": {
+            "action": "draft_pr",
+            "prState": "draft",
+            "ifNoBranch": "skip"
+          },
+          "position": {
+            "x": 1360,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        },
+        {
+          "from": "n3",
+          "to": "n4"
+        },
+        {
+          "from": "n4",
+          "to": "n5"
+        },
+        {
+          "from": "n5",
+          "to": "n6"
+        },
+        {
+          "from": "n6",
+          "to": "n7",
+          "outcome": "pass"
+        },
+        {
+          "from": "n6",
+          "to": "n4",
+          "outcome": "fail",
+          "loop": true
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 600000
+      }
+    }
+  },
+  {
+    "id": "malware-response",
+    "category": "Security",
+    "name": "Malware response",
+    "description": "A Dependabot alert that names malware pins the safe version, a decision sizes the blast radius, wide cases notify you, and an issue tracks the response. No model chooses whether to block.",
+    "flow": [
+      "Dependabot alert",
+      "malware?",
+      "belai:patcher",
+      "blast radius",
+      "notify",
+      "issue"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "Dependabot alert"
+    },
+    "output": "Issue + notice",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:patcher"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Dependabot alert",
+          "config": {
+            "kind": "webhook",
+            "event": "dependabot_alert.created",
+            "overlap": "skip_if_running",
+            "maxRunsPerHour": 20
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "condition",
+          "title": "Is it malware?",
+          "config": {
+            "rules": [
+              {
+                "path": "event.data.summary",
+                "op": "contains",
+                "value": "malware",
+                "outcome": "malware"
+              },
+              {
+                "path": "event.data.summary",
+                "op": "contains",
+                "value": "Malware",
+                "outcome": "malware"
+              },
+              {
+                "path": "event.data.summary",
+                "op": "contains",
+                "value": "malicious",
+                "outcome": "malware"
+              }
+            ],
+            "default": "other",
+            "outcomes": [
+              {
+                "value": "malware"
+              },
+              {
+                "value": "other",
+                "end": true
+              }
+            ]
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "crew",
+          "title": "Pin the safe version",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:patcher",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Pin the package named in the alert to the newest earlier version that is not flagged. Change the version pin and its lockfile entry and nothing else, and do not run install scripts from the flagged package. Record the package, the old version and the pinned version in pin.json."
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        },
+        {
+          "id": "n4",
+          "type": "decision",
+          "title": "Blast radius",
+          "config": {
+            "question": "How widely is the malicious package used?",
+            "outcomes": [
+              {
+                "value": "contained"
+              },
+              {
+                "value": "wide"
+              }
+            ],
+            "threshold": 0.8,
+            "belowThreshold": "human",
+            "onAbstain": "human"
+          },
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        },
+        {
+          "id": "n5",
+          "type": "notify",
+          "title": "Notify on-call",
+          "config": {
+            "message": "{workflow}: malicious package in wide use ({run})",
+            "severity": "critical"
+          },
+          "position": {
+            "x": 920,
+            "y": 80
+          }
+        },
+        {
+          "id": "n6",
+          "type": "github",
+          "title": "Track the response",
+          "config": {
+            "action": "file_issues",
+            "label": "sf:malware",
+            "title": "Malware response"
+          },
+          "position": {
+            "x": 1140,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3",
+          "outcome": "malware"
+        },
+        {
+          "from": "n3",
+          "to": "n4"
+        },
+        {
+          "from": "n4",
+          "to": "n6",
+          "outcome": "contained"
+        },
+        {
+          "from": "n4",
+          "to": "n5",
+          "outcome": "wide"
+        },
+        {
+          "from": "n5",
+          "to": "n6"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 60000
+      }
+    }
+  },
+  {
+    "id": "secret-leak-response",
+    "category": "Security",
+    "name": "Secret leak response",
+    "description": "A secret scanning alert opens a rotation task when the secret is still live. The owner confirms the rotation.",
+    "flow": [
+      "secret alert",
+      "is_live_secret",
+      "notify",
+      "owner confirms"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "secret scanning alert"
+    },
+    "output": "Rotation",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Secret scanning alert",
+          "config": {
+            "kind": "webhook",
+            "event": "secret_scanning_alert.created",
+            "overlap": "skip_if_running",
+            "maxRunsPerHour": 20
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "decision",
+          "title": "Is it live?",
+          "config": {
+            "question": "Is this secret still live?",
+            "outcomes": [
+              {
+                "value": "live"
+              },
+              {
+                "value": "revoked_or_test",
+                "end": true
+              }
+            ],
+            "threshold": 0.8,
+            "belowThreshold": "human",
+            "onAbstain": "human"
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "notify",
+          "title": "Rotate the secret",
+          "config": {
+            "message": "{workflow}: a live secret needs rotating ({run})",
+            "severity": "critical"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        },
+        {
+          "id": "n4",
+          "type": "human",
+          "title": "Owner confirms rotation",
+          "config": {
+            "approvers": [
+              "owner"
+            ],
+            "slaHours": 24,
+            "onTimeout": "park_and_renotify"
+          },
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3",
+          "outcome": "live"
+        },
+        {
+          "from": "n3",
+          "to": "n4"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 30000
+      }
+    }
+  },
+  {
+    "id": "failure-explainer",
+    "category": "Testing",
+    "name": "Failure explainer comment",
+    "description": "When checks fail on a pull request, the explainer reads the failed step and comments with the step, the lines that matter and the likely cause.",
+    "flow": [
+      "check failed",
+      "belai:ci-explainer",
+      "PR comment"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "check failed"
+    },
+    "output": "PR comment",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:ci-explainer"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Checks finished on a pull request",
+          "config": {
+            "kind": "webhook",
+            "event": "check_run.completed",
+            "overlap": "skip_if_running",
+            "conditions": {
+              "origin": "same_repo"
+            },
+            "maxRunsPerHour": 30,
+            "debounceSeconds": 120
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "condition",
+          "title": "Did they fail?",
+          "config": {
+            "rules": [
+              {
+                "path": "event.data.checks",
+                "op": "eq",
+                "value": "failure",
+                "outcome": "failed"
+              }
+            ],
+            "default": "green",
+            "outcomes": [
+              {
+                "value": "failed"
+              },
+              {
+                "value": "green",
+                "end": true
+              }
+            ]
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "crew",
+          "title": "Explain the failure",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:ci-explainer",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Read the failed check step. Write one comment with the step, the lines that matter and the likely cause."
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        },
+        {
+          "id": "n4",
+          "type": "github",
+          "title": "Comment on the pull request",
+          "config": {
+            "action": "issue_comment"
+          },
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3",
+          "outcome": "failed"
+        },
+        {
+          "from": "n3",
+          "to": "n4"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 40000
+      }
+    }
+  },
+  {
+    "id": "flaky-test-quarantine",
+    "category": "Testing",
+    "name": "Flaky test issue",
+    "description": "When a check fails, the flaky hunter looks for flips at the same commit and files an issue for a test that is flaky.",
+    "flow": [
+      "check completed",
+      "belai:flaky-hunter",
+      "issue"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "check completed"
+    },
+    "output": "Issue",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:flaky-hunter"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Checks finished",
+          "config": {
+            "kind": "webhook",
+            "event": "check_run.completed",
+            "overlap": "skip_if_running",
+            "conditions": {
+              "origin": "same_repo"
+            },
+            "maxRunsPerHour": 20,
+            "debounceSeconds": 300
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "condition",
+          "title": "Did they fail?",
+          "config": {
+            "rules": [
+              {
+                "path": "event.data.checks",
+                "op": "eq",
+                "value": "failure",
+                "outcome": "failed"
+              }
+            ],
+            "default": "green",
+            "outcomes": [
+              {
+                "value": "failed"
+              },
+              {
+                "value": "green",
+                "end": true
+              }
+            ]
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "crew",
+          "title": "Look for flips at the same commit",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:flaky-hunter",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Re-run the failing checks against the same commit and decide whether the failure flips. Name each flaky test."
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        },
+        {
+          "id": "n4",
+          "type": "github",
+          "title": "File the flaky test issue",
+          "config": {
+            "action": "file_issues",
+            "label": "sf:flaky",
+            "title": "Flaky test"
+          },
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3",
+          "outcome": "failed"
+        },
+        {
+          "from": "n3",
+          "to": "n4"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 60000
+      }
+    }
+  },
+  {
+    "id": "default-branch-broke",
+    "category": "Testing",
+    "name": "Default branch broke",
+    "description": "When a workflow run fails on the default branch, belai:bug finds the commit that broke it and opens a draft revert. Nothing merges.",
+    "flow": [
+      "workflow run failed",
+      "belai:bug",
+      "draft PR"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "workflow run failed"
+    },
+    "output": "Draft PR",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:bug"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Workflow run finished",
+          "config": {
+            "kind": "webhook",
+            "event": "workflow_run.completed",
+            "overlap": "skip_if_running",
+            "conditions": {
+              "origin": "same_repo"
+            },
+            "maxRunsPerHour": 6,
+            "debounceSeconds": 300
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "condition",
+          "title": "Did it fail?",
+          "config": {
+            "rules": [
+              {
+                "path": "event.data.failed",
+                "op": "eq",
+                "value": true,
+                "outcome": "failed"
+              }
+            ],
+            "default": "green",
+            "outcomes": [
+              {
+                "value": "failed"
+              },
+              {
+                "value": "green",
+                "end": true
+              }
+            ]
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "crew",
+          "title": "Find the commit that broke it",
+          "config": {
+            "dispatch": "crew",
+            "crew": "belai:bug",
+            "mode": "goal",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "The default branch failed its workflow run. Find the commit that broke it and prepare a revert. Do not merge."
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        },
+        {
+          "id": "n4",
+          "type": "github",
+          "title": "Draft revert",
+          "config": {
+            "action": "draft_pr",
+            "prState": "draft",
+            "ifNoBranch": "skip",
+            "reviewers": "codeowners"
+          },
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3",
+          "outcome": "failed"
+        },
+        {
+          "from": "n3",
+          "to": "n4"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 250000
+      }
+    }
+  },
+  {
+    "id": "build-artifacts-to-tea",
+    "category": "Security",
+    "name": "Sign build artifacts",
+    "description": "When a workflow run succeeds, the publisher matches the artifacts it can sign, signs them and records the run as provenance. A notice reports the result.",
+    "flow": [
+      "workflow run succeeded",
+      "belai:tea-publisher",
+      "notice"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "workflow run succeeded"
+    },
+    "output": "Notice",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:tea-publisher"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Workflow run finished",
+          "config": {
+            "kind": "webhook",
+            "event": "workflow_run.completed",
+            "overlap": "skip_if_running",
+            "conditions": {
+              "origin": "same_repo"
+            },
+            "maxRunsPerHour": 12
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "condition",
+          "title": "Did it succeed?",
+          "config": {
+            "rules": [
+              {
+                "path": "event.data.conclusion",
+                "op": "eq",
+                "value": "success",
+                "outcome": "succeeded"
+              }
+            ],
+            "default": "other",
+            "outcomes": [
+              {
+                "value": "succeeded"
+              },
+              {
+                "value": "other",
+                "end": true
+              }
+            ]
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "crew",
+          "title": "Match, sign and record the artifacts",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:tea-publisher",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Match the run's artifacts, sign every one that can be signed and record the run as provenance."
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        },
+        {
+          "id": "n4",
+          "type": "notify",
+          "title": "Artifacts signed",
+          "config": {
+            "message": "{workflow}: build artifacts signed ({run})",
+            "severity": "info"
+          },
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3",
+          "outcome": "succeeded"
+        },
+        {
+          "from": "n3",
+          "to": "n4"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 30000
+      }
+    }
+  },
+  {
+    "id": "sbom-to-tea",
+    "category": "Security",
+    "name": "SBOM on dependency change",
+    "description": "After a push to the default branch that changes dependencies, the publisher builds or picks up the CycloneDX SBOM for the new commit and records it.",
+    "flow": [
+      "push to the default branch",
+      "belai:tea-publisher",
+      "notice"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "push"
+    },
+    "output": "Notice",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:tea-publisher"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Push that changes dependencies",
+          "config": {
+            "kind": "webhook",
+            "event": "push",
+            "overlap": "skip_if_running",
+            "conditions": {
+              "paths": [
+                "package.json",
+                "package-lock.json",
+                "pnpm-lock.yaml",
+                "yarn.lock",
+                "go.mod",
+                "go.sum",
+                "Cargo.toml",
+                "Cargo.lock",
+                "requirements*.txt",
+                "poetry.lock",
+                "pom.xml",
+                "build.gradle*",
+                "Gemfile.lock",
+                "composer.lock"
+              ]
+            },
+            "maxRunsPerHour": 12,
+            "debounceSeconds": 300
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Build or pick up the SBOM",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:tea-publisher",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Build or pick up the CycloneDX SBOM for the new commit and record it against the component."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "notify",
+          "title": "SBOM recorded",
+          "config": {
+            "message": "{workflow}: SBOM recorded ({run})",
+            "severity": "info"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 25000
+      }
+    }
+  },
+  {
+    "id": "low-quality-pr-comment",
+    "category": "Delivery",
+    "name": "Low quality PR comment",
+    "description": "When a person opens a pull request, the steward checks it against your contributing rules: description, linked issue, tests, size and title. It posts one specific comment. Bots and drafts are skipped.",
+    "flow": [
+      "pull request opened",
+      "belai:pr-steward",
+      "PR comment"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "pull request opened"
+    },
+    "output": "PR comment",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:pr-steward"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Pull request opened by a person",
+          "config": {
+            "kind": "webhook",
+            "event": "pull_request.opened",
+            "overlap": "skip_if_running",
+            "conditions": {
+              "authorType": "human",
+              "drafts": "exclude",
+              "origin": "same_repo"
+            },
+            "maxRunsPerHour": 30,
+            "debounceSeconds": 60
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Check the pull request against the rules",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:pr-steward",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Check the pull request against the repository's contributing rules and report only what is specifically wrong."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "github",
+          "title": "Comment on the pull request",
+          "config": {
+            "action": "issue_comment"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 30000
+      }
+    }
+  },
+  {
+    "id": "dependabot-strategy-check",
+    "category": "Hygiene",
+    "name": "Dependabot strategy check",
+    "description": "Checks a bot dependency pull request against how the repository resolves: package manager, lockfile and version range policy. A mismatch gets a corrected draft pull request.",
+    "flow": [
+      "bot pull request",
+      "belai:dep-strategist",
+      "draft PR"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "bot pull request"
+    },
+    "output": "Draft PR",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:dep-strategist"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Dependency pull request from a bot",
+          "config": {
+            "kind": "webhook",
+            "event": "pull_request.opened",
+            "overlap": "skip_if_running",
+            "conditions": {
+              "authorType": "bot",
+              "origin": "same_repo"
+            },
+            "maxRunsPerHour": 20
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Compare the bump with the strategy",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:dep-strategist",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Compare the bump with how the repository resolves dependencies. If it does not match, prepare a corrected change."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "github",
+          "title": "Corrected draft pull request",
+          "config": {
+            "action": "draft_pr",
+            "prState": "draft",
+            "ifNoBranch": "skip"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 80000
+      }
+    }
+  },
+  {
+    "id": "dependency-scope-fix",
+    "category": "Hygiene",
+    "name": "Test dependency declared as runtime",
+    "description": "Finds a dependency imported only from test, build or tooling paths but declared for runtime, and opens a draft pull request moving it to the development scope.",
+    "flow": [
+      "bot pull request",
+      "belai:dep-scope",
+      "draft PR"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "bot pull request"
+    },
+    "output": "Draft PR",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:dep-scope"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Dependency pull request from a bot",
+          "config": {
+            "kind": "webhook",
+            "event": "pull_request.opened",
+            "overlap": "skip_if_running",
+            "conditions": {
+              "authorType": "bot",
+              "origin": "same_repo"
+            },
+            "maxRunsPerHour": 20
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Check the scope against the imports",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:dep-scope",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Check where the dependency is imported. If only test, build or tooling paths import it, move it to the development scope and list the importers as evidence."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "github",
+          "title": "Draft pull request moving the dependency",
+          "config": {
+            "action": "draft_pr",
+            "prState": "draft",
+            "ifNoBranch": "skip"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 50000
+      }
+    }
+  },
+  {
+    "id": "actions-workflow-hardening",
+    "category": "Security",
+    "name": "Actions workflow hardening",
+    "description": "Reviews pull requests that change GitHub Actions workflows: unpinned actions, broad permissions, pull_request_target with a head checkout, script injection. It comments with suggestions and never approves.",
+    "flow": [
+      "pull request",
+      "belai:workflow-hardener",
+      "PR comment"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "workflow change"
+    },
+    "output": "PR comment",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:workflow-hardener"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Workflow change in a pull request",
+          "config": {
+            "kind": "webhook",
+            "event": "pull_request.opened",
+            "overlap": "skip_if_running",
+            "conditions": {
+              "drafts": "exclude",
+              "origin": "same_repo",
+              "paths": [
+                ".github/workflows/**"
+              ]
+            },
+            "maxRunsPerHour": 30,
+            "debounceSeconds": 60
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Review the workflow changes",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:workflow-hardener",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Review only the changed workflow files for unpinned actions, broad permissions, pull_request_target with a head checkout and script injection. Suggest changes. Never approve."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "github",
+          "title": "Comment on the pull request",
+          "config": {
+            "action": "issue_comment"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 50000
+      }
+    }
+  },
+  {
+    "id": "issue-to-ticket",
+    "category": "Operations",
+    "name": "Issue to ticket",
+    "description": "When someone on the team opens an issue, the ticket writer posts the ticket on it: user story, context, success criteria, definition of done, todos and what is out of scope. It asks for what it cannot find.",
+    "flow": [
+      "issue opened",
+      "belai:ticket-writer",
+      "issue comment"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "issue opened"
+    },
+    "output": "Issue comment",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:ticket-writer"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Issue opened by the team",
+          "config": {
+            "kind": "webhook",
+            "event": "issues.opened",
+            "overlap": "skip_if_running",
+            "conditions": {
+              "origin": "same_repo"
+            },
+            "maxRunsPerHour": 30
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Write the ticket",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:ticket-writer",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Write the ticket in the ticket standard. Ask on the issue for anything you cannot find."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "github",
+          "title": "Post the ticket on the issue",
+          "config": {
+            "action": "issue_comment"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 40000
+      }
+    }
+  },
+  {
+    "id": "secret-alert-triage",
+    "category": "Security",
+    "name": "Secret alert: fixture or real",
+    "description": "When secret scanning raises an alert, the triager decides whether it is a test fixture or a real secret, proposes the dismissal or files a rotation issue. A secret GitHub reports as valid is never dismissed.",
+    "flow": [
+      "secret scanning alert",
+      "belai:secret-triager",
+      "issue"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "secret alert"
+    },
+    "output": "Issue",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:secret-triager"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Secret scanning alert",
+          "config": {
+            "kind": "webhook",
+            "event": "secret_scanning_alert.created",
+            "overlap": "skip_if_running",
+            "maxRunsPerHour": 30
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Fixture or real",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:secret-triager",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Decide whether the secret is a test fixture or documented example. Propose the dismissal with a reason, or describe the rotation for a real secret. Never dismiss one GitHub reports as valid."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "github",
+          "title": "File the triage issue",
+          "config": {
+            "action": "file_issues",
+            "label": "sf:secret-alert",
+            "title": "Secret alert triage"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 30000
+      }
+    }
+  },
+  {
+    "id": "dependabot-alert-triage",
+    "category": "Security",
+    "name": "Dependabot alert triage",
+    "description": "When Dependabot raises an alert, the triager checks reachability, scope, CISA KEV and EPSS, drafts a not_affected statement when no call path exists, or files an urgent issue when it is exploited.",
+    "flow": [
+      "Dependabot alert",
+      "belai:alert-triager",
+      "issue"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "Dependabot alert"
+    },
+    "output": "Issue",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:alert-triager"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Dependabot alert",
+          "config": {
+            "kind": "webhook",
+            "event": "dependabot_alert.created",
+            "overlap": "skip_if_running",
+            "maxRunsPerHour": 30
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Triage the alert",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:alert-triager",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Check reachability, scope, CISA KEV and EPSS. Draft a VEX not_affected statement when no call path exists, or say the vulnerability is exploited."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "github",
+          "title": "File the triage issue",
+          "config": {
+            "action": "file_issues",
+            "label": "sf:dependabot-alert",
+            "title": "Dependabot alert triage"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 50000
+      }
+    }
+  },
+  {
+    "id": "code-scanning-triage",
+    "category": "Security",
+    "name": "Code scanning alert triage",
+    "description": "When a code scanning tool raises a high or critical alert, the triager decides whether it is test code, dead code or reachable, and files an issue or proposes the dismissal with a reason.",
+    "flow": [
+      "code scanning alert",
+      "belai:alert-triager",
+      "issue"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "code scanning alert"
+    },
+    "output": "Issue",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:alert-triager"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Code scanning alert",
+          "config": {
+            "kind": "webhook",
+            "event": "code_scanning_alert.created",
+            "overlap": "skip_if_running",
+            "maxRunsPerHour": 30
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "condition",
+          "title": "High or critical?",
+          "config": {
+            "rules": [
+              {
+                "path": "event.data.severity",
+                "op": "in",
+                "value": [
+                  "high",
+                  "critical"
+                ],
+                "outcome": "serious"
+              }
+            ],
+            "default": "minor",
+            "outcomes": [
+              {
+                "value": "serious"
+              },
+              {
+                "value": "minor",
+                "end": true
+              }
+            ]
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "crew",
+          "title": "Triage the alert",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:alert-triager",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Decide whether the alert is in test code, dead code or reachable code. Propose a dismissal with a reason or describe the fix."
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        },
+        {
+          "id": "n4",
+          "type": "github",
+          "title": "File the triage issue",
+          "config": {
+            "action": "file_issues",
+            "label": "sf:code-scanning",
+            "title": "Code scanning alert triage"
+          },
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3",
+          "outcome": "serious"
+        },
+        {
+          "from": "n3",
+          "to": "n4"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 50000
+      }
+    }
+  },
+  {
+    "id": "release-steward",
+    "category": "Security",
+    "name": "Release steward",
+    "description": "When a release is published, the steward writes the notes from merged pull requests, checks the assets are signed and lists the downstream bumps.",
+    "flow": [
+      "release published",
+      "belai:release-steward",
+      "notice"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "release published"
+    },
+    "output": "Notice",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:release-steward"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Release published",
+          "config": {
+            "kind": "webhook",
+            "event": "release.published",
+            "overlap": "skip_if_running",
+            "maxRunsPerHour": 6
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Finish the release",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:release-steward",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Write the release notes from the merged pull requests, check the assets are signed and list the downstream bumps."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "notify",
+          "title": "Release finished",
+          "config": {
+            "message": "{workflow}: release checked ({run})",
+            "severity": "info"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 80000
+      }
+    }
+  },
+  {
+    "id": "repo-onboarding",
+    "category": "Operations",
+    "name": "Repository onboarding",
+    "description": "When a repository is added, the onboarder profiles it and opens one draft pull request with a missing SECURITY.md, CODEOWNERS or dependabot.yml. It never changes branch protection.",
+    "flow": [
+      "repository added",
+      "belai:repo-onboarder",
+      "draft PR"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "repository added"
+    },
+    "output": "Draft PR",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:repo-onboarder"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Repository added",
+          "config": {
+            "kind": "webhook",
+            "event": "installation_repositories.added",
+            "overlap": "skip_if_running",
+            "maxRunsPerHour": 20
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Profile and set up the repository",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:repo-onboarder",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Profile the repository: languages, package managers, test runners and CI. Add only a missing SECURITY.md, CODEOWNERS or dependabot.yml. Never change branch protection."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "github",
+          "title": "Draft pull request with the missing files",
+          "config": {
+            "action": "draft_pr",
+            "prState": "draft",
+            "ifNoBranch": "skip"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 70000
+      }
+    }
+  },
+  {
+    "id": "label-fix-tests",
+    "category": "Testing",
+    "name": "Label sf:fix-tests",
+    "description": "When someone adds sf:fix-tests to a pull request, the test fixer runs the failing checks and pushes the fixes as a draft pull request stacked on it.",
+    "flow": [
+      "label sf:fix-tests",
+      "belai:test-fixer",
+      "draft PR"
+    ],
+    "trigger": {
+      "kind": "label",
+      "label": "label sf:fix-tests"
+    },
+    "output": "Draft PR",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:test-fixer"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Label sf:fix-tests",
+          "config": {
+            "kind": "label",
+            "label": "sf:fix-tests",
+            "overlap": "skip_if_running",
+            "maxRunsPerHour": 10
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Fix the failing checks",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:test-fixer",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 2,
+            "brief": "Run the failing checks and fix them with the smallest change."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "github",
+          "title": "Stacked draft pull request",
+          "config": {
+            "action": "draft_pr",
+            "prState": "draft",
+            "ifNoBranch": "skip",
+            "base": "pr_head"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 300000
+      }
+    }
+  },
+  {
+    "id": "label-repro",
+    "category": "Delivery",
+    "name": "Label sf:repro",
+    "description": "When someone adds sf:repro to an issue, the reproducer reproduces the bug and comments the failing test on the issue.",
+    "flow": [
+      "label sf:repro",
+      "belai:repro",
+      "issue comment"
+    ],
+    "trigger": {
+      "kind": "label",
+      "label": "label sf:repro"
+    },
+    "output": "Issue comment",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:repro"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Label sf:repro",
+          "config": {
+            "kind": "label",
+            "label": "sf:repro",
+            "overlap": "skip_if_running",
+            "maxRunsPerHour": 10
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Reproduce the bug",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:repro",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Reproduce the bug with a failing test and describe how to run it."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "github",
+          "title": "Comment the reproduction",
+          "config": {
+            "action": "issue_comment"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 180000
+      }
+    }
+  },
+  {
+    "id": "label-review",
+    "category": "Delivery",
+    "name": "Label sf:review",
+    "description": "When someone adds sf:review to a pull request, even a draft, the reviewer reviews it now and comments. It never approves.",
+    "flow": [
+      "label sf:review",
+      "belai:reviewer",
+      "PR comment"
+    ],
+    "trigger": {
+      "kind": "label",
+      "label": "label sf:review"
+    },
+    "output": "PR comment",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:reviewer"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Label sf:review",
+          "config": {
+            "kind": "label",
+            "label": "sf:review",
+            "overlap": "skip_if_running",
+            "maxRunsPerHour": 10
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Review the change",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:reviewer",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Review the pull request and comment. Never approve."
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "github",
+          "title": "Comment on the pull request",
+          "config": {
+            "action": "issue_comment"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2"
+        },
+        {
+          "from": "n2",
+          "to": "n3"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 120000
+      }
+    }
+  }
+]

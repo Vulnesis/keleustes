@@ -1,0 +1,27 @@
+[
+  {
+    "field": "name",
+    "kind": "mapped",
+    "text": "Code Review → code-review"
+  },
+  {
+    "field": "when_to_use",
+    "kind": "mapped",
+    "text": "appended to the description"
+  },
+  {
+    "field": "model",
+    "kind": "dropped",
+    "text": ""
+  },
+  {
+    "field": "argument-hint",
+    "kind": "dropped",
+    "text": ""
+  },
+  {
+    "field": "hooks",
+    "kind": "dropped",
+    "text": ""
+  }
+]

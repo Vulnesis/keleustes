@@ -1,0 +1,5 @@
+interface:
+  display_name: "Fix CI"
+  short_description: "Fix failing checks"
+  icon_small: "./assets/icon.svg"
+  default_prompt: "Fix CI"

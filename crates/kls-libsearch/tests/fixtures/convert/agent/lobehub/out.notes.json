@@ -1,0 +1,22 @@
+[
+  {
+    "field": "avatar 📘",
+    "kind": "dropped",
+    "text": ""
+  },
+  {
+    "field": "config.openingMessage",
+    "kind": "dropped",
+    "text": ""
+  },
+  {
+    "field": "tools",
+    "kind": "mapped",
+    "text": "LobeHub agents get the read-only set"
+  },
+  {
+    "field": "tools",
+    "kind": "warning",
+    "text": "no tools named: read-only set (Read, Grep, Glob)"
+  }
+]

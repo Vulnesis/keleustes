@@ -1,0 +1,853 @@
+{
+  "agents": [
+    {
+      "name": "accessibility-tester",
+      "path": "accessibility/accessibility-tester.md",
+      "category": "accessibility",
+      "type": "agent",
+      "description": "Use this agent when conducting comprehensive accessibility audits, WCAG 2.2 compliance assessments, or evaluating UI components and full codebases for barriers that affect users with disabilities. Invoke when you need structured findings mapped to specific WCAG criteria, hybrid automated-plus-manual coverage, and actionable remediation guidance aligned with ADA, Section 508, and the European Accessibility Act (EAA, effective June 2025).\n\n<example>\nContext: A product team is shipping a redesigned checkout flow and needs to verify it meets WCAG 2.2 AA before release.\nuser: \"Can you audit the checkout flow components in src/components/checkout/ for accessibility issues?\"\nassistant: \"I'll perform a hybrid accessibility audit of your checkout flow. I'll run automated scans with axe-core and pa11y to catch programmatic violations, then execute a manual checklist covering keyboard navigation, focus visibility, screen reader compatibility, color contrast, touch target sizing, and accessible authentication (WCAG 2.2 criterion 3.3.8). Each finding will be mapped to the relevant WCAG 2.2 criterion and severity level, with a remediation recommendation and verification step.\"\n<commentary>\nUse the accessibility-tester when you need rigorous, evidence-based accessibility assessment of specific components or user flows ahead of release milestones. The hybrid approach catches violations that automated tools miss.\n</commentary>\n</example>\n\n<example>\nContext: A company's legal team has flagged potential ADA, Section 508, and EAA compliance exposure and requests a full codebase scan.\nuser: \"We need a full accessibility compliance scan across the entire frontend codebase to confirm ADA, Section 508, and EAA readiness. Can you identify all WCAG 2.2 AA gaps?\"\nassistant: \"I'll conduct a full-codebase accessibility compliance audit targeting WCAG 2.2 AA conformance. The audit will combine automated scanning across all UI components with a prioritized manual verification pass covering the 9 new WCAG 2.2 criteria, ARIA pattern correctness, screen reader behaviour, focus management, reduced-motion support, and accessible authentication flows. I'll deliver a structured findings report with WCAG criterion numbers, severity ratings, affected elements, remediation steps, and a summary scorecard showing critical/high/medium/low counts — with a legal compliance mapping showing the specific WCAG version each framework requires (Section 508: WCAG 2.0 AA; ADA Title II/III: WCAG 2.1 AA; EAA: EN 301 549, approx. WCAG 2.1 AA).\"\n<commentary>\nInvoke accessibility-tester for organization-wide compliance sweeps when legal deadlines or regulatory requirements demand documented, prioritized evidence of WCAG conformance across the full product.\n</commentary>\n</example>",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 396,
+      "skillspector": {
+        "score": 21,
+        "severity": "MEDIUM",
+        "recommendation": "CAUTION",
+        "issueCount": 6,
+        "analysis": "partial",
+        "findings": [
+          {
+            "id": "EA5",
+            "category": "Excessive Agency",
+            "severity": "MEDIUM",
+            "title": "External Model or Provider Selection",
+            "file": "accessibility-tester.md",
+            "line": 5,
+            "count": 1
+          },
+          {
+            "id": "RP1",
+            "category": "MCP Rug Pull",
+            "severity": "MEDIUM",
+            "title": "npx commands without a version suffix (e.g. @1.0.0) create a rug-pull risk if the upstream server is compromised and publishes a malicious update.",
+            "file": "accessibility-tester.md",
+            "line": 18,
+            "count": 5
+          }
+        ],
+        "categories": {
+          "MCP Rug Pull": 5,
+          "Excessive Agency": 1
+        },
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "ai-ethics-advisor",
+      "path": "ai-specialists/ai-ethics-advisor.md",
+      "category": "ai-specialists",
+      "type": "agent",
+      "description": "AI ethics and responsible AI development specialist. Use when reviewing an AI system for bias, fairness violations, or regulatory compliance gaps; when generating a model card, algorithmic impact assessment, or ethics review document; or when an AI feature touches a protected class or high-stakes domain (hiring, healthcare, credit, law enforcement).\n\n<example>\nContext: A team is about to deploy a resume screening model trained on historical hiring data.\nuser: \"Review our resume screener for bias before we go live\"\nassistant: \"I'll run a full Ethical Impact Assessment: audit the training data for demographic representation gaps, apply demographic parity and equalized opportunity metrics, map the system against EU AI Act high-risk requirements, and produce a model card with required mitigations before deployment.\"\n</example>\n\n<example>\nContext: A healthcare startup is building an AI triage system that routes patients to specialists.\nuser: \"We need an ethics review of our patient triage AI\"\nassistant: \"I'll assess the triage AI across four dimensions: protected-class disparities in routing decisions, HIPAA and FDA AI/ML guidance compliance, explainability requirements for clinical staff, and a human-override escalation path — and deliver a compliance gap analysis and monitoring plan.\"\n</example>\n\n<example>\nContext: A fintech company wants to deploy an LLM-based credit scoring agent with tool access.\nuser: \"Audit our agentic credit scoring system for ethical risks\"\nassistant: \"For an agentic system in a high-stakes financial domain I'll cover both classical fairness (Equal Credit Opportunity Act, demographic parity across protected classes) and agentic-specific risks: prompt injection resistance, minimal-permission tool access, human oversight checkpoints before irreversible credit decisions, and inter-agent trust boundaries.\"\n</example>",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 763,
+      "skillspector": {
+        "score": 9,
+        "severity": "LOW",
+        "recommendation": "CAUTION",
+        "issueCount": 1,
+        "analysis": "partial",
+        "findings": [
+          {
+            "id": "EA5",
+            "category": "Excessive Agency",
+            "severity": "MEDIUM",
+            "title": "External Model or Provider Selection",
+            "file": "ai-ethics-advisor.md",
+            "line": 4,
+            "count": 1
+          }
+        ],
+        "categories": {
+          "Excessive Agency": 1
+        },
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "hackathon-ai-strategist",
+      "path": "ai-specialists/hackathon-ai-strategist.md",
+      "category": "ai-specialists",
+      "type": "agent",
+      "description": "Use when a team needs strategic guidance at any stage of a hackathon — from initial ideation through pitch delivery. Specifically:\n\n<example>\nContext: A team of four arrives at a 24-hour AI hackathon with no idea, a vague interest in healthcare, and two hours before the kick-off presentation deadline.\nuser: \"We have no idea yet, the theme is AI for Good, and we need a concept in the next 2 hours. We have two ML engineers, one frontend dev, and a designer.\"\nassistant: \"I need a few details first — what sponsor APIs are available, and is there a specific judging track we must target? Once I have that, I'll generate three ranked concept options with feasibility scores, and we'll lock one in within 15 minutes so the team can start the environment setup.\"\n<commentary>\nInvoke hackathon-ai-strategist for pre-hackathon ideation when the clock is already running and the team needs a structured, fast-converging concept selection process.\n</commentary>\n</example>\n\n<example>\nContext: A team is 14 hours into a 24-hour hackathon. Their original plan involved a real-time video analysis feature that is behind schedule and may not be completable.\nuser: \"We're behind. The video pipeline isn't working and we only have 10 hours left. What do we cut?\"\nassistant: \"Let's triage immediately. Tell me what's working reliably right now, what the demo absolutely needs to show, and which judging criteria are worth the most points. I'll give you a re-scoped MVP plan with explicit cut decisions so the team can align and get back to building within the next 30 minutes.\"\n<commentary>\nUse hackathon-ai-strategist for mid-hackathon triage when a team needs a fast re-scoping decision backed by judging criteria analysis, not a general project manager.\n</commentary>\n</example>\n\n<example>\nContext: A team has a working prototype with 6 hours left before judging. They need to turn it into a compelling 3-minute demo and slide deck.\nuser: \"We have something working. How do we structure the pitch and demo for the next 6 hours?\"\nassistant: \"I'll outline a time-annotated 3-minute pitch structure and a demo reliability checklist. Then we'll split the remaining time: 2 hours on demo stabilization, 2 hours on slides, 1 hour on rehearsal, 1 hour buffer. Walk me through what the product does so I can draft the hook and problem statement.\"\n<commentary>\nInvoke hackathon-ai-strategist when a team transitions from building to presenting and needs a concrete pitch structure, demo script, and rehearsal plan.\n</commentary>\n</example>",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 1139,
+      "skillspector": {
+        "score": 9,
+        "severity": "LOW",
+        "recommendation": "CAUTION",
+        "issueCount": 1,
+        "analysis": "partial",
+        "findings": [
+          {
+            "id": "EA5",
+            "category": "Excessive Agency",
+            "severity": "MEDIUM",
+            "title": "External Model or Provider Selection",
+            "file": "hackathon-ai-strategist.md",
+            "line": 4,
+            "count": 1
+          }
+        ],
+        "categories": {
+          "Excessive Agency": 1
+        },
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "llm-architect",
+      "path": "ai-specialists/llm-architect.md",
+      "category": "ai-specialists",
+      "type": "agent",
+      "description": "Use when designing LLM systems for production, implementing fine-tuning or RAG architectures, optimizing inference serving infrastructure, or managing multi-model deployments. Specifically:\\n\\n<example>\\nContext: A startup needs to deploy a custom LLM application with sub-200ms latency, fine-tuned on domain-specific data\\nuser: \"Design a production LLM architecture that supports our use case with sub-200ms P95 latency, includes fine-tuning capability, and optimizes for cost\"\\nassistant: \"I'll start by gathering your latency targets, model class preference, and infrastructure constraints. Then design an end-to-end LLM system using quantized open-weight models with vLLM serving, implement LoRA-based fine-tuning pipeline, add context caching for repeated queries, and configure load balancing with multi-region deployment.\"\\n<commentary>\\nInvoke the llm-architect when building comprehensive LLM systems from scratch that require architecture design, serving infrastructure decisions, and fine-tuning pipeline setup. This differentiates from prompt-engineer (who optimizes prompts) and ai-engineer (who builds general AI systems).\\n</commentary>\\n</example>\\n\\n<example>\\nContext: An enterprise needs to implement RAG to augment an LLM with internal documentation retrieval\\nuser: \"We need RAG to add our internal documentation to Claude. Design the retrieval pipeline, vector store, and LLM integration\"\\nassistant: \"I'll gather your corpus size, update frequency, and latency requirements first, then architect a hybrid RAG system with document chunking strategies, embedding selection (dense + BM25 hybrid), vector store selection (Pinecone/Weaviate/pgvector), and reranking for relevance. Includes RAGAS evaluation pipeline for ongoing quality tracking.\"\\n<commentary>\\nUse llm-architect when implementing advanced LLM augmentation patterns like RAG, where you need architectural decisions around document processing, retrieval optimization, and LLM integration patterns.\\n</commentary>\\n</example>\\n\\n<example>\\nContext: A company running multiple LLM workloads (customer service, content generation, code analysis) with different latency and quality requirements\\nuser: \"Design a multi-model LLM orchestration system that routes requests to different models and manages costs\"\\nassistant: \"I'll implement cascade routing strategy: fast models for latency-critical tasks, larger models for quality-critical paths, cost-aware selection with fallback handling. Include model A/B testing infrastructure, automated cost tracking per model/use-case, and performance monitoring with LangSmith tracing.\"\\n<commentary>\\nInvoke llm-architect for complex multi-model deployments, cost optimization strategies, and orchestration patterns that require architectural decisions across multiple models and inference infrastructure.\\n</commentary>\\n</example>",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 699,
+      "skillspector": {
+        "score": 29,
+        "severity": "MEDIUM",
+        "recommendation": "CAUTION",
+        "issueCount": 2,
+        "analysis": "partial",
+        "findings": [
+          {
+            "id": "YR4",
+            "category": "YARA Match",
+            "severity": "HIGH",
+            "title": "YARA rule 'agent_skill_prompt_injection_hidden_instructions': Prompt injection or hidden instructions embedded in AI agent skill text [agent_skills]",
+            "file": "llm-architect.md",
+            "line": 2,
+            "count": 1
+          },
+          {
+            "id": "EA5",
+            "category": "Excessive Agency",
+            "severity": "MEDIUM",
+            "title": "External Model or Provider Selection",
+            "file": "llm-architect.md",
+            "line": 4,
+            "count": 1
+          }
+        ],
+        "categories": {
+          "Excessive Agency": 1,
+          "YARA Match": 1
+        },
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "llms-maintainer",
+      "path": "ai-specialists/llms-maintainer.md",
+      "category": "ai-specialists",
+      "type": "agent",
+      "description": "LLMs.txt roadmap file generator and maintainer for AI Engine Optimization (AEO). Use PROACTIVELY after build completion, content/routing changes, or when setting up AI crawler navigation for a site. Detects framework, scans site structure, and writes a spec-compliant llms.txt file.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 1032,
+      "skillspector": {
+        "score": 9,
+        "severity": "LOW",
+        "recommendation": "CAUTION",
+        "issueCount": 1,
+        "analysis": "partial",
+        "findings": [
+          {
+            "id": "EA5",
+            "category": "Excessive Agency",
+            "severity": "MEDIUM",
+            "title": "External Model or Provider Selection",
+            "file": "llms-maintainer.md",
+            "line": 5,
+            "count": 1
+          }
+        ],
+        "categories": {
+          "Excessive Agency": 1
+        },
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    }
+  ],
+  "commands": [
+    {
+      "name": "supply-chain-audit",
+      "path": "analysis/supply-chain-audit.md",
+      "category": "analysis",
+      "type": "command",
+      "description": "Audit a project for software supply chain risk, including dependency vulnerabilities, lockfile issues, malicious package indicators, SBOM coverage, and license concerns.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 127,
+      "skillspector": {
+        "score": 17,
+        "severity": "LOW",
+        "recommendation": "CAUTION",
+        "issueCount": 1,
+        "analysis": "partial",
+        "findings": [
+          {
+            "id": "PE3",
+            "category": "Privilege Escalation",
+            "severity": "HIGH",
+            "title": "Credential Access",
+            "file": "supply-chain-audit.md",
+            "line": 54,
+            "count": 1
+          }
+        ],
+        "categories": {
+          "Privilege Escalation": 1
+        },
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "act",
+      "path": "automation/act.md",
+      "category": "automation",
+      "type": "command",
+      "description": "Execute GitHub Actions locally using act",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 382,
+      "skillspector": {
+        "score": 15,
+        "severity": "LOW",
+        "recommendation": "SAFE",
+        "issueCount": 1,
+        "analysis": "complete",
+        "findings": [
+          {
+            "id": "PE3",
+            "category": "Privilege Escalation",
+            "severity": "HIGH",
+            "title": "Credential Access",
+            "file": "act.md",
+            "line": 52,
+            "count": 1
+          }
+        ],
+        "categories": {
+          "Privilege Escalation": 1
+        },
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "ci-pipeline",
+      "path": "automation/ci-pipeline.md",
+      "category": "automation",
+      "type": "command",
+      "description": "Manage and automate CI/CD pipeline configuration with GitHub Actions, multi-environment support, and deployment strategies",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 501,
+      "skillspector": {
+        "score": 6,
+        "severity": "LOW",
+        "recommendation": "CAUTION",
+        "issueCount": 1,
+        "analysis": "partial",
+        "findings": [
+          {
+            "id": "E5",
+            "category": "Data Exfiltration",
+            "severity": "MEDIUM",
+            "title": "Cloud Storage Exfiltration",
+            "file": "ci-pipeline.md",
+            "line": 373,
+            "count": 1
+          }
+        ],
+        "categories": {
+          "Data Exfiltration": 1
+        },
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "husky",
+      "path": "automation/husky.md",
+      "category": "automation",
+      "type": "command",
+      "description": "Run comprehensive CI checks and fix issues until repository is in working state",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 315,
+      "skillspector": {
+        "score": 32,
+        "severity": "MEDIUM",
+        "recommendation": "CAUTION",
+        "issueCount": 2,
+        "analysis": "partial",
+        "findings": [
+          {
+            "id": "TM1",
+            "category": "Tool Misuse",
+            "severity": "HIGH",
+            "title": "Tool Parameter Abuse",
+            "file": "husky.md",
+            "line": 3,
+            "count": 1
+          },
+          {
+            "id": "PE3",
+            "category": "Privilege Escalation",
+            "severity": "HIGH",
+            "title": "Credential Access",
+            "file": "husky.md",
+            "line": 17,
+            "count": 1
+          }
+        ],
+        "categories": {
+          "Privilege Escalation": 1,
+          "Tool Misuse": 1
+        },
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "szamlazz",
+      "path": "automation/szamlazz.md",
+      "category": "automation",
+      "type": "command",
+      "description": "Issue, cancel, and fetch Hungarian invoices via the szamlazz.hu Agent API — with NAV taxpayer lookup and automatic partner cache",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 70,
+      "skillspector": {
+        "score": 0,
+        "severity": "LOW",
+        "recommendation": "CAUTION",
+        "issueCount": 0,
+        "analysis": "partial",
+        "findings": [],
+        "categories": {},
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    }
+  ],
+  "hooks": [
+    {
+      "name": "agents-md-loader",
+      "path": "automation/agents-md-loader.json",
+      "category": "automation",
+      "type": "hook",
+      "description": "Automatically loads AGENTS.md configuration file content at session start to ensure Claude Code follows project-specific agent behavior. Only loads if AGENTS.md exists, otherwise passes empty context. Supports the universal AGENTS.md standard for cross-platform AI assistant compatibility.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 1493,
+      "skillspector": {
+        "score": 0,
+        "severity": "LOW",
+        "recommendation": "SAFE",
+        "issueCount": 0,
+        "analysis": "complete",
+        "findings": [],
+        "categories": {},
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "build-on-change",
+      "path": "automation/build-on-change.json",
+      "category": "automation",
+      "type": "hook",
+      "description": "Automatically trigger build processes when source files change. Detects common build tools and runs appropriate build commands.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 908,
+      "skillspector": {
+        "score": 0,
+        "severity": "LOW",
+        "recommendation": "SAFE",
+        "issueCount": 0,
+        "analysis": "complete",
+        "findings": [],
+        "categories": {},
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "change-logger",
+      "path": "automation/change-logger.json",
+      "category": "automation",
+      "type": "hook",
+      "description": "Log every file mutation to CSV for demo prep. Records timestamp, tool, file path, action, and details for Edit, MultiEdit, Write, and Bash operations. Output: .claude/critical_log_changes.csv",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 203,
+      "skillspector": {
+        "score": 7,
+        "severity": "LOW",
+        "recommendation": "CAUTION",
+        "issueCount": 1,
+        "analysis": "partial",
+        "findings": [
+          {
+            "id": "LP3",
+            "category": "MCP Least Privilege",
+            "severity": "MEDIUM",
+            "title": "Without declared permissions the skill's intent is opaque and cannot be validated.",
+            "file": "SKILL.md",
+            "line": 1,
+            "count": 1
+          }
+        ],
+        "categories": {
+          "MCP Least Privilege": 1
+        },
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "dependency-checker",
+      "path": "automation/dependency-checker.json",
+      "category": "automation",
+      "type": "hook",
+      "description": "Advanced dependency analysis and security checking. Monitors for outdated packages, security vulnerabilities, and license compatibility.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 2422,
+      "skillspector": {
+        "score": 7,
+        "severity": "LOW",
+        "recommendation": "SAFE",
+        "issueCount": 1,
+        "analysis": "complete",
+        "findings": [
+          {
+            "id": "RP1",
+            "category": "MCP Rug Pull",
+            "severity": "MEDIUM",
+            "title": "npx commands without a version suffix (e.g. @1.0.0) create a rug-pull risk if the upstream server is compromised and publishes a malicious update.",
+            "file": "dependency-checker.json",
+            "line": 10,
+            "count": 1
+          }
+        ],
+        "categories": {
+          "MCP Rug Pull": 1
+        },
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "deployment-health-monitor",
+      "path": "automation/deployment-health-monitor.json",
+      "category": "automation",
+      "type": "hook",
+      "description": "Monitor deployment status, error rates, and performance metrics, sending notifications for failed deployments or performance degradation. Tracks Vercel deployment health, monitors build success/failure rates, and provides alerts for deployment issues. Setup: Export 'export VERCEL_TOKEN=your_token' and 'export VERCEL_PROJECT_ID=your_project_id' (get from vercel.com/account/tokens and Vercel dashboard).",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 506,
+      "skillspector": {
+        "score": 7,
+        "severity": "LOW",
+        "recommendation": "SAFE",
+        "issueCount": 2,
+        "analysis": "complete",
+        "findings": [
+          {
+            "id": "E1",
+            "category": "Data Exfiltration",
+            "severity": "MEDIUM",
+            "title": "External Transmission",
+            "file": "deployment-health-monitor.json",
+            "line": 10,
+            "count": 2
+          }
+        ],
+        "categories": {
+          "Data Exfiltration": 2
+        },
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    }
+  ],
+  "mcps": [
+    {
+      "name": "elevenlabs",
+      "path": "audio/elevenlabs.json",
+      "category": "audio",
+      "type": "mcp",
+      "description": "Official ElevenLabs MCP for text-to-speech, voice cloning, audio processing, and transcription. Generate AI voices, design custom voices, isolate audio, create sound effects, and more.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 505,
+      "skillspector": {
+        "score": 0,
+        "severity": "LOW",
+        "recommendation": "SAFE",
+        "issueCount": 0,
+        "analysis": "complete",
+        "findings": [],
+        "categories": {},
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "sync-labs",
+      "path": "audio/sync-labs.json",
+      "category": "audio",
+      "type": "mcp",
+      "description": "Official sync. labs MCP: lipsync a video to new audio or a typed script, translate and dub videos into other languages with matching lips, generate speech previews, clone voices, and manage assets and projects. Streamable HTTP, OAuth sign-in with a sync. account in the browser, no API key. Paid steps such as dubbing and voice clones are quoted before they start.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 11,
+      "skillspector": {
+        "score": 0,
+        "severity": "LOW",
+        "recommendation": "SAFE",
+        "issueCount": 0,
+        "analysis": "complete",
+        "findings": [],
+        "categories": {},
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "browser-use-mcp-server",
+      "path": "browser_automation/browser-use-mcp-server.json",
+      "category": "browser_automation",
+      "type": "mcp",
+      "description": "An MCP server that enables AI agents to control web browsers using browser-use.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 2476,
+      "skillspector": {
+        "score": 0,
+        "severity": "LOW",
+        "recommendation": "SAFE",
+        "issueCount": 0,
+        "analysis": "complete",
+        "findings": [],
+        "categories": {},
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "browsermcp",
+      "path": "browser_automation/browsermcp.json",
+      "category": "browser_automation",
+      "type": "mcp",
+      "description": "With Browser MCP, you can use MCP to automate your browser so that AI applications can navigate the web, fill out forms, and more.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 942,
+      "skillspector": {
+        "score": 0,
+        "severity": "LOW",
+        "recommendation": "SAFE",
+        "issueCount": 0,
+        "analysis": "complete",
+        "findings": [],
+        "categories": {},
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "mcp-server-browserbase",
+      "path": "browser_automation/mcp-server-browserbase.json",
+      "category": "browser_automation",
+      "type": "mcp",
+      "description": "This server provides cloud browser automation capabilities using Browserbase and Stagehand. It enables LLMs to interact with web pages, take screenshots, extract information, and perform automated actions with atomic precision.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 439,
+      "skillspector": {
+        "score": 0,
+        "severity": "LOW",
+        "recommendation": "SAFE",
+        "issueCount": 0,
+        "analysis": "complete",
+        "findings": [],
+        "categories": {},
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    }
+  ],
+  "skills": [
+    {
+      "name": "agent-management",
+      "path": "ai-maestro/agent-management",
+      "category": "ai-maestro",
+      "type": "skill",
+      "description": "Create, manage, and orchestrate AI agents using the AI Maestro CLI. Use when the user asks to \"create agent\", \"list agents\", \"delete agent\", \"hibernate agent\", \"wake agent\", \"install plugin\", \"show agent\", \"restart agent\", or any agent lifecycle management task.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 728,
+      "references": [],
+      "skillspector": {
+        "score": 0,
+        "severity": "LOW",
+        "recommendation": "CAUTION",
+        "issueCount": 0,
+        "analysis": "partial",
+        "findings": [],
+        "categories": {},
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "agent-messaging",
+      "path": "ai-maestro/agent-messaging",
+      "category": "ai-maestro",
+      "type": "skill",
+      "description": "Send and receive cryptographically signed messages between AI agents using the Agent Messaging Protocol (AMP). Use when the user asks to \"send a message to an agent\", \"check agent inbox\", \"message another agent\", \"reply to a message\", \"notify an agent\", or any inter-agent communication task.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 268,
+      "references": [],
+      "skillspector": {
+        "score": 0,
+        "severity": "LOW",
+        "recommendation": "CAUTION",
+        "issueCount": 0,
+        "analysis": "partial",
+        "findings": [],
+        "categories": {},
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "docs-search",
+      "path": "ai-maestro/docs-search",
+      "category": "ai-maestro",
+      "type": "skill",
+      "description": "Search auto-generated codebase documentation for function signatures, API docs, class definitions, and code comments. Use when the user asks to \"search docs\", \"find documentation\", \"look up a function\", \"check the API\", or before implementing changes to verify correct signatures and patterns.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 277,
+      "references": [],
+      "skillspector": {
+        "score": 0,
+        "severity": "LOW",
+        "recommendation": "CAUTION",
+        "issueCount": 0,
+        "analysis": "partial",
+        "findings": [],
+        "categories": {},
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "graph-query",
+      "path": "ai-maestro/graph-query",
+      "category": "ai-maestro",
+      "type": "skill",
+      "description": "Query the code graph database to understand component relationships, dependencies, and change impact. Use when the user asks to \"find callers\", \"check dependencies\", \"what uses this\", \"show relationships\", \"find serializers\", or when reading code and needing to understand what depends on a component before modifications.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 220,
+      "references": [],
+      "skillspector": {
+        "score": 7,
+        "severity": "LOW",
+        "recommendation": "CAUTION",
+        "issueCount": 1,
+        "analysis": "partial",
+        "findings": [
+          {
+            "id": "EA2",
+            "category": "Excessive Agency",
+            "severity": "MEDIUM",
+            "title": "Autonomous Decision Making",
+            "file": "SKILL.md",
+            "line": 72,
+            "count": 1
+          }
+        ],
+        "categories": {
+          "Excessive Agency": 1
+        },
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "memory-search",
+      "path": "ai-maestro/memory-search",
+      "category": "ai-maestro",
+      "type": "skill",
+      "description": "Search conversation history and semantic memory to recall previous discussions, decisions, and context. Use when the user asks to \"search memory\", \"what did we discuss\", \"remember when\", \"find previous conversation\", \"check history\", or before starting work to recall prior decisions.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 463,
+      "references": [],
+      "skillspector": {
+        "score": 0,
+        "severity": "LOW",
+        "recommendation": "CAUTION",
+        "issueCount": 0,
+        "analysis": "partial",
+        "findings": [],
+        "categories": {},
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    }
+  ],
+  "settings": [
+    {
+      "name": "bedrock-configuration",
+      "path": "api/bedrock-configuration.json",
+      "category": "api",
+      "type": "setting",
+      "description": "Configure Claude Code to use Amazon Bedrock for AI model access. Enables enterprise-grade deployment with AWS billing and compliance features, ideal for organizations already using AWS infrastructure.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 219,
+      "skillspector": {
+        "score": 0,
+        "severity": "LOW",
+        "recommendation": "SAFE",
+        "issueCount": 0,
+        "analysis": "complete",
+        "findings": [],
+        "categories": {},
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    },
+    {
+      "name": "corporate-proxy",
+      "path": "api/corporate-proxy.json",
+      "category": "api",
+      "type": "setting",
+      "description": "Configure proxy settings for corporate network environments. Allows Claude Code to work behind corporate firewalls and proxy servers while maintaining security compliance with enterprise network policies.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 194,
+      "skillspector": {
+        "score": 0,
+        "severity": "LOW",
+        "recommendation": "SAFE",
+        "issueCount": 0,
+        "analysis": "complete",
+        "findings": [],
+        "categories": {},
+        "version": "2.12.0",
+        "scannedAt": "2026-11-19T03:05:32Z"
+      }
+    }
+  ]
+}

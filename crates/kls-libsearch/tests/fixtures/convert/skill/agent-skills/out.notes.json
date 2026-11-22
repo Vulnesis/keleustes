@@ -1,0 +1,17 @@
+[
+  {
+    "field": "description",
+    "kind": "warning",
+    "text": "cut at 300 bytes (was 332)"
+  },
+  {
+    "field": "files",
+    "kind": "dropped",
+    "text": "1 supporting file(s) not carried"
+  },
+  {
+    "field": "body",
+    "kind": "warning",
+    "text": "the instructions link scripts/ or references/, which are not carried"
+  }
+]

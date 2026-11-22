@@ -1,0 +1,22 @@
+[
+  {
+    "field": "customModes",
+    "kind": "metadata",
+    "text": "2 modes; one imported"
+  },
+  {
+    "field": "fileRegex",
+    "kind": "warning",
+    "text": "edit limited to \"\\\\.md$\" upstream; not enforced"
+  },
+  {
+    "field": "groups.mcp",
+    "kind": "dropped",
+    "text": ""
+  },
+  {
+    "field": "tools",
+    "kind": "warning",
+    "text": "changes things: Edit, Write, Bash"
+  }
+]

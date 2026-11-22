@@ -1,0 +1,9 @@
+---
+name: "docs-writer"
+description: "Writes docs"
+tools: ["Write"]
+mode: "single"
+autonomy: "supervised"
+metadata: {"model":"anthropic/claude-sonnet-4","opencode.mode":"subagent","source.format":"opencode"}
+---
+Write clear docs.

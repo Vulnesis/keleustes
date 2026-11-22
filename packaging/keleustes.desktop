@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Keleustes
+GenericName=Software Factory
+Comment=The desktop Software Factory for a fleet of belai hosts
+Exec=keleustes open %u
+Icon=keleustes
+Terminal=false
+Categories=Development;
+StartupWMClass=keleustes
+MimeType=x-scheme-handler/keleustes;

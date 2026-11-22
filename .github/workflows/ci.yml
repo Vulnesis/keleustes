@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches-ignore: ['dependabot/**']
+    tags: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  CARGO_TERM_COLOR: always
+  # ubuntu-22.04's protobuf-compiler (3.12) rejects proto3 `optional`.
+  PROTOC_VERSION: "29.3"
+
+jobs:
+  # The same gate as `just check`: fmt, clippy -D warnings, tests (SQLite).
+  test:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Linux build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends \
+            build-essential pkg-config \
+            libgtk-3-dev libayatana-appindicator3-dev libdbus-1-dev \
+            libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+
+      - name: protoc
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/protoc.zip" \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+          unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal -c rustfmt,clippy
+          rustup default stable
+          rustc --version
+
+      - uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ci-linux-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ci-linux-
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace --locked
+
+      - name: install.sh
+        run: |
+          bash -n install.sh
+          sh -n install.sh
+          shellcheck install.sh
+
+  # macOS and Windows: the workspace builds (tray, keyring and notification
+  # backends differ per platform).
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest,   protoc: osx-universal_binary }
+          - { os: windows-latest, protoc: win64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: protoc
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/protoc.zip" \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-${{ matrix.protoc }}.zip"
+          unzip -q -o "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal -c clippy
+          rustup default stable
+
+      - uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ci-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ci-${{ matrix.os }}-
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: cargo build
+        run: cargo build --workspace --locked
+
+  nix:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: cachix/install-nix-action@v31.11.5
+      - name: nix flake check
+        run: nix flake check --print-build-logs

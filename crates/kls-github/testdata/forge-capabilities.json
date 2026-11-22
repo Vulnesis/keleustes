@@ -1,0 +1,950 @@
+{
+  "kinds": [
+    {
+      "id": "github",
+      "label": "GitHub",
+      "dialect": "github",
+      "prNoun": "pull request"
+    },
+    {
+      "id": "ghes",
+      "label": "GitHub Enterprise Server",
+      "dialect": "github",
+      "prNoun": "pull request"
+    },
+    {
+      "id": "gitea",
+      "label": "Gitea",
+      "dialect": "gitea",
+      "prNoun": "pull request"
+    },
+    {
+      "id": "forgejo",
+      "label": "Forgejo",
+      "dialect": "gitea",
+      "prNoun": "pull request"
+    },
+    {
+      "id": "gitlab",
+      "label": "GitLab",
+      "dialect": "gitlab",
+      "prNoun": "merge request"
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "connect",
+      "label": "Connect",
+      "summary": "How the factory signs in to the forge.",
+      "support": {
+        "forgejo": {
+          "level": "emulated",
+          "note": "A bot account's access token in the tenant vault stands in for an App installation."
+        },
+        "ghes": {
+          "level": "emulated",
+          "note": "A GitHub App you register on the instance; its App id and private key are kept in the tenant vault."
+        },
+        "gitea": {
+          "level": "emulated",
+          "note": "A bot account's access token in the tenant vault stands in for an App installation."
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "emulated",
+          "note": "A bot user's, group's or project's access token in the tenant vault stands in for an App installation."
+        }
+      }
+    },
+    {
+      "id": "webhooks",
+      "label": "Webhooks",
+      "summary": "Events reach the factory as they happen; nothing is polled while webhooks arrive.",
+      "support": {
+        "forgejo": {
+          "level": "emulated",
+          "note": "Repository or organisation webhooks the factory creates with the connection's secret, signed with X-Gitea-Signature or X-Forgejo-Signature."
+        },
+        "ghes": {
+          "level": "native"
+        },
+        "gitea": {
+          "level": "emulated",
+          "note": "Repository or organisation webhooks the factory creates with the connection's secret, signed with X-Gitea-Signature or X-Forgejo-Signature."
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "emulated",
+          "note": "Project or group webhooks the factory creates with the connection's secret token (X-Gitlab-Token)."
+        }
+      }
+    },
+    {
+      "id": "repos",
+      "label": "Repository discovery",
+      "summary": "The repositories the connection can reach are listed for Repositories and managed scope.",
+      "support": {
+        "forgejo": {
+          "level": "emulated",
+          "note": "The organisation's or the bot user's repositories, refreshed every 6 hours and on Refresh."
+        },
+        "ghes": {
+          "level": "native"
+        },
+        "gitea": {
+          "level": "emulated",
+          "note": "The organisation's or the bot user's repositories, refreshed every 6 hours and on Refresh."
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "emulated",
+          "note": "The group's projects including subgroups, or the bot's memberships, refreshed every 6 hours and on Refresh."
+        }
+      }
+    },
+    {
+      "id": "pull_requests",
+      "label": "Open pull requests",
+      "summary": "The draft_pr output and Belai crews open pull requests from factory branches.",
+      "support": {
+        "forgejo": {
+          "level": "native"
+        },
+        "ghes": {
+          "level": "native"
+        },
+        "gitea": {
+          "level": "native"
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "emulated",
+          "note": "A merge request; its number is the merge request's iid."
+        }
+      }
+    },
+    {
+      "id": "draft",
+      "label": "Draft and ready",
+      "summary": "A pull request is opened as a draft and marked ready at a checkpoint.",
+      "support": {
+        "forgejo": {
+          "level": "emulated",
+          "note": "The WIP: title prefix, which Gitea and Forgejo treat as work in progress and refuse to merge."
+        },
+        "ghes": {
+          "level": "native"
+        },
+        "gitea": {
+          "level": "emulated",
+          "note": "The WIP: title prefix, which Gitea and Forgejo treat as work in progress and refuse to merge."
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "emulated",
+          "note": "The Draft: title prefix, which GitLab treats as a draft merge request."
+        }
+      }
+    },
+    {
+      "id": "checks",
+      "label": "Checks for gates",
+      "summary": "A gate waits for the head commit's checks to pass.",
+      "support": {
+        "forgejo": {
+          "level": "emulated",
+          "note": "Commit statuses. Gitea and Forgejo Actions, Woodpecker and Drone all report through them."
+        },
+        "ghes": {
+          "level": "native"
+        },
+        "gitea": {
+          "level": "emulated",
+          "note": "Commit statuses. Gitea and Forgejo Actions, Woodpecker and Drone all report through them."
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "emulated",
+          "note": "Commit statuses, which every pipeline job reports."
+        }
+      }
+    },
+    {
+      "id": "merge_state",
+      "label": "Merge readiness",
+      "summary": "The approve gate reads whether a pull request is clean, behind, conflicted or blocked.",
+      "support": {
+        "forgejo": {
+          "level": "emulated",
+          "note": "Worked out from mergeable, the reviews and the statuses. Branch protection is not read; the forge still enforces it on merge."
+        },
+        "ghes": {
+          "level": "native"
+        },
+        "gitea": {
+          "level": "emulated",
+          "note": "Worked out from mergeable, the reviews and the statuses. Branch protection is not read; the forge still enforces it on merge."
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "native"
+        }
+      }
+    },
+    {
+      "id": "review_decision",
+      "label": "Review decision",
+      "summary": "Whether a pull request is approved, needs a review or has changes requested.",
+      "support": {
+        "forgejo": {
+          "level": "emulated",
+          "note": "Worked out from each reviewer's latest review; stale and dismissed reviews do not count."
+        },
+        "ghes": {
+          "level": "native"
+        },
+        "gitea": {
+          "level": "emulated",
+          "note": "Worked out from each reviewer's latest review; stale and dismissed reviews do not count."
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "emulated",
+          "note": "Read from the merge request's approvals; a requested change is a note, not a state."
+        }
+      }
+    },
+    {
+      "id": "reviews",
+      "label": "Submit reviews",
+      "summary": "pr_review nodes approve, comment on or request changes to a pull request, with inline comments.",
+      "support": {
+        "forgejo": {
+          "level": "native"
+        },
+        "ghes": {
+          "level": "native"
+        },
+        "gitea": {
+          "level": "native"
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "emulated",
+          "note": "APPROVE is an approval, COMMENT a note, REQUEST_CHANGES a note with this account's approval withdrawn; inline comments are diff discussions."
+        }
+      }
+    },
+    {
+      "id": "team_reviewers",
+      "label": "Request a team's review",
+      "summary": "A checkpoint can ask a team to review.",
+      "support": {
+        "forgejo": {
+          "level": "native"
+        },
+        "ghes": {
+          "level": "native"
+        },
+        "gitea": {
+          "level": "native"
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "unavailable",
+          "note": "GitLab reviewers are users; name the people instead."
+        }
+      }
+    },
+    {
+      "id": "update_branch",
+      "label": "Update branch",
+      "summary": "A checkpoint brings a pull request's branch up to date with its base.",
+      "support": {
+        "forgejo": {
+          "level": "emulated",
+          "note": "A merge of the base into the head (pulls/{n}/update?style=merge)."
+        },
+        "ghes": {
+          "level": "native"
+        },
+        "gitea": {
+          "level": "emulated",
+          "note": "A merge of the base into the head (pulls/{n}/update?style=merge)."
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "emulated",
+          "note": "A rebase of the merge request (merge_requests/{iid}/rebase)."
+        }
+      }
+    },
+    {
+      "id": "signed_commits",
+      "label": "Server-signed commits",
+      "summary": "Commits the factory writes (conflict resolution, curator ships) are signed with the tenant's KMS key.",
+      "support": {
+        "forgejo": {
+          "level": "emulated",
+          "note": "The signed commit is built by the factory and pushed over git; the forge shows it verified when the key is on the signer's account."
+        },
+        "ghes": {
+          "level": "native"
+        },
+        "gitea": {
+          "level": "emulated",
+          "note": "The signed commit is built by the factory and pushed over git; the forge shows it verified when the key is on the signer's account."
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "emulated",
+          "note": "The signed commit is built by the factory and pushed over git; GitLab shows it verified when the key is on the signer's account."
+        }
+      }
+    },
+    {
+      "id": "issues",
+      "label": "Issue and label sync",
+      "summary": "Board cards mirror to issues both ways, with sf: and belai: labels.",
+      "support": {
+        "forgejo": {
+          "level": "emulated",
+          "note": "Labels are written by id; a missing label is created first."
+        },
+        "ghes": {
+          "level": "native"
+        },
+        "gitea": {
+          "level": "emulated",
+          "note": "Labels are written by id; a missing label is created first."
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "native"
+        }
+      }
+    },
+    {
+      "id": "close_reason",
+      "label": "Close reason",
+      "summary": "An issue closed as not planned is told apart from one closed as completed.",
+      "support": {
+        "forgejo": {
+          "level": "unavailable",
+          "note": "Gitea and Forgejo issues have no close reason; the card records it on the board only."
+        },
+        "ghes": {
+          "level": "native"
+        },
+        "gitea": {
+          "level": "unavailable",
+          "note": "Gitea and Forgejo issues have no close reason; the card records it on the board only."
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "unavailable",
+          "note": "GitLab issues have no close reason; the card records it on the board only."
+        }
+      }
+    },
+    {
+      "id": "rate_limit",
+      "label": "Rate-limit budget",
+      "summary": "The quota guard shares the forge's call budget between the factory and everything else.",
+      "support": {
+        "forgejo": {
+          "level": "emulated",
+          "note": "Gitea and Forgejo send no rate-limit headers; the guard counts calls against forge.calls_per_hour."
+        },
+        "ghes": {
+          "level": "native"
+        },
+        "gitea": {
+          "level": "emulated",
+          "note": "Gitea and Forgejo send no rate-limit headers; the guard counts calls against forge.calls_per_hour."
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "native"
+        }
+      }
+    },
+    {
+      "id": "bot_identity",
+      "label": "Bot attribution",
+      "summary": "What the factory does is attributed to a bot identity, not a person.",
+      "support": {
+        "forgejo": {
+          "level": "emulated",
+          "note": "The connection's bot account."
+        },
+        "ghes": {
+          "level": "native"
+        },
+        "gitea": {
+          "level": "emulated",
+          "note": "The connection's bot account."
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "emulated",
+          "note": "The connection's bot user or access-token user."
+        }
+      }
+    },
+    {
+      "id": "security_alerts",
+      "label": "Forge security alerts",
+      "summary": "Dependabot, code scanning and secret scanning alerts become findings.",
+      "support": {
+        "forgejo": {
+          "level": "unavailable",
+          "note": "Gitea and Forgejo publish no security alerts; Vulnetix's own scanners fill the gap."
+        },
+        "ghes": {
+          "level": "native"
+        },
+        "gitea": {
+          "level": "unavailable",
+          "note": "Gitea and Forgejo publish no security alerts; Vulnetix's own scanners fill the gap."
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "unavailable",
+          "note": "GitLab's security reports are pipeline artifacts, not alerts; Vulnetix's own scanners fill the gap."
+        }
+      }
+    },
+    {
+      "id": "merge_queue",
+      "label": "Merge queue",
+      "summary": "merge_group events and readiness in a merge queue.",
+      "support": {
+        "forgejo": {
+          "level": "unavailable",
+          "note": "Gitea and Forgejo have no merge queue."
+        },
+        "ghes": {
+          "level": "native"
+        },
+        "gitea": {
+          "level": "unavailable",
+          "note": "Gitea and Forgejo have no merge queue."
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "unavailable",
+          "note": "GitLab merge trains are not read."
+        }
+      }
+    },
+    {
+      "id": "app_capabilities",
+      "label": "App capability catalogue",
+      "summary": "The GitHub App capabilities (posture, identity, audit log and the rest).",
+      "support": {
+        "forgejo": {
+          "level": "unavailable",
+          "note": "These read GitHub-only APIs."
+        },
+        "ghes": {
+          "level": "native"
+        },
+        "gitea": {
+          "level": "unavailable",
+          "note": "These read GitHub-only APIs."
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "unavailable",
+          "note": "These read GitHub-only APIs."
+        }
+      }
+    },
+    {
+      "id": "remote_clone",
+      "label": "Belai clone and publish",
+      "summary": "Belai hosts clone, push and open pull requests with the connection's token.",
+      "support": {
+        "forgejo": {
+          "level": "native"
+        },
+        "ghes": {
+          "level": "native"
+        },
+        "gitea": {
+          "level": "native"
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "native"
+        }
+      }
+    },
+    {
+      "id": "manifest_curator",
+      "label": "Manifest curator",
+      "summary": "The manifest curator reads a repository's manifests and opens its fix pull requests.",
+      "support": {
+        "forgejo": {
+          "level": "unavailable",
+          "note": "The manifest curator works through the Vulnetix GitHub App on github.com. The factory's own workflows fix dependencies on every forge."
+        },
+        "ghes": {
+          "level": "unavailable",
+          "note": "The manifest curator works through the Vulnetix GitHub App on github.com. The factory's own workflows fix dependencies on every forge."
+        },
+        "gitea": {
+          "level": "unavailable",
+          "note": "The manifest curator works through the Vulnetix GitHub App on github.com. The factory's own workflows fix dependencies on every forge."
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "unavailable",
+          "note": "The manifest curator works through the Vulnetix GitHub App on github.com. The factory's own workflows fix dependencies on every forge."
+        }
+      }
+    },
+    {
+      "id": "pix_sandbox",
+      "label": "Pix Sandbox repositories",
+      "summary": "A Pix Sandbox attaches a repository, clones it and opens pull requests from it.",
+      "support": {
+        "forgejo": {
+          "level": "unavailable",
+          "note": "A Pix Sandbox reaches repositories through the Vulnetix GitHub App on github.com. Belai on your own machines works on every forge."
+        },
+        "ghes": {
+          "level": "unavailable",
+          "note": "A Pix Sandbox reaches repositories through the Vulnetix GitHub App on github.com. Belai on your own machines works on every forge."
+        },
+        "gitea": {
+          "level": "unavailable",
+          "note": "A Pix Sandbox reaches repositories through the Vulnetix GitHub App on github.com. Belai on your own machines works on every forge."
+        },
+        "github": {
+          "level": "native"
+        },
+        "gitlab": {
+          "level": "unavailable",
+          "note": "A Pix Sandbox reaches repositories through the Vulnetix GitHub App on github.com. Belai on your own machines works on every forge."
+        }
+      }
+    }
+  ],
+  "events": {
+    "check_run": {
+      "forgejo": {
+        "level": "emulated",
+        "note": "From a commit status (the status event): completed when the status is final. Gitea 1.22 has no status event and keeps a webhook without it, so check_run triggers do not fire there; gates still read the statuses."
+      },
+      "ghes": {
+        "level": "native"
+      },
+      "gitea": {
+        "level": "emulated",
+        "note": "From a commit status (the status event): completed when the status is final. Gitea 1.22 has no status event and keeps a webhook without it, so check_run triggers do not fire there; gates still read the statuses."
+      },
+      "github": {
+        "level": "native"
+      },
+      "gitlab": {
+        "level": "emulated",
+        "note": "Job Hook."
+      }
+    },
+    "check_suite": {
+      "forgejo": {
+        "level": "unavailable",
+        "note": "No check suites; trigger on check_run."
+      },
+      "ghes": {
+        "level": "native"
+      },
+      "gitea": {
+        "level": "unavailable",
+        "note": "No check suites; trigger on check_run."
+      },
+      "github": {
+        "level": "native"
+      },
+      "gitlab": {
+        "level": "unavailable",
+        "note": "No check suites; trigger on check_run or workflow_run."
+      }
+    },
+    "code_scanning_alert": {
+      "forgejo": {
+        "level": "unavailable",
+        "note": "No security alerts."
+      },
+      "ghes": {
+        "level": "native"
+      },
+      "gitea": {
+        "level": "unavailable",
+        "note": "No security alerts."
+      },
+      "github": {
+        "level": "native"
+      },
+      "gitlab": {
+        "level": "unavailable",
+        "note": "No security alerts."
+      }
+    },
+    "dependabot_alert": {
+      "forgejo": {
+        "level": "unavailable",
+        "note": "No security alerts."
+      },
+      "ghes": {
+        "level": "native"
+      },
+      "gitea": {
+        "level": "unavailable",
+        "note": "No security alerts."
+      },
+      "github": {
+        "level": "native"
+      },
+      "gitlab": {
+        "level": "unavailable",
+        "note": "No security alerts."
+      }
+    },
+    "deployment_status": {
+      "forgejo": {
+        "level": "unavailable",
+        "note": "No deployment events."
+      },
+      "ghes": {
+        "level": "native"
+      },
+      "gitea": {
+        "level": "unavailable",
+        "note": "No deployment events."
+      },
+      "github": {
+        "level": "native"
+      },
+      "gitlab": {
+        "level": "emulated",
+        "note": "Deployment Hook."
+      }
+    },
+    "installation_repositories": {
+      "forgejo": {
+        "level": "emulated",
+        "note": "The connection's repository refresh."
+      },
+      "ghes": {
+        "level": "native"
+      },
+      "gitea": {
+        "level": "emulated",
+        "note": "The connection's repository refresh."
+      },
+      "github": {
+        "level": "native"
+      },
+      "gitlab": {
+        "level": "emulated",
+        "note": "The connection's repository refresh."
+      }
+    },
+    "issue_comment": {
+      "forgejo": {
+        "level": "native"
+      },
+      "ghes": {
+        "level": "native"
+      },
+      "gitea": {
+        "level": "native"
+      },
+      "github": {
+        "level": "native"
+      },
+      "gitlab": {
+        "level": "emulated",
+        "note": "Note Hook on an issue or merge request."
+      }
+    },
+    "issues": {
+      "forgejo": {
+        "level": "native"
+      },
+      "ghes": {
+        "level": "native"
+      },
+      "gitea": {
+        "level": "native"
+      },
+      "github": {
+        "level": "native"
+      },
+      "gitlab": {
+        "level": "emulated",
+        "note": "Issue Hook."
+      }
+    },
+    "merge_group": {
+      "forgejo": {
+        "level": "unavailable",
+        "note": "No merge queue."
+      },
+      "ghes": {
+        "level": "native"
+      },
+      "gitea": {
+        "level": "unavailable",
+        "note": "No merge queue."
+      },
+      "github": {
+        "level": "native"
+      },
+      "gitlab": {
+        "level": "unavailable",
+        "note": "Merge trains are not read."
+      }
+    },
+    "pull_request": {
+      "forgejo": {
+        "level": "emulated",
+        "note": "pull_request and its label, assign, sync and review-request variants; a WIP: title change is converted_to_draft or ready_for_review."
+      },
+      "ghes": {
+        "level": "native"
+      },
+      "gitea": {
+        "level": "emulated",
+        "note": "pull_request and its label, assign, sync and review-request variants; a WIP: title change is converted_to_draft or ready_for_review."
+      },
+      "github": {
+        "level": "native"
+      },
+      "gitlab": {
+        "level": "emulated",
+        "note": "Merge Request Hook."
+      }
+    },
+    "pull_request_review": {
+      "forgejo": {
+        "level": "emulated",
+        "note": "pull_request_review_approved, _rejected and _comment."
+      },
+      "ghes": {
+        "level": "native"
+      },
+      "gitea": {
+        "level": "emulated",
+        "note": "pull_request_review_approved, _rejected and _comment."
+      },
+      "github": {
+        "level": "native"
+      },
+      "gitlab": {
+        "level": "emulated",
+        "note": "Merge Request Hook approved and unapproved actions."
+      }
+    },
+    "pull_request_review_comment": {
+      "forgejo": {
+        "level": "unavailable",
+        "note": "Gitea sends review comments as pull_request_comment, an issue_comment."
+      },
+      "ghes": {
+        "level": "native"
+      },
+      "gitea": {
+        "level": "unavailable",
+        "note": "Gitea sends review comments as pull_request_comment, an issue_comment."
+      },
+      "github": {
+        "level": "native"
+      },
+      "gitlab": {
+        "level": "emulated",
+        "note": "A diff note (Note Hook with a position)."
+      }
+    },
+    "push": {
+      "forgejo": {
+        "level": "native"
+      },
+      "ghes": {
+        "level": "native"
+      },
+      "gitea": {
+        "level": "native"
+      },
+      "github": {
+        "level": "native"
+      },
+      "gitlab": {
+        "level": "native"
+      }
+    },
+    "registry_package": {
+      "forgejo": {
+        "level": "unavailable",
+        "note": "Package events are not mapped."
+      },
+      "ghes": {
+        "level": "native"
+      },
+      "gitea": {
+        "level": "unavailable",
+        "note": "Package events are not mapped."
+      },
+      "github": {
+        "level": "native"
+      },
+      "gitlab": {
+        "level": "unavailable",
+        "note": "No package events."
+      }
+    },
+    "release": {
+      "forgejo": {
+        "level": "native"
+      },
+      "ghes": {
+        "level": "native"
+      },
+      "gitea": {
+        "level": "native"
+      },
+      "github": {
+        "level": "native"
+      },
+      "gitlab": {
+        "level": "emulated",
+        "note": "Release Hook."
+      }
+    },
+    "repository": {
+      "forgejo": {
+        "level": "emulated",
+        "note": "Organisation webhooks only."
+      },
+      "ghes": {
+        "level": "native"
+      },
+      "gitea": {
+        "level": "emulated",
+        "note": "Organisation webhooks only."
+      },
+      "github": {
+        "level": "native"
+      },
+      "gitlab": {
+        "level": "unavailable",
+        "note": "GitLab sends no project-created event to a project hook."
+      }
+    },
+    "secret_scanning_alert": {
+      "forgejo": {
+        "level": "unavailable",
+        "note": "No security alerts."
+      },
+      "ghes": {
+        "level": "native"
+      },
+      "gitea": {
+        "level": "unavailable",
+        "note": "No security alerts."
+      },
+      "github": {
+        "level": "native"
+      },
+      "gitlab": {
+        "level": "unavailable",
+        "note": "No security alerts."
+      }
+    },
+    "secret_scanning_alert_location": {
+      "forgejo": {
+        "level": "unavailable",
+        "note": "No security alerts."
+      },
+      "ghes": {
+        "level": "native"
+      },
+      "gitea": {
+        "level": "unavailable",
+        "note": "No security alerts."
+      },
+      "github": {
+        "level": "native"
+      },
+      "gitlab": {
+        "level": "unavailable",
+        "note": "No security alerts."
+      }
+    },
+    "workflow_run": {
+      "forgejo": {
+        "level": "emulated",
+        "note": "workflow_run from Gitea 1.24 and Forgejo 11; older versions send statuses only (check_run)."
+      },
+      "ghes": {
+        "level": "native"
+      },
+      "gitea": {
+        "level": "emulated",
+        "note": "workflow_run from Gitea 1.24 and Forgejo 11; older versions send statuses only (check_run)."
+      },
+      "github": {
+        "level": "native"
+      },
+      "gitlab": {
+        "level": "emulated",
+        "note": "Pipeline Hook."
+      }
+    }
+  }
+}

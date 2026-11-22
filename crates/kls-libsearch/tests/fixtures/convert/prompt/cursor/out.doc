@@ -1,0 +1,7 @@
+---
+name: react
+description: React component rules
+enabled: false
+---
+
+Use function components.

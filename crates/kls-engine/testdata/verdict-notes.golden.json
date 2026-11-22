@@ -1,0 +1,88 @@
+[
+  {
+    "name": "request changes with an inline finding and one off the diff",
+    "review": {
+      "body": "Review by the Software Factory.\n\nThe reviewer asks for changes. 1 finding(s) are on the lines they concern.\n\nFindings:\n- `src/db.rs:99`: not in the diff\n- tests are missing for @​alice's path\n\nThis is a recommendation. A person decides whether to merge.\n\n<!-- keleustes:review run=run_1 node=n1 sha=abc1234 verdict=request_changes -->",
+      "comments": [
+        {
+          "body": "query built from user input",
+          "line": 12,
+          "path": "src/db.rs"
+        }
+      ],
+      "event": "REQUEST_CHANGES"
+    },
+    "verdict": {
+      "findings": [
+        {
+          "line": 12,
+          "path": "src/db.rs",
+          "text": "query built from user input"
+        },
+        {
+          "line": 99,
+          "path": "src/db.rs",
+          "text": "not in the diff"
+        },
+        {
+          "line": 0,
+          "path": "",
+          "text": "tests are missing for @​alice's path"
+        }
+      ],
+      "verdict": "request_changes"
+    }
+  },
+  {
+    "name": "the newest verdict wins and earlier findings are dropped",
+    "review": {
+      "body": "Review by the Software Factory.\n\nThe reviewer found nothing to change.\n\nFindings:\n- nothing blocking\n\nThis is a recommendation. A person decides whether to merge.\n\n<!-- keleustes:review run=run_1 node=n1 sha=abc1234 verdict=approve -->",
+      "comments": [],
+      "event": "COMMENT"
+    },
+    "verdict": {
+      "findings": [
+        {
+          "line": 0,
+          "path": "",
+          "text": "nothing blocking"
+        }
+      ],
+      "verdict": "approve"
+    }
+  },
+  {
+    "name": "comment verdict with a hyphen and a ./ path",
+    "review": {
+      "body": "Review by the Software Factory.\n\nThe reviewer asks for changes. 1 finding(s) are on the lines they concern.\n\nThis is a recommendation. A person decides whether to merge.\n\n<!-- keleustes:review run=run_1 node=n1 sha=abc1234 verdict=request_changes -->",
+      "comments": [
+        {
+          "body": "tidy this",
+          "line": 3,
+          "path": "lib/x.go"
+        }
+      ],
+      "event": "REQUEST_CHANGES"
+    },
+    "verdict": {
+      "findings": [
+        {
+          "line": 3,
+          "path": "lib/x.go",
+          "text": "tidy this"
+        }
+      ],
+      "verdict": "request_changes"
+    }
+  },
+  {
+    "name": "no verdict line",
+    "review": null,
+    "verdict": null
+  },
+  {
+    "name": "an unknown verdict word is not a verdict",
+    "review": null,
+    "verdict": null
+  }
+]

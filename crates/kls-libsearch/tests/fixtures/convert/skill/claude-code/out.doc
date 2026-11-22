@@ -1,0 +1,7 @@
+---
+name: code-review
+description: Reviews a diff for bugs when a pull request is open
+allowed-tools: Read Grep Bash(git diff:*)
+---
+
+Review the diff from !`git diff HEAD`.

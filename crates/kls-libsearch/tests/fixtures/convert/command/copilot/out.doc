@@ -1,0 +1,7 @@
+---
+name: explain
+description: Explain the code
+allowed-tools: Grep WebFetch
+---
+
+Explain the selection.

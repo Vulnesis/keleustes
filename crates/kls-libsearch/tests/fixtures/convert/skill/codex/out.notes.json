@@ -1,0 +1,17 @@
+[
+  {
+    "field": "interface.icon_small",
+    "kind": "dropped",
+    "text": ""
+  },
+  {
+    "field": "interface.default_prompt",
+    "kind": "dropped",
+    "text": ""
+  },
+  {
+    "field": "agents/openai.yaml",
+    "kind": "metadata",
+    "text": "interface kept in metadata"
+  }
+]
