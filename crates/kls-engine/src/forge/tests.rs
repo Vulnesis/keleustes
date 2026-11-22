@@ -1166,3 +1166,109 @@ async fn pr_head_falls_back_to_the_default_branch_for_a_fork() {
         "main"
     );
 }
+
+/// Live: the `pr_review` post step against real GitHub through the local
+/// `gh`, on a pull request named by `KLS_LIVE_PR=owner/repo#N` (whose diff has
+/// `docs/review-probe.md`). Posts one COMMENT review with one inline finding,
+/// then proves the second call is a no-op. `cargo test -p kls-engine --
+/// --ignored live_pr_review`.
+#[tokio::test]
+#[ignore = "needs gh signed in and KLS_LIVE_PR"]
+async fn live_pr_review_posts_once_through_real_gh() {
+    let Ok(target) = std::env::var("KLS_LIVE_PR") else {
+        return;
+    };
+    let (repo, n) = target.split_once('#').expect("owner/repo#N");
+    let n: i64 = n.parse().unwrap();
+    let (owner, name) = repo.split_once('/').unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let core = Core::open(dir.path(), None).await.unwrap();
+    let gh: Arc<dyn kls_github::ForgeCli> = Arc::new(kls_github::local::LocalGh::default());
+    let f = GitHubForge::with_client(Client::new(gh, core.clone()));
+    core.store()
+        .gh_upsert_repo(&GhRepo {
+            full_name: repo.into(),
+            owner: owner.into(),
+            name: name.into(),
+            default_branch: "main".into(),
+            settings: kls_store::github::RepoSettings {
+                autonomy: "pr".into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    core.store()
+        .set_setting("autonomy.max", "pr")
+        .await
+        .unwrap();
+    let meta = json!({"belai": {"history": [
+        {"to": "doing", "at": 1, "note": "claimed"},
+        {"to": "review", "at": 2, "note": "verdict: approve\nfinding: docs/review-probe.md:3: probe finding on the diff\nfinding: README.md:1: probe finding off the diff"}
+    ]}});
+    let card = core
+        .create_card(
+            CardDraft {
+                title: format!("Review #{n}"),
+                repo: repo.into(),
+                meta_json: meta.to_string(),
+                ..Default::default()
+            },
+            "t",
+        )
+        .await
+        .unwrap();
+    let node = json!({"id":"b","type":"github","title":"Review","config":{"action":"pr_review"}});
+    let wf = published(&core, flow(json!({"kind":"manual"}), node.clone())).await;
+    let run = ops::start_run(
+        &core,
+        StartRun {
+            workflow_id: wf,
+            trigger: TriggerInfo {
+                kind: "manual".into(),
+                ..Default::default()
+            },
+            repo: repo.into(),
+            card_id: card.id.clone(),
+            inputs: json!({"number": n}),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap()
+    .run()
+    .unwrap()
+    .clone();
+    core.store()
+        .insert_step(&RunStep {
+            id: uuid::Uuid::now_v7().to_string(),
+            run_id: run.id.clone(),
+            node_id: "b".into(),
+            node_type: "github".into(),
+            status: "running".into(),
+            details_json: "{}".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let steps = core.store().run_steps(&run.id).await.unwrap();
+    let ctx = StepContext {
+        context: crate::exec::run_context(&run, &steps),
+        run: run.clone(),
+        node: serde_json::from_value(node).unwrap(),
+        step: steps.iter().rfind(|x| x.node_id == "b").unwrap().clone(),
+    };
+    let out = f.action(&ctx, "pr_review").await.unwrap();
+    eprintln!("first: {out}");
+    assert_eq!(out["event"], "COMMENT", "{out}");
+    assert_eq!(out["inline"], 1, "{out}");
+    assert!(out["reviewId"].is_number(), "{out}");
+    let ctx2 = StepContext {
+        step: ctx.step.clone(),
+        ..ctx
+    };
+    let again = f.action(&ctx2, "pr_review").await.unwrap();
+    eprintln!("second: {again}");
+    assert_eq!(again["skipped"], "already_reviewed", "{again}");
+}

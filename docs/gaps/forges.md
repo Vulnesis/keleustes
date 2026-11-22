@@ -892,3 +892,13 @@ keleustes root, `belai/` prefix for belai.
 | §8.4.6 `tea login helper` argv | P2 | partial | crates/kls-github/src/forge/auth.rs:873; belai/internal/forgejob/push.go:89 | exercised by the live suite; no recorded result |
 
 Counts: done 76 · partial 5 · missing 9 · n-a 0 (90 rows, recounted after the P6 package, 2026-11-22). The missing rows are cosmetic renames (WP-10, WP-11), live or by-hand verification against real forges (§8.2, §8.4) and the server version probe.
+
+### Live check: pr-review post step (2026-11-22)
+
+`pr_review` posted through the real local `gh` on Vulnesis/keleustes#3 (closed
+unmerged): one COMMENT review (id 6011433441) with the on-diff finding inline at
+`docs/review-probe.md:3`, the off-diff finding in the body, the hidden
+`keleustes:review` marker, and no second post on a rerun (`already_reviewed`).
+Rerun with `KLS_LIVE_PR=owner/repo#N cargo test -p kls-engine --lib -- --ignored
+live_pr_review` (`crates/kls-engine/src/forge/tests.rs`,
+`live_pr_review_posts_once_through_real_gh`).
