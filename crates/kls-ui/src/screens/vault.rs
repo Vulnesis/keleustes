@@ -15,7 +15,7 @@ use crate::theme;
 use egui_extras::{Column, TableBuilder};
 use kls_core::vault::{
     self as v, ProbeResult, ProbeState, Provider, SecretMeta, SecretString, SecretVersion,
-    VaultActivity, VaultView, probe,
+    VaultActivity, VaultView, connectors, kiro, probe,
 };
 use std::sync::{Arc, Mutex};
 
@@ -27,6 +27,7 @@ enum Tab {
     Keys,
     Grants,
     Mcp,
+    Connectors,
     Activity,
 }
 
@@ -70,11 +71,19 @@ struct KeyForm {
     expiry_days: i64,
     /// Nodes that may receive it (empty: every node).
     nodes: Vec<String>,
+    /// A Kiro credential: a sign-in (JSON) or, with `kiro_api`, a kiro-cli
+    /// API key.
+    kiro: bool,
+    kiro_api: bool,
+    /// A sign-in file to open, and where the typed value came from.
+    kiro_path: String,
+    kiro_source: &'static str,
 }
 
 enum Confirm {
     Secret(String, String),
     Provider(String),
+    Connector(String, String),
 }
 
 pub struct Screen {
@@ -90,6 +99,9 @@ pub struct Screen {
     lineage: Option<(SecretMeta, Slot<Versions>)>,
     /// MCP secret bindings (#26).
     mcp: McpTab,
+    /// Connector secrets and what opened each.
+    connectors: Loader<Vec<connectors::Connector>>,
+    connector_form: Option<ConnectorForm>,
 }
 
 /// Expiry, nodes and auto-rotation of one key.
@@ -106,6 +118,53 @@ struct AccessForm {
     error: Option<String>,
 }
 
+/// The add / replace form of a connector secret. Typed values move into
+/// zeroizing buffers on Save; a failed save asks for them again.
+#[derive(Default)]
+struct ConnectorForm {
+    replace_id: Option<String>,
+    kind: String,
+    name: String,
+    label: String,
+    /// One (field, typed value) per field of the kind.
+    fields: Vec<(String, String)>,
+    reveal: bool,
+    saving: Option<Slot<SaveResult>>,
+    error: Option<String>,
+}
+
+impl ConnectorForm {
+    fn new(kind: &str, existing: Option<&connectors::Connector>) -> Self {
+        let k = connectors::kind(kind);
+        Self {
+            replace_id: existing.map(|c| c.meta.id.clone()),
+            kind: kind.into(),
+            name: existing.map(|c| c.name.clone()).unwrap_or_default(),
+            fields: k
+                .map(|k| {
+                    k.fields
+                        .iter()
+                        .chain(k.optional)
+                        .map(|f| (f.to_string(), String::new()))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            ..Default::default()
+        }
+    }
+
+    /// The core check of what is typed (the same `connectors::encode` the
+    /// save runs), or `None` when it would save.
+    fn rule(&self) -> Option<String> {
+        let fields: Vec<(String, SecretString)> = self
+            .fields
+            .iter()
+            .map(|(k, v)| (k.clone(), SecretString::new(v.as_str())))
+            .collect();
+        connectors::encode(&self.kind, &fields).err()
+    }
+}
+
 /// The provider's mark (a Phosphor glyph from the embedded font).
 pub fn provider_logo(id: &str) -> &'static str {
     match id {
@@ -117,6 +176,7 @@ pub fn provider_logo(id: &str) -> &'static str {
         "meta" | "llama" => "\u{ED02}",    // meta-logo
         "bedrock" | "aws" => "\u{E96C}",   // amazon-logo
         "azure" => "\u{E1AA}",             // cloud
+        "kiro" => "\u{E62A}",              // ghost
         "env" => icons::TERMINAL,
         p if v::is_management_provider(p) => icons::FINGERPRINT,
         _ => icons::PLUGS_CONNECTED,
@@ -145,6 +205,10 @@ impl Screen {
             access: None,
             lineage: None,
             mcp: McpTab::new(model),
+            connectors: Loader::new(model, &["vault."], |core| async move {
+                connectors::list(&core).await
+            }),
+            connector_form: None,
         }
     }
 
@@ -154,6 +218,7 @@ impl Screen {
             "activity" => self.tab = Tab::Activity,
             "grants" => self.tab = Tab::Grants,
             "mcp" => self.tab = Tab::Mcp,
+            "connectors" => self.tab = Tab::Connectors,
             "add" => self.key_form = Some(KeyForm::default()),
             id if id.starts_with("add:") || id.starts_with("key:") => {
                 self.tab = Tab::Keys;
@@ -192,6 +257,7 @@ impl Screen {
             ui.add_space(8.0);
             for (t, icon, label) in [
                 (Tab::Activity, icons::SCROLL, "Activity"),
+                (Tab::Connectors, icons::PLUGS_CONNECTED, "Connectors"),
                 (Tab::Mcp, icons::PLUG, "MCP"),
                 (Tab::Grants, icons::FINGERPRINT, "Grants"),
                 (Tab::Keys, icons::KEY, "Keys"),
@@ -271,6 +337,7 @@ impl Screen {
                 Tab::Keys => self.keys(ui, model, &view),
                 Tab::Grants => grants(ui, model, &view),
                 Tab::Mcp => self.mcp.ui(ui, model, &view),
+                Tab::Connectors => self.connectors_tab(ui),
                 Tab::Activity => self.activity(ui, &view),
             });
         let ctx = ui.ctx().clone();
@@ -279,6 +346,7 @@ impl Screen {
         self.confirm_dialog(&ctx, model);
         self.access_dialog(&ctx, model);
         self.lineage_dialog(&ctx, model);
+        self.connector_dialog(&ctx, model);
         // A test under way shows a spinner; repaint until it settles.
         let now = kls_store::now_ms();
         if view
@@ -363,6 +431,7 @@ impl Screen {
             .secrets
             .iter()
             .filter(|s| !view.providers.iter().any(|p| p.id == s.provider))
+            .filter(|s| connectors::kind_of(&s.provider).is_none())
             .collect();
         if !orphans.is_empty() {
             kit::section(
@@ -591,6 +660,12 @@ impl Screen {
         let mut open = true;
         let mut save = false;
         let mut test = false;
+        let kiro_login = kiro::is_login(&form.provider, &form.env);
+        // A sign-in file opened from the path field or dropped on the window.
+        let mut open_file: Option<std::path::PathBuf> = None;
+        if kiro_login && !label_only {
+            open_file = ctx.input(|i| i.raw.dropped_files.first().map(|f| f.path().to_path_buf()));
+        }
         let title = if label_only {
             icons::label(icons::PENCIL_SIMPLE, "Edit label")
         } else if rotating {
@@ -634,6 +709,7 @@ impl Screen {
                             .clicked()
                             {
                                 form.env_kind = false;
+                                form.kiro = false;
                                 form.provider.clear();
                             }
                             if kit::pill(
@@ -645,10 +721,61 @@ impl Screen {
                             .clicked()
                             {
                                 form.env_kind = true;
+                                form.kiro = false;
+                            }
+                            if kit::pill(
+                                ui,
+                                &icons::label(provider_logo(kiro::PROVIDER), "Kiro"),
+                                form.kiro,
+                            )
+                            .on_hover_text("A Kiro sign-in or a kiro-cli API key")
+                            .clicked()
+                            {
+                                form.kiro = true;
+                                form.env_kind = false;
                             }
                         });
                         if form.env_kind {
                             form.provider = v::ENV_PROVIDER.to_string();
+                        }
+                        if form.kiro {
+                            ui.horizontal(|ui| {
+                                if kit::pill(
+                                    ui,
+                                    &icons::label(icons::FILE_TEXT, "Sign-in (JSON)"),
+                                    !form.kiro_api,
+                                )
+                                .on_hover_text(kiro::LOGIN_HINT)
+                                .clicked()
+                                {
+                                    form.kiro_api = false;
+                                }
+                                if kit::pill(
+                                    ui,
+                                    &icons::label(icons::KEY, "API key"),
+                                    form.kiro_api,
+                                )
+                                .on_hover_text("kiro-cli headless (ksk_…)")
+                                .clicked()
+                                {
+                                    form.kiro_api = true;
+                                }
+                            });
+                            form.provider = kiro::PROVIDER.to_string();
+                            form.env = if form.kiro_api {
+                                kiro::API_KEY_ENV
+                            } else {
+                                kiro::LOGIN_ENV
+                            }
+                            .to_string();
+                            if !form.label_touched {
+                                form.label = if form.kiro_api {
+                                    "kiro-cli"
+                                } else {
+                                    "kiro-signin"
+                                }
+                                .into();
+                            }
                         }
                         ui.add_space(4.0);
                     }
@@ -656,7 +783,7 @@ impl Screen {
                         .num_columns(2)
                         .show(ui, |ui| {
                             ui.label("Provider");
-                            if rotating || label_only || form.env_kind {
+                            if rotating || label_only || form.env_kind || form.kiro {
                                 ui.label(&form.provider);
                             } else {
                                 let before = form.provider.clone();
@@ -687,7 +814,7 @@ impl Screen {
                             }
                             ui.end_row();
                             ui.label("Env var");
-                            if rotating || label_only {
+                            if rotating || label_only || form.kiro {
                                 ui.monospace(&form.env);
                             } else {
                                 ui.add(
@@ -704,13 +831,21 @@ impl Screen {
                                 ui.end_row();
                             }
                             if !label_only {
-                                ui.label("Key");
+                                ui.label(if kiro_login { "Sign-in" } else { "Key" });
                                 ui.horizontal(|ui| {
-                                    ui.add(
+                                    let edit = if kiro_login {
+                                        egui::TextEdit::multiline(&mut form.value)
+                                            .desired_rows(4)
+                                            .code_editor()
+                                    } else {
                                         egui::TextEdit::singleline(&mut form.value)
-                                            .password(!form.reveal)
-                                            .desired_width(300.0),
-                                    );
+                                    };
+                                    if ui
+                                        .add(edit.password(!form.reveal).desired_width(300.0))
+                                        .changed()
+                                    {
+                                        form.kiro_source = "paste";
+                                    }
                                     let eye = if form.reveal {
                                         icons::EYE_SLASH
                                     } else {
@@ -724,8 +859,31 @@ impl Screen {
                                     }
                                 });
                                 ui.end_row();
+                                if kiro_login {
+                                    ui.label("");
+                                    ui.horizontal(|ui| {
+                                        ui.add(
+                                            egui::TextEdit::singleline(&mut form.kiro_path)
+                                                .hint_text("/path/to/kiro-signin.json")
+                                                .desired_width(240.0),
+                                        );
+                                        if kit::ghost_button(
+                                            ui,
+                                            &icons::label(icons::FOLDER, "Open"),
+                                        )
+                                        .on_hover_text("Or drop the file on the window")
+                                        .clicked()
+                                        {
+                                            open_file = Some(form.kiro_path.trim().into());
+                                        }
+                                    });
+                                    ui.end_row();
+                                }
                             }
                         });
+                    if kiro_login && !label_only && !form.value.trim().is_empty() {
+                        kiro_status(ui, &form.value);
+                    }
                     if !rotating && !label_only {
                         ui.horizontal(|ui| {
                             ui.label(
@@ -781,9 +939,10 @@ impl Screen {
                 if !label_only {
                     ui.horizontal(|ui| {
                         let can_test = !form.value.trim().is_empty()
-                            && provider
-                                .as_ref()
-                                .is_some_and(|p| probe::target(p).is_some());
+                            && (kiro_login
+                                || provider
+                                    .as_ref()
+                                    .is_some_and(|p| probe::target(p).is_some()));
                         ui.add_enabled_ui(can_test && form.test.is_none(), |ui| {
                             if kit::ghost_button(ui, &icons::label(icons::PLUGS_CONNECTED, "Test"))
                                 .on_hover_text("Optional. Saving never waits for it.")
@@ -796,9 +955,10 @@ impl Screen {
                             ui.spinner();
                         } else if let Some(r) = &form.tested {
                             test_chip(ui, r);
-                        } else if provider
-                            .as_ref()
-                            .is_some_and(|p| probe::target(p).is_none())
+                        } else if !kiro_login
+                            && provider
+                                .as_ref()
+                                .is_some_and(|p| probe::target(p).is_none())
                         {
                             kit::chip(ui, &icons::label(icons::MINUS, "No test address"), p.muted);
                         }
@@ -811,9 +971,13 @@ impl Screen {
                 }
                 ui.horizontal(|ui| {
                     // Save depends on the form only: never on the test.
+                    // A sign-in must parse (a form rule, like a required
+                    // field); the AWS test still never gates the save.
                     let ready = !saving
                         && !form.provider.is_empty()
-                        && (label_only || !form.value.trim().is_empty());
+                        && (label_only
+                            || (!form.value.trim().is_empty()
+                                && (!kiro_login || kiro::login_rule(&form.value).is_empty())));
                     ui.add_enabled_ui(ready, |ui| {
                         let label = if label_only {
                             icons::label(icons::FLOPPY_DISK, "Save")
@@ -831,7 +995,21 @@ impl Screen {
                     }
                 });
             });
-        if test && let Some(pr) = provider.clone() {
+        if let Some(path) = open_file.filter(|p| !p.as_os_str().is_empty()) {
+            match kiro::read_login_file(&path) {
+                Ok(v) => {
+                    form.value = v.expose().to_string();
+                    form.kiro_source = "file";
+                    form.error = None;
+                }
+                Err(e) => form.error = Some(format!("{e:#}")),
+            }
+        }
+        if test && kiro_login {
+            // Checked here only: a mint could rotate the typed refresh token.
+            form.tested_for = now_for.clone();
+            form.tested = Some(kiro::check_typed(&form.value));
+        } else if test && let Some(pr) = provider.clone() {
             let slot: Slot<ProbeResult> = Arc::default();
             let s2 = slot.clone();
             let value = SecretString::new(form.value.trim());
@@ -861,6 +1039,11 @@ impl Screen {
             );
             let m = model.clone();
             let (env_kind, days, nodes) = (form.env_kind, form.expiry_days, form.nodes.clone());
+            let source = if form.kiro_source.is_empty() {
+                "paste"
+            } else {
+                form.kiro_source
+            };
             model.rt.spawn(async move {
                 let core = m.core();
                 let res = match (label_id, rotate) {
@@ -871,6 +1054,12 @@ impl Screen {
                     (None, None) => {
                         let saved = if env_kind {
                             v::put_env_secret(core, &env, &label, value.clone()).await
+                        } else if kiro::is_login(&provider, &env) {
+                            kiro::put_login(core, &label, value.clone(), source)
+                                .await
+                                .map(|(m, _)| m)
+                        } else if provider == kiro::PROVIDER && env == kiro::API_KEY_ENV {
+                            kiro::put_api_key(core, &label, value.clone()).await
                         } else {
                             v::put_secret(core, &provider, &env, &label, value.clone()).await
                         };
@@ -1222,6 +1411,274 @@ impl Screen {
         }
     }
 
+    // ---- connectors ------------------------------------------------------------
+
+    /// Connector secrets: what Keleustes itself uses to reach a tool. Never
+    /// granted to a node; replaced or revoked here.
+    fn connectors_tab(&mut self, ui: &mut egui::Ui) {
+        let p = theme::palette(ui.ctx());
+        ui.horizontal(|ui| {
+            if theme::primary_button(ui, &icons::label(icons::PLUS, "Connector")).clicked() {
+                self.connector_form = Some(ConnectorForm::new("slack", None));
+            }
+            ui.weak(icons::label(icons::PROHIBIT, "Never granted to a node"));
+        });
+        ui.add_space(8.0);
+        let list = match self.connectors.get() {
+            None => {
+                ui.spinner();
+                return;
+            }
+            Some(Err(e)) => {
+                ui.colored_label(p.red, e);
+                return;
+            }
+            Some(Ok(l)) => l,
+        };
+        if list.is_empty() {
+            kit::empty(ui, icons::PLUGS_CONNECTED, "No connector secrets");
+            return;
+        }
+        let mut act: Option<(bool, connectors::Connector)> = None;
+        TableBuilder::new(ui)
+            .id_salt("vault_connectors")
+            .striped(false)
+            .column(Column::remainder().at_least(200.0))
+            .column(Column::exact(60.0))
+            .column(Column::remainder().at_least(140.0))
+            .column(Column::exact(200.0))
+            .header(22.0, |mut h| {
+                for t in ["Secret", "Version", "Used by", ""] {
+                    h.col(|ui| kit::th(ui, t));
+                }
+            })
+            .body(|mut b| {
+                for c in &list {
+                    b.row(34.0, |mut r| {
+                        r.col(|ui| {
+                            ui.vertical(|ui| {
+                                ui.label(if c.meta.label.is_empty() {
+                                    &c.name
+                                } else {
+                                    &c.meta.label
+                                });
+                                ui.label(kit::mono(
+                                    &format!("{} · {}", c.kind_label, c.name),
+                                    11.0,
+                                    p.muted,
+                                ));
+                            });
+                        });
+                        r.col(|ui| {
+                            ui.label(format!("v{}", c.meta.version.max(1)));
+                        });
+                        r.col(|ui| {
+                            if c.used_by.is_empty() {
+                                ui.weak("Nothing");
+                            } else {
+                                ui.label(c.used_by.join(", "));
+                            }
+                        });
+                        r.col(|ui| {
+                            if kit::ghost_button(
+                                ui,
+                                &icons::label(icons::ARROWS_CLOCKWISE, "Replace"),
+                            )
+                            .clicked()
+                            {
+                                act = Some((true, c.clone()));
+                            }
+                            if kit::danger_button(ui, &icons::label(icons::TRASH, "Revoke"))
+                                .clicked()
+                            {
+                                act = Some((false, c.clone()));
+                            }
+                        });
+                    });
+                }
+            });
+        match act {
+            Some((true, c)) => {
+                self.connector_form = Some(ConnectorForm::new(&c.kind, Some(&c)));
+            }
+            Some((false, c)) => {
+                self.confirm = Some(Confirm::Connector(
+                    c.meta.id.clone(),
+                    format!("{} {}", c.kind_label, c.name),
+                ));
+            }
+            None => {}
+        }
+    }
+
+    fn connector_dialog(&mut self, ctx: &egui::Context, model: &Model) {
+        let Some(form) = &mut self.connector_form else {
+            return;
+        };
+        let p = theme::palette(ctx);
+        if let Some(slot) = &form.saving {
+            let done = slot.lock().unwrap().take();
+            match done {
+                Some(Ok(())) => {
+                    self.connector_form = None;
+                    self.connectors.reload();
+                    return;
+                }
+                Some(Err((e, _))) => {
+                    form.error = Some(e);
+                    form.saving = None;
+                }
+                None => {}
+            }
+        }
+        let saving = form.saving.is_some();
+        let replacing = form.replace_id.is_some();
+        let mut open = true;
+        let mut save = false;
+        let title = if replacing {
+            icons::label(icons::ARROWS_CLOCKWISE, "Replace value")
+        } else {
+            icons::label(icons::PLUGS_CONNECTED, "Add connector")
+        };
+        egui::Window::new(title)
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.add_enabled_ui(!saving, |ui| {
+                    egui::Grid::new("vault_connector_form")
+                        .num_columns(2)
+                        .show(ui, |ui| {
+                            ui.label("Kind");
+                            if replacing {
+                                ui.label(connectors::kind(&form.kind).map_or("", |k| k.label));
+                            } else {
+                                let before = form.kind.clone();
+                                egui::ComboBox::from_id_salt("vault_connector_kind")
+                                    .selected_text(
+                                        connectors::kind(&form.kind).map_or("choose", |k| k.label),
+                                    )
+                                    .show_ui(ui, |ui| {
+                                        for k in &connectors::KINDS {
+                                            ui.selectable_value(
+                                                &mut form.kind,
+                                                k.id.to_string(),
+                                                k.label,
+                                            );
+                                        }
+                                    });
+                                if before != form.kind {
+                                    *form = ConnectorForm::new(&form.kind.clone(), None);
+                                }
+                            }
+                            ui.end_row();
+                            if !replacing {
+                                ui.label("Name");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut form.name)
+                                        .hint_text("ops")
+                                        .desired_width(240.0),
+                                );
+                                ui.end_row();
+                                ui.label("Label");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut form.label)
+                                        .desired_width(240.0),
+                                );
+                                ui.end_row();
+                            }
+                            let required =
+                                connectors::kind(&form.kind).map_or(&[][..], |k| k.fields);
+                            for (name, value) in &mut form.fields {
+                                let opt = !required.contains(&name.as_str());
+                                ui.label(if opt {
+                                    format!("{name} (optional)")
+                                } else {
+                                    name.clone()
+                                });
+                                ui.add(
+                                    egui::TextEdit::singleline(value)
+                                        .password(
+                                            !form.reveal && name != "email" && name != "username",
+                                        )
+                                        .desired_width(240.0),
+                                );
+                                ui.end_row();
+                            }
+                        });
+                    let eye = if form.reveal {
+                        icons::label(icons::EYE_SLASH, "Hide")
+                    } else {
+                        icons::label(icons::EYE, "Show")
+                    };
+                    if kit::ghost_button(ui, &eye).clicked() {
+                        form.reveal = !form.reveal;
+                    }
+                });
+                ui.weak(icons::label(
+                    icons::LOCK_SIMPLE,
+                    "Sealed, write-only, never granted",
+                ));
+                let rule = form.rule();
+                if let Some(e) = form.error.as_ref().or(rule.as_ref()) {
+                    ui.colored_label(p.red, icons::label(icons::X_CIRCLE, e));
+                }
+                ui.horizontal(|ui| {
+                    ui.add_enabled_ui(!saving && rule.is_none(), |ui| {
+                        if theme::primary_button(ui, &icons::label(icons::FLOPPY_DISK, "Save"))
+                            .clicked()
+                        {
+                            save = true;
+                        }
+                    });
+                    if saving {
+                        ui.spinner();
+                    }
+                });
+            });
+        if save {
+            form.error = None;
+            let slot: Slot<SaveResult> = Arc::default();
+            let s2 = slot.clone();
+            let ctx2 = ctx.clone();
+            // The typed values move into zeroizing buffers now.
+            let fields: Vec<(String, SecretString)> = form
+                .fields
+                .iter_mut()
+                .map(|(k, v)| (k.clone(), SecretString::new(std::mem::take(v))))
+                .collect();
+            let (id, kind, name, label) = (
+                form.replace_id.clone(),
+                form.kind.clone(),
+                form.name.clone(),
+                form.label.clone(),
+            );
+            let m = model.clone();
+            model.rt.spawn(async move {
+                let core = m.core();
+                let res = match id {
+                    Some(id) => connectors::replace(core, &id, &fields).await.map(|_| ()),
+                    None => connectors::put(core, &kind, &name, &label, &fields, "vault")
+                        .await
+                        .map(|_| ()),
+                };
+                let out = match res {
+                    Ok(()) => {
+                        m.notify(Notice::Info("Saved".into()));
+                        Ok(())
+                    }
+                    Err(e) => Err((format!("{e:#}"), None)),
+                };
+                *s2.lock().unwrap() = Some(out);
+                ctx2.request_repaint();
+            });
+            form.saving = Some(slot);
+        }
+        if !open && !saving {
+            self.connector_form = None;
+        }
+    }
+
     fn confirm_dialog(&mut self, ctx: &egui::Context, model: &Model) {
         let Some(c) = &self.confirm else {
             return;
@@ -1229,6 +1686,7 @@ impl Screen {
         let text = match c {
             Confirm::Secret(_, name) => format!("Delete key {name}?"),
             Confirm::Provider(id) => format!("Remove provider {id}? Keys stay."),
+            Confirm::Connector(_, name) => format!("Revoke {name}? What uses it stops working."),
         };
         let mut done = false;
         egui::Window::new(icons::label(icons::WARNING, "Confirm"))
@@ -1247,6 +1705,9 @@ impl Screen {
                                 }
                                 Some(Confirm::Provider(id)) => {
                                     v::delete_provider(m.core(), &id).await?;
+                                }
+                                Some(Confirm::Connector(id, _)) => {
+                                    connectors::revoke(m.core(), &id).await?;
                                 }
                                 None => {}
                             }
@@ -1354,6 +1815,44 @@ fn stats(ui: &mut egui::Ui, view: &VaultView) {
 
 /// The test chip for a result: accepted N ms / refused HTTP N / unreachable
 /// / skipped, the provider's reason on hover.
+/// What a typed Kiro sign-in is: the rule it breaks, or its region, kind
+/// and registration expiry. Never a token.
+fn kiro_status(ui: &mut egui::Ui, raw: &str) {
+    let p = theme::palette(ui.ctx());
+    let now = kls_store::now_ms();
+    match kiro::parse_login(raw, now) {
+        Err(why) => {
+            ui.colored_label(p.red, icons::label(icons::WARNING, &why));
+        }
+        Ok((_, s)) => {
+            ui.horizontal_wrapped(|ui| {
+                kit::chip(ui, &icons::label(icons::CHECK, "Sign-in"), p.green);
+                kit::chip(ui, &icons::label(icons::GLOBE, &s.region), p.muted);
+                let kind = if s.identity_center {
+                    "Identity Center"
+                } else {
+                    "Builder ID"
+                };
+                kit::chip(ui, &icons::label(icons::USER, kind), p.muted);
+                if let Some(e) = s.registration_expires_at {
+                    kit::chip(
+                        ui,
+                        &icons::label(
+                            icons::CLOCK,
+                            &format!("Registered until {}", fmt::when(e).get(..10).unwrap_or("?")),
+                        ),
+                        if e - now < v::EXPIRING_MS {
+                            p.amber
+                        } else {
+                            p.muted
+                        },
+                    );
+                }
+            });
+        }
+    }
+}
+
 pub fn test_chip(ui: &mut egui::Ui, r: &ProbeResult) -> egui::Response {
     let p = theme::palette(ui.ctx());
     let now = kls_store::now_ms();
@@ -1848,5 +2347,42 @@ impl McpTab {
                 Ok(Some(Notice::Info("Unbound".into())))
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod kiro_connector_ui_tests {
+    use super::*;
+
+    #[test]
+    fn connector_form_lists_the_kind_fields_and_checks_like_the_save() {
+        let mut f = ConnectorForm::new("webhook", None);
+        let names: Vec<&str> = f.fields.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(names, ["url", "signingSecret", "previousSecret"]);
+        assert!(f.rule().unwrap().contains("url"));
+        f.fields[0].1 = "https://hooks.example.com/abc".into();
+        f.fields[1].1 = "whsec-0123456789".into();
+        assert!(f.rule().is_none(), "the optional field may stay empty");
+        f.fields[0].1 = "http://hooks.example.com/abc".into();
+        assert!(f.rule().unwrap().contains("https"));
+        assert!(ConnectorForm::new("nope", None).rule().is_some());
+    }
+
+    #[test]
+    fn kiro_status_renders_a_summary_or_the_rule() {
+        let ctx = egui::Context::default();
+        let good = serde_json::json!({"refresh_token":"r-0123456789","client_id":"c",
+            "client_secret":"s-0123456789","region":"eu-central-1"})
+        .to_string();
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
+                kiro_status(ui, &good);
+                kiro_status(ui, "{}");
+            });
+        });
+        out.textures_delta.clear();
+        assert!(kiro::login_rule(&good).is_empty());
+        assert!(!kiro::login_rule("{}").is_empty());
+        assert_eq!(provider_logo(kiro::PROVIDER), "\u{E62A}");
     }
 }

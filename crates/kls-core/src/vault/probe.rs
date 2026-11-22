@@ -316,6 +316,9 @@ pub async fn probe_stored(core: &Core, id: &str, by: &str) -> Result<ProbeResult
     )
     .await?;
     let r = match vault(core).await?.get(id).await {
+        Ok(Some(value)) if super::kiro::is_login(&meta.provider, &meta.env) => {
+            super::kiro::test_stored(core, &meta, &value).await
+        }
         Ok(Some(value)) => probe_key(&provider, &value).await,
         Ok(None) => return Err(anyhow!("no such key")),
         Err(e) => ProbeResult {

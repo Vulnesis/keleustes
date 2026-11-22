@@ -1936,7 +1936,7 @@ fn crew_member_names(crew: &str, own: Option<&Map<String, Value>>) -> Vec<String
 /// A step's start keys (`kls_core::sessions::start::StartFields`): the
 /// fields that apply to `kind`, and the engine's own check of what is set.
 fn start_fields_ui(ui: &mut egui::Ui, cfg: &mut Map<String, Value>, kind: &str, salt: &str) {
-    use kls_core::sessions::start::{EFFORTS, StartFields};
+    use kls_core::sessions::start::EFFORTS;
     let session = kind == "session";
     let workers = matches!(kind, "worker" | "crew");
     egui::CollapsingHeader::new(icons::label(icons::GEAR_SIX, "Start options"))
@@ -1974,14 +1974,404 @@ fn start_fields_ui(ui: &mut egui::Ui, cfg: &mut Map<String, Value>, kind: &str, 
                 text(ui, cfg, "clone", "Clone (owner/name@branch)");
             }
             mcp_ui(ui, cfg, salt);
-            let check = StartFields::from_config(cfg).and_then(|f| f.validate(kind));
-            if let Err(why) = check {
+            if session {
+                answers_ui(ui, cfg, salt);
+                gates_ui(ui, cfg, salt);
+            }
+            if kind == "worker" {
+                adhoc_ui(ui, cfg, salt);
+            }
+            for why in start_problems(cfg, kind) {
                 ui.colored_label(
                     ui.visuals().error_fg_color,
                     icons::label(icons::WARNING, &why),
                 );
             }
         });
+}
+
+/// The engine validator's start-field problems for a step with `cfg`
+/// (`kls_engine::validate::start_problems`): what a dry run and the
+/// dispatch refuse, so the form never disagrees with them.
+fn start_problems(cfg: &Map<String, Value>, kind: &str) -> Vec<String> {
+    let mut n = Node::new("form", "crew", "");
+    n.config = cfg.clone();
+    n.config.insert("dispatch".into(), json!(kind));
+    kls_engine::validate::start_problems(&n)
+        .into_iter()
+        .map(|(_, why)| why)
+        .collect()
+}
+
+/// One scripted answer as the form edits it: an optional question match
+/// and one action.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct AnswerRow {
+    matcher: String,
+    /// "choose", "note" or "skip".
+    action: String,
+    choose: u64,
+    note: String,
+}
+
+/// `answers` as rows; `None` when the stored value is not a list the form
+/// can show (the validator says why).
+fn answer_rows(cfg: &Map<String, Value>) -> Option<Vec<AnswerRow>> {
+    let list = match cfg.get("answers") {
+        None | Some(Value::Null) => return Some(Vec::new()),
+        Some(Value::Array(a)) => a.clone(),
+        Some(Value::String(s)) if s.trim().is_empty() => return Some(Vec::new()),
+        Some(Value::String(s)) => serde_json::from_str::<Vec<Value>>(s).ok()?,
+        Some(_) => return None,
+    };
+    list.iter()
+        .map(|a| {
+            let o = a.as_object()?;
+            let s = |k: &str| o.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+            let (action, choose, note) = if let Some(c) = o.get("choose").and_then(Value::as_u64) {
+                ("choose", c, String::new())
+            } else if o.contains_key("note") {
+                ("note", 0, s("note"))
+            } else {
+                ("skip", 0, String::new())
+            };
+            Some(AnswerRow {
+                matcher: s("match"),
+                action: action.into(),
+                choose,
+                note,
+            })
+        })
+        .collect()
+}
+
+/// Stores rows as the `answers` list belai takes (`-answers` JSON).
+fn set_answers(cfg: &mut Map<String, Value>, rows: &[AnswerRow]) {
+    if rows.is_empty() {
+        cfg.remove("answers");
+        return;
+    }
+    let v: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            let mut o = Map::new();
+            if !r.matcher.trim().is_empty() {
+                o.insert("match".into(), json!(r.matcher.trim()));
+            }
+            match r.action.as_str() {
+                "choose" => o.insert("choose".into(), json!(r.choose)),
+                "note" => o.insert("note".into(), json!(r.note)),
+                _ => o.insert("skip".into(), json!(true)),
+            };
+            Value::Object(o)
+        })
+        .collect();
+    cfg.insert("answers".into(), Value::Array(v));
+}
+
+/// Scripted answers (#52): a session answers its questions from this list,
+/// in order, instead of waiting for a person.
+fn answers_ui(ui: &mut egui::Ui, cfg: &mut Map<String, Value>, salt: &str) {
+    kit::field_label(ui, &icons::label(icons::CHAT_TEXT, "Scripted answers"));
+    let Some(mut rows) = answer_rows(cfg) else {
+        ui.horizontal(|ui| {
+            ui.weak(icons::label(icons::WARNING, "Not a list"));
+            if ui
+                .small_button(icons::label(icons::TRASH, "Clear"))
+                .clicked()
+            {
+                cfg.remove("answers");
+            }
+        });
+        return;
+    };
+    let mut changed = false;
+    let mut drop = None;
+    for (i, r) in rows.iter_mut().enumerate() {
+        ui.horizontal(|ui| {
+            let w = ((ui.available_width() - 150.0) / 2.0).max(60.0);
+            changed |= ui
+                .add(
+                    egui::TextEdit::singleline(&mut r.matcher)
+                        .desired_width(w)
+                        .hint_text("question match (any)")
+                        .id_salt((salt, "ans-m", i)),
+                )
+                .changed();
+            egui::ComboBox::from_id_salt((salt, "ans-a", i))
+                .width(70.0)
+                .selected_text(match r.action.as_str() {
+                    "choose" => "Choose",
+                    "note" => "Note",
+                    _ => "Skip",
+                })
+                .show_ui(ui, |ui| {
+                    for (a, l) in [("choose", "Choose"), ("note", "Note"), ("skip", "Skip")] {
+                        if ui.selectable_label(r.action == a, l).clicked() {
+                            r.action = a.into();
+                            changed = true;
+                        }
+                    }
+                });
+            match r.action.as_str() {
+                "choose" => {
+                    changed |= ui
+                        .add(egui::DragValue::new(&mut r.choose).range(0..=99))
+                        .on_hover_text("Option number")
+                        .changed();
+                }
+                "note" => {
+                    changed |= ui
+                        .add(
+                            egui::TextEdit::singleline(&mut r.note)
+                                .desired_width(w)
+                                .hint_text("reply")
+                                .id_salt((salt, "ans-n", i)),
+                        )
+                        .changed();
+                }
+                _ => {}
+            }
+            if ui
+                .small_button(icons::TRASH)
+                .on_hover_text("Remove")
+                .clicked()
+            {
+                drop = Some(i);
+            }
+        });
+    }
+    if let Some(i) = drop {
+        rows.remove(i);
+        changed = true;
+    }
+    if ui
+        .small_button(icons::label(icons::PLUS, "Answer"))
+        .clicked()
+    {
+        rows.push(AnswerRow {
+            action: "choose".into(),
+            choose: 1,
+            ..Default::default()
+        });
+        changed = true;
+    }
+    if changed {
+        set_answers(cfg, &rows);
+    }
+    ui.add_space(4.0);
+}
+
+/// A gate's label in the form.
+fn gate_label(key: &str) -> &str {
+    match key {
+        "finish_review" => "Finish review",
+        "lint_loop" => "Lint loop",
+        "checkpoints" => "Checkpoints",
+        "code_mode" => "Code mode",
+        "commit_mode" => "Commit mode",
+        k => k,
+    }
+}
+
+/// A gate's stored value as text (`true` reads as on).
+fn gate_value(cfg: &Map<String, Value>, key: &str) -> String {
+    match cfg.get("gates").and_then(|g| g.get(key)) {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Bool(true)) => "on".into(),
+        Some(Value::Bool(false)) => "off".into(),
+        _ => String::new(),
+    }
+}
+
+/// Sets one gate ("" removes it; no gate left removes `gates`).
+fn set_gate(cfg: &mut Map<String, Value>, key: &str, value: &str) {
+    let mut g = cfg
+        .get("gates")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    if value.is_empty() {
+        g.remove(key);
+    } else {
+        g.insert(key.into(), json!(value));
+    }
+    if g.is_empty() {
+        cfg.remove("gates");
+    } else {
+        cfg.insert("gates".into(), Value::Object(g));
+    }
+}
+
+/// Harness gates (#51): each only tightens what the host allows.
+fn gates_ui(ui: &mut egui::Ui, cfg: &mut Map<String, Value>, salt: &str) {
+    use kls_core::sessions::start::GATES;
+    kit::field_label(ui, &icons::label(icons::SHIELD_CHECK, "Gates"))
+        .on_hover_text("Tighten only; the host ignores a value that loosens a gate");
+    for (key, vals) in GATES {
+        let cur = gate_value(cfg, key);
+        ui.horizontal(|ui| {
+            ui.label(gate_label(key));
+            egui::ComboBox::from_id_salt((salt, "gate", key))
+                .selected_text(if cur.is_empty() {
+                    "(host default)"
+                } else {
+                    cur.as_str()
+                })
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(cur.is_empty(), "(host default)")
+                        .clicked()
+                    {
+                        set_gate(cfg, key, "");
+                    }
+                    for v in vals.iter() {
+                        if ui.selectable_label(cur == *v, *v).clicked() {
+                            set_gate(cfg, key, v);
+                        }
+                    }
+                });
+        });
+    }
+    ui.add_space(4.0);
+}
+
+/// A comma list as text.
+fn list_text(v: Option<&Value>) -> String {
+    v.and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default()
+}
+
+/// A comma list from text.
+fn text_list(s: &str) -> Value {
+    Value::Array(
+        s.split(',')
+            .map(str::trim)
+            .filter(|x| !x.is_empty())
+            .map(|x| json!(x))
+            .collect(),
+    )
+}
+
+/// A one-off worker (#55): a worker made from a prompt, with no stored
+/// profile. Turning it on drops the agent (the two exclude each other).
+fn adhoc_ui(ui: &mut egui::Ui, cfg: &mut Map<String, Value>, salt: &str) {
+    use kls_core::sessions::start::{MAX_ADHOC_PROMPT, PUBLISH};
+    let mut on = cfg.get("adhoc").is_some_and(|a| !a.is_null());
+    if ui
+        .checkbox(&mut on, icons::label(icons::SPARKLE, "One-off worker"))
+        .on_hover_text("A worker from a prompt, no saved profile")
+        .changed()
+    {
+        if on {
+            cfg.insert("adhoc".into(), json!({ "prompt": "" }));
+            cfg.remove("agent");
+        } else {
+            cfg.remove("adhoc");
+        }
+    }
+    let Some(a) = cfg.get_mut("adhoc").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let s = |a: &Map<String, Value>, k: &str| {
+        a.get(k).and_then(Value::as_str).unwrap_or("").to_string()
+    };
+    let mut prompt = s(a, "prompt");
+    kit::field_label(
+        ui,
+        &icons::label(
+            icons::CHAT_TEXT,
+            &format!("Prompt ({}/{MAX_ADHOC_PROMPT})", prompt.len()),
+        ),
+    );
+    if ui
+        .add(
+            egui::TextEdit::multiline(&mut prompt)
+                .desired_rows(3)
+                .desired_width(f32::INFINITY)
+                .id_salt((salt, "adhoc-prompt")),
+        )
+        .changed()
+    {
+        a.insert("prompt".into(), json!(prompt));
+    }
+    for (key, label, hint) in [
+        ("tools", icons::label(icons::WRENCH, "Tools"), "read, grep"),
+        (
+            "claim_labels",
+            icons::label(icons::TAG, "Claim labels"),
+            "bug, p1",
+        ),
+    ] {
+        kit::field_label(ui, &label);
+        let mut t = list_text(a.get(key));
+        if ui
+            .add(
+                egui::TextEdit::singleline(&mut t)
+                    .desired_width(f32::INFINITY)
+                    .hint_text(hint)
+                    .id_salt((salt, "adhoc", key)),
+            )
+            .changed()
+        {
+            a.insert(key.into(), text_list(&t));
+        }
+    }
+    kit::field_label(ui, &icons::label(icons::LIST_CHECKS, "Claim from list"));
+    let mut list = list_text(a.get("claim_lists"));
+    if ui
+        .add(
+            egui::TextEdit::singleline(&mut list)
+                .desired_width(f32::INFINITY)
+                .hint_text("triage")
+                .id_salt((salt, "adhoc-list")),
+        )
+        .changed()
+    {
+        a.insert("claim_lists".into(), text_list(&list));
+    }
+    kit::field_label(ui, &icons::label(icons::ARROW_RIGHT, "Move done cards to"));
+    let mut to = s(a, "to");
+    if ui
+        .add(
+            egui::TextEdit::singleline(&mut to)
+                .desired_width(f32::INFINITY)
+                .id_salt((salt, "adhoc-to")),
+        )
+        .changed()
+    {
+        a.insert("to".into(), json!(to.trim()));
+    }
+    let publish = s(a, "publish");
+    kit::field_label(ui, &icons::label(icons::ARROW_SQUARE_OUT, "Publish"));
+    egui::ComboBox::from_id_salt((salt, "adhoc-publish"))
+        .selected_text(if publish.is_empty() {
+            "(agent decides)"
+        } else {
+            publish.as_str()
+        })
+        .show_ui(ui, |ui| {
+            for v in PUBLISH {
+                let l = if v.is_empty() { "(agent decides)" } else { v };
+                if ui.selectable_label(publish == v, l).clicked() {
+                    a.insert("publish".into(), json!(v));
+                }
+            }
+        });
+    let mut ro = a.get("read_only").and_then(Value::as_bool).unwrap_or(false);
+    if ui
+        .checkbox(&mut ro, icons::label(icons::LOCK_SIMPLE, "Read only"))
+        .changed()
+    {
+        a.insert("read_only".into(), json!(ro));
+    }
+    ui.add_space(4.0);
 }
 
 /// `dirs` as editable text, one directory per line.
@@ -2405,6 +2795,10 @@ fn node_ui(ui: &mut egui::Ui, ed: &mut Editor, id: &str) {
             {
                 "crew" => suggest(ui, cfg, "crew", "Crew", &g::crews(), &salt),
                 "session" => {}
+                _ if cfg.get("adhoc").is_some_and(|a| !a.is_null()) => {
+                    ui.weak(icons::label(icons::SPARKLE, "One-off worker"))
+                        .on_hover_text("Set under Start options");
+                }
                 _ => suggest(ui, cfg, "agent", "Agent", &g::workers(), &salt),
             }
             combo(ui, cfg, "mode", "Mode", &g::MODES, &salt);
@@ -3461,6 +3855,124 @@ mod parity_ui_tests {
         set_dirs(&mut w, "  ");
         set_mcp(&mut w, &[]);
         assert!(!w.contains_key("dirs") && !w.contains_key("mcp"));
+    }
+
+    #[test]
+    fn answers_gates_and_adhoc_forms_write_what_the_engine_reads() {
+        use kls_core::sessions::start::StartFields;
+        // Answers: rows round-trip and land as the list belai takes.
+        let mut cfg = Map::new();
+        let rows = vec![
+            AnswerRow {
+                matcher: " Proceed? ".into(),
+                action: "choose".into(),
+                choose: 2,
+                ..Default::default()
+            },
+            AnswerRow {
+                action: "note".into(),
+                note: "use main".into(),
+                ..Default::default()
+            },
+            AnswerRow {
+                action: "skip".into(),
+                ..Default::default()
+            },
+        ];
+        set_answers(&mut cfg, &rows);
+        assert_eq!(
+            cfg["answers"],
+            json!([{"match":"Proceed?","choose":2},{"note":"use main"},{"skip":true}])
+        );
+        let back = answer_rows(&cfg).unwrap();
+        assert_eq!(back[0].matcher, "Proceed?");
+        assert_eq!(back[1].note, "use main");
+        assert_eq!(back[2].action, "skip");
+        // A stored JSON string reads too; a non-list does not.
+        cfg.insert("answers".into(), json!("[{\"choose\":1}]"));
+        assert_eq!(answer_rows(&cfg).unwrap()[0].choose, 1);
+        cfg.insert("answers".into(), json!(7));
+        assert!(answer_rows(&cfg).is_none());
+        set_answers(&mut cfg, &rows);
+        // Gates: set, read back (a stored bool reads as on), clear.
+        set_gate(&mut cfg, "commit_mode", "ask");
+        set_gate(&mut cfg, "finish_review", "on");
+        assert_eq!(gate_value(&cfg, "commit_mode"), "ask");
+        let f = StartFields::from_config(&cfg).unwrap();
+        assert_eq!(f.gates.len(), 2);
+        assert_eq!(f.answers_json, cfg["answers"].to_string());
+        assert!(f.validate("session").is_ok());
+        assert!(start_problems(&cfg, "session").is_empty());
+        // The form shows what the engine validator refuses.
+        let why = start_problems(&cfg, "worker");
+        assert!(
+            why.iter().any(|w| w == "answers apply to a session"),
+            "{why:?}"
+        );
+        assert!(
+            why.iter().any(|w| w == "gates apply to a session"),
+            "{why:?}"
+        );
+        set_gate(&mut cfg, "code_mode", "on");
+        assert!(
+            start_problems(&cfg, "session")
+                .iter()
+                .any(|w| w.contains("code_mode"))
+        );
+        set_gate(&mut cfg, "code_mode", "");
+        set_gate(&mut cfg, "commit_mode", "");
+        set_gate(&mut cfg, "finish_review", "");
+        assert!(!cfg.contains_key("gates"));
+        // Ad hoc worker: list fields as the protocol names them.
+        let mut w = Map::new();
+        w.insert(
+            "adhoc".into(),
+            json!({"prompt":"triage","tools": text_list("read, grep ,"),
+                   "claim_lists": text_list("triage"), "publish":"none","read_only":true}),
+        );
+        assert_eq!(list_text(w["adhoc"].get("tools")), "read, grep");
+        let f = StartFields::from_config(&w).unwrap();
+        let a = f.adhoc.clone().unwrap();
+        assert_eq!(a.tools, ["read", "grep"]);
+        assert_eq!(a.claim_lists, ["triage"]);
+        assert!(a.read_only);
+        assert!(start_problems(&w, "worker").is_empty());
+        w.insert("agent".into(), json!("belai:builder"));
+        assert!(
+            start_problems(&w, "worker")
+                .iter()
+                .any(|x| x.contains("names no agent"))
+        );
+        w.remove("agent");
+        w["adhoc"]["prompt"] = json!("");
+        assert!(
+            start_problems(&w, "worker")
+                .iter()
+                .any(|x| x.contains("needs a prompt"))
+        );
+    }
+
+    #[test]
+    fn start_options_render_for_each_kind() {
+        let ctx = egui::Context::default();
+        let mut session = Map::new();
+        session.insert("answers".into(), json!([{"choose":1}]));
+        session.insert("gates".into(), json!({"lint_loop": true}));
+        let mut worker = Map::new();
+        worker.insert("adhoc".into(), json!({"prompt":"x","tools":["read"]}));
+        let before = (session.clone(), worker.clone());
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
+                start_fields_ui(ui, &mut session, "session", "s");
+                start_fields_ui(ui, &mut worker, "worker", "w");
+                answers_ui(ui, &mut session, "s2");
+                gates_ui(ui, &mut session, "s2");
+                adhoc_ui(ui, &mut worker, "w2");
+            });
+        });
+        out.textures_delta.clear();
+        // Rendering alone changes nothing.
+        assert_eq!((session, worker), before);
     }
 
     #[test]

@@ -166,3 +166,141 @@ impl Core {
         check_args(name, args, &cps).map_err(invalid)
     }
 }
+
+/// One transcript entry's belai identity: its type, entry id and parent id
+/// (`meta_json` "type", "id", "parentId").
+fn belai_link(e: &kls_store::sessions::Entry) -> Option<(String, String, String)> {
+    let v: Value = serde_json::from_str(&e.meta_json).ok()?;
+    let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    let id = s("id");
+    (!id.is_empty()).then(|| (s("type"), id, s("parentId")))
+}
+
+/// The entries a rewind (or a belai `/tree` move) took off the conversation,
+/// by `idx`. belai keeps a transcript append-only: a rewind writes a `branch`
+/// line parented to the point it returns to, and every later line parents to
+/// the one before it. The conversation is the chain from the newest line back
+/// to the first, read the way belai reads it (`session.ActivePath`); a belai
+/// line off that chain was rewound. A transcript with no `branch` line, or
+/// whose chain reaches a line not synced yet, marks nothing.
+pub fn rewound(entries: &[kls_store::sessions::Entry]) -> std::collections::HashSet<i64> {
+    use std::collections::{HashMap, HashSet};
+    let links: Vec<(i64, (String, String, String))> = entries
+        .iter()
+        .filter_map(|e| belai_link(e).map(|l| (e.idx, l)))
+        .collect();
+    if !links.iter().any(|(_, (t, _, _))| t == "branch") {
+        return HashSet::new();
+    }
+    let parent: HashMap<&str, &str> = links
+        .iter()
+        .map(|(_, (_, id, p))| (id.as_str(), p.as_str()))
+        .collect();
+    let Some((_, (_, leaf, _))) = links.iter().max_by_key(|(idx, _)| *idx) else {
+        return HashSet::new();
+    };
+    let mut on: HashSet<&str> = HashSet::new();
+    let mut id = leaf.as_str();
+    while !id.is_empty() && on.insert(id) {
+        match parent.get(id) {
+            Some(p) => id = p,
+            // A parent not synced yet: the chain cannot be read, so nothing is
+            // marked rather than everything before the gap.
+            None => return HashSet::new(),
+        }
+    }
+    links
+        .iter()
+        .filter(|(_, (_, id, _))| !on.contains(id.as_str()))
+        .map(|(idx, _)| *idx)
+        .collect()
+}
+
+/// The prompt a rewind to `checkpoint` returns for editing: the text of the
+/// user entry the checkpoint names (belai puts it back in the TUI's editor;
+/// the console puts it in the composer). Untrusted, like every entry.
+pub fn rewind_prompt(
+    entries: &[kls_store::sessions::Entry],
+    checkpoint: &kls_store::belai::Checkpoint,
+) -> Option<String> {
+    if checkpoint.entry_id.is_empty() {
+        return None;
+    }
+    entries.iter().find_map(|e| {
+        let (t, id, _) = belai_link(e)?;
+        (t == "user" && id == checkpoint.entry_id).then(|| e.text.clone())
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kls_store::sessions::Entry;
+
+    fn entry(idx: i64, typ: &str, id: &str, parent: &str, text: &str) -> Entry {
+        Entry {
+            idx,
+            role: if typ == "user" { "user" } else { "system" }.into(),
+            text: text.into(),
+            at: 0,
+            meta_json: json!({ "type": typ, "id": id, "parentId": parent }).to_string(),
+        }
+    }
+
+    // A rewind to before u2: the branch line parents to a1, so u2, its reply
+    // and the line that followed leave the conversation; the branch line and
+    // what comes after it stay. The prompt goes back for editing.
+    #[test]
+    fn rewound_follows_the_branch_line() {
+        let mut es = vec![
+            entry(0, "session_meta", "m", "", ""),
+            entry(1, "user", "u1", "m", "first"),
+            entry(2, "assistant", "a1", "u1", "ok"),
+            entry(3, "user", "u2", "a1", "second"),
+            entry(4, "assistant", "a2", "u2", "done"),
+            entry(5, "checkpoints", "c", "a2", ""),
+            entry(6, "branch", "b", "a1", ""),
+            entry(7, "system", "s", "b", "console: rewind c1"),
+        ];
+        let got = rewound(&es);
+        assert_eq!(got, [3, 4, 5].into_iter().collect());
+        let cp = kls_store::belai::Checkpoint {
+            id: "c1".into(),
+            entry_id: "u2".into(),
+            ..Default::default()
+        };
+        assert_eq!(rewind_prompt(&es, &cp).as_deref(), Some("second"));
+        let none = kls_store::belai::Checkpoint {
+            entry_id: "a1".into(),
+            ..cp.clone()
+        };
+        assert_eq!(rewind_prompt(&es, &none), None);
+
+        // A line from Keleustes with no belai id is never marked.
+        es.push(Entry {
+            idx: 8,
+            role: "system".into(),
+            text: "note".into(),
+            at: 0,
+            meta_json: String::new(),
+        });
+        assert_eq!(rewound(&es), [3, 4, 5].into_iter().collect());
+    }
+
+    // No branch line: nothing is rewound. A chain broken by an unsynced line:
+    // nothing is marked rather than everything before the gap.
+    #[test]
+    fn rewound_marks_nothing_without_a_readable_branch() {
+        let flat = vec![
+            entry(0, "user", "u1", "", "first"),
+            entry(1, "assistant", "a1", "u1", "ok"),
+        ];
+        assert!(rewound(&flat).is_empty());
+        let gap = vec![
+            entry(0, "user", "u1", "", "first"),
+            entry(1, "assistant", "a1", "u1", "ok"),
+            entry(3, "branch", "b", "missing", ""),
+        ];
+        assert!(rewound(&gap).is_empty());
+    }
+}

@@ -25,6 +25,8 @@ pub use kls_vault::{
     is_management_provider,
 };
 
+pub mod connectors;
+pub mod kiro;
 pub mod lineage;
 pub mod probe;
 pub use probe::{ProbeResult, ProbeState};
@@ -238,6 +240,15 @@ pub async fn put_secret(
     } else {
         env.trim().to_string()
     };
+    // A Kiro sign-in is checked and re-encoded in belai's shape on every
+    // path that stores one (the Kiro form, the generic form, a rotation).
+    let value = if kiro::is_login(provider, &env) {
+        kiro::parse_login(value.expose(), kls_store::now_ms())
+            .map_err(|e| anyhow!(e))?
+            .0
+    } else {
+        value
+    };
     let replaced = core
         .store()
         .vault_sealed_for(provider)
@@ -270,6 +281,18 @@ async fn after_save(core: &Core, id: &str) {
 /// (`vault.rotation_grace_hours`) so it can be rolled back, and the lineage
 /// records both fingerprints.
 pub async fn rotate_secret(core: &Core, id: &str, value: SecretString) -> Result<SecretMeta> {
+    let meta = core.store().vault_secret_meta(id).await?;
+    let value = match &meta {
+        Some(m) if kiro::is_login(&m.provider, &m.env) => {
+            kiro::parse_login(value.expose(), kls_store::now_ms())
+                .map_err(|e| anyhow!(e))?
+                .0
+        }
+        Some(m) if connectors::kind_of(&m.provider).is_some() => {
+            bail!("replace a connector secret from the Connectors tab")
+        }
+        _ => value,
+    };
     lineage::rotate_with_grace(core, id, value, "owner", "").await
 }
 
@@ -1841,6 +1864,10 @@ pub async fn save_agent(core: &Core, a: &AgentProfile) -> Result<AgentProfile> {
 pub async fn delete_agent(core: &Core, id: &str) -> Result<bool> {
     let gone = core.store().delete_agent_profile(id).await?;
     if gone {
+        // Its files go with it (the blobs stay for the audit trail).
+        for f in core.store().agent_files(id).await? {
+            core.store().delete_agent_file(id, &f.path).await?;
+        }
         core.emit(kinds::AGENT_DELETED, id, &json!({"id": id}))
             .await?;
     }
@@ -2277,13 +2304,28 @@ pub async fn agent_to_library(core: &Core, agent_id: &str, note: &str) -> Result
         .agent_profile(agent_id)
         .await?
         .ok_or_else(|| anyhow!("no such agent"))?;
-    let body = serde_json::to_string_pretty(&json!({
+    let mut doc = json!({
         "name": a.name, "displayName": a.display_name, "description": a.description,
         "prompt": a.prompt, "provider": a.provider, "model": a.model, "tools": a.tools,
         "avatarSvg": a.avatar_svg, "meta": serde_json::from_str::<Value>(&a.meta_json).unwrap_or(json!({})),
         "agentVersion": a.version,
-    }))?;
-    save_library(core, "", AGENT_KIND, &a.name, &a.description, &body, note).await
+    });
+    // The files the agent carries (agent B): listed in the document, so a
+    // change to them is a new version, and saved with it as bundle files.
+    let files = crate::attachments::agent_file_bundle(core, &a.id).await?;
+    if !files.is_empty() {
+        let listed = core.store().agent_files(&a.id).await?;
+        doc["files"] = json!(
+            listed
+                .iter()
+                .map(|f| json!({ "path": f.path, "sha256": f.sha256, "size": f.size_bytes }))
+                .collect::<Vec<_>>()
+        );
+    }
+    let body = serde_json::to_string_pretty(&doc)?;
+    let (id, v) = save_library(core, "", AGENT_KIND, &a.name, &a.description, &body, note).await?;
+    core.store().save_bundle_files(&id, v, &files).await?;
+    Ok((id, v))
 }
 
 /// Installs (or updates) the agent a library `agent` item holds, at

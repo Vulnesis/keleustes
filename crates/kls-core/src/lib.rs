@@ -15,6 +15,8 @@ use tokio::sync::broadcast;
 pub use kls_store;
 
 pub mod artifacts;
+/// Prompt and dispatch attachments (#53) and agent files (agent B).
+pub mod attachments;
 pub mod audit;
 pub mod belai;
 pub mod board;

@@ -30,6 +30,8 @@ pub use git::{Limits, Tree};
 pub use index::{Facets, Index, SourceState};
 pub use licence::{Licence, LicenceClass, LicencePolicy};
 pub use scan::{Flag, scan};
+/// belai `secretshape`: private key blocks and known token shapes.
+pub use scan_rules::holds_secret;
 pub use source::{
     Ecosystem, Fetched, Hit, ItemType, Locator, Mode, Query, Refresh, Source, Trust, Upstream,
 };

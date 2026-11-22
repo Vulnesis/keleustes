@@ -437,6 +437,65 @@ fn run_on_check(c: &mut Ctx, n: &Node, p: &str) {
     }
 }
 
+/// The start-field problems of a step (`answers`, `gates`, `adhoc` and the
+/// other `kls_core::sessions::start::StartFields` keys) as
+/// `(path under config, why)`. The engine refuses the same fields at
+/// dispatch (`exec::start_fields`) and the workflow editor shows these
+/// beside its form, so the form, a dry run and a run agree.
+pub fn start_problems(n: &Node) -> Vec<(String, String)> {
+    use kls_core::sessions::start::{StartFields, check_adhoc, check_answers, check_gate};
+    let kind = match n.str("dispatch") {
+        "" => "worker",
+        k => k,
+    };
+    let mut f = match StartFields::from_config(&n.config) {
+        Ok(f) => f,
+        Err(why) => return vec![(String::new(), why)],
+    };
+    let mut out = Vec::new();
+    let session = kind == "session";
+    if !f.answers_json.is_empty() {
+        let why = if session {
+            check_answers(&f.answers_json).err()
+        } else {
+            Some("answers apply to a session".to_string())
+        };
+        if let Some(why) = why {
+            out.push((".answers".to_string(), why));
+        }
+    }
+    if let Some((k, why)) = f.gates.iter().find_map(|(k, v)| {
+        let why = if session {
+            check_gate(k, v).err()
+        } else {
+            Some("gates apply to a session".to_string())
+        };
+        why.map(|w| (k.clone(), w))
+    }) {
+        out.push((format!(".gates.{k}"), why));
+    }
+    if let Some(a) = &f.adhoc {
+        let why = if kind != "worker" {
+            Some("a one-off worker is a worker dispatch".to_string())
+        } else if !n.str("agent").trim().is_empty() || !n.str("crew").trim().is_empty() {
+            Some("a one-off worker names no agent profile".to_string())
+        } else {
+            check_adhoc(a).err()
+        };
+        if let Some(why) = why {
+            out.push((".adhoc".to_string(), why));
+        }
+    }
+    // Every other key: the same check the dispatch runs.
+    f.answers_json.clear();
+    f.gates.clear();
+    f.adhoc = None;
+    if let Err(why) = f.validate(kind) {
+        out.push((String::new(), why));
+    }
+    out
+}
+
 fn check_node(c: &mut Ctx, n: &Node, p: &str, mode: Mode) {
     let full = mode == Mode::Publish;
     match n.kind.as_str() {
@@ -527,6 +586,15 @@ fn check_node(c: &mut Ctx, n: &Node, p: &str, mode: Mode) {
             );
             text_check(c, n, p, "brief", MAX_BRIEF, "brief");
             run_on_check(c, n, p);
+            for (path, why) in start_problems(n) {
+                c.err(
+                    "invalid_start_fields",
+                    format!("{p}.config{path}"),
+                    Some(n),
+                    format!("In \"{}\", {why}.", name(n)),
+                );
+            }
+            let adhoc = n.config.get("adhoc").is_some_and(|a| !a.is_null());
             let crew = n.str("crew").trim().to_string();
             let agent = n.str("agent").trim().to_string();
             if !crew.is_empty() && !agent.is_empty() {
@@ -578,7 +646,7 @@ fn check_node(c: &mut Ctx, n: &Node, p: &str, mode: Mode) {
                     ),
                 ),
                 "crew" => {}
-                _ if crew.is_empty() && agent.is_empty() => c.err(
+                _ if crew.is_empty() && agent.is_empty() && !adhoc => c.err(
                     "crew_not_found",
                     format!("{p}.config.agent"),
                     Some(n),
@@ -1490,6 +1558,90 @@ mod tests {
             ..edge("n6", "n2")
         });
         assert!(codes(&g, Mode::Publish).is_empty());
+    }
+
+    /// Answers, gates and one-off workers: the validator refuses what the
+    /// dispatch would refuse, at the key's path, so dry run and run agree.
+    #[test]
+    fn start_fields_answers_gates_adhoc() {
+        let with = |cfg: Value| {
+            let mut g = good();
+            g.nodes[1].config = cfg.as_object().cloned().unwrap();
+            g
+        };
+        let errs = |g: &Graph| -> Vec<(String, String)> {
+            validate(g, Mode::Publish)
+                .into_iter()
+                .filter(|i| i.code == "invalid_start_fields")
+                .map(|i| (i.path, i.message))
+                .collect()
+        };
+        // A session with scripted answers and gates is fine.
+        let ok = with(json!({"dispatch":"session","brief":"go",
+            "answers":[{"match":"Proceed?","choose":1},{"skip":true},{"note":"use main"}],
+            "gates":{"finish_review":"on","commit_mode":"ask"}}));
+        assert!(errs(&ok).is_empty(), "{:?}", errs(&ok));
+        // Answers and gates apply to a session only.
+        let bad = with(json!({"dispatch":"worker","agent":"belai:builder",
+            "answers":[{"choose":1}],"gates":{"lint_loop":"on"}}));
+        let e = errs(&bad);
+        assert!(
+            e.iter().any(|(p, _)| p == "nodes[1].config.answers"),
+            "{e:?}"
+        );
+        assert!(
+            e.iter()
+                .any(|(p, _)| p == "nodes[1].config.gates.lint_loop"),
+            "{e:?}"
+        );
+        // An unknown answer key and a loosening gate value.
+        let bad = with(json!({"dispatch":"session","brief":"go",
+            "answers":[{"pick":1}],"gates":{"code_mode":"on"}}));
+        let e = errs(&bad);
+        assert!(e.iter().any(|(_, m)| m.contains("unknown key")), "{e:?}");
+        assert!(
+            e.iter().any(|(_, m)| m.contains("code_mode takes off")),
+            "{e:?}"
+        );
+        // A one-off worker needs no agent, and names none.
+        let ok = with(json!({"dispatch":"worker",
+            "adhoc":{"prompt":"triage the inbox","tools":["read","grep"],"claim_lists":["triage"],
+                     "publish":"none","read_only":true}}));
+        assert!(
+            codes(&ok, Mode::Publish).is_empty(),
+            "{:?}",
+            codes(&ok, Mode::Publish)
+        );
+        let both = with(json!({"dispatch":"worker","agent":"belai:builder",
+            "adhoc":{"prompt":"x"}}));
+        assert!(
+            errs(&both)
+                .iter()
+                .any(|(p, m)| p == "nodes[1].config.adhoc" && m.contains("names no agent"))
+        );
+        let empty = with(json!({"dispatch":"worker","adhoc":{"prompt":" "}}));
+        assert!(
+            errs(&empty)
+                .iter()
+                .any(|(_, m)| m.contains("needs a prompt"))
+        );
+        let crew = with(json!({"dispatch":"crew","crew":"c","adhoc":{"prompt":"x"}}));
+        assert!(
+            errs(&crew)
+                .iter()
+                .any(|(_, m)| m.contains("worker dispatch"))
+        );
+        // The validator and the dispatch check agree on every case.
+        for g in [&ok, &both, &empty, &crew] {
+            let n = &g.nodes[1];
+            let kind = match n.str("dispatch") {
+                "" => "worker",
+                k => k,
+            };
+            let run = crate::exec::start_fields(n, kind).is_ok()
+                && !(n.config.contains_key("adhoc") && !n.str("agent").is_empty());
+            assert_eq!(run, start_problems(n).is_empty(), "{:?}", n.config);
+        }
     }
 
     #[test]

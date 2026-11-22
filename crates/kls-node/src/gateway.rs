@@ -471,6 +471,8 @@ async fn check_dispatch(core: &Core, node: &Node, spec: &DispatchSpec) -> Result
     if spec.clone.is_some() && !node.host.capabilities.can_clone {
         return Err(format!("node {} cannot clone", node.name));
     }
+    // #53: references only, to blobs held here, on a session's prompt.
+    kls_core::attachments::check_spec(core, spec).await?;
     Ok(())
 }
 
@@ -673,6 +675,11 @@ pub(crate) fn dispatch_pb(
             publish: a.publish,
             read_only: a.read_only,
         }),
+        attachments: s
+            .attachments
+            .into_iter()
+            .map(crate::sessions::attachment_pb)
+            .collect(),
     }
 }
 

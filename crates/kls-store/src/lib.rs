@@ -787,6 +787,7 @@ impl Store {
     }
 }
 
+pub mod attach;
 pub mod audit;
 pub mod belai;
 pub mod board;

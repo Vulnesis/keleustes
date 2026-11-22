@@ -53,6 +53,11 @@ service Sessions {
   // The highest line index the server holds for a host audit stream, so a
   // host resumes after it (WP-C).
   rpc AuditHead(AuditStreamRequest) returns (AuditStreamHead);
+  // Row 53: the bytes of an attachment a prompt or a session dispatch of
+  // this node lists, in parts of at most 64 KiB. Only a hash that an inbox
+  // item of the node's session, or a dispatch to the node, lists is served;
+  // refused (failed_precondition) while the factory is paused or stopped.
+  rpc FetchAttachment(AttachmentRequest) returns (stream AttachmentPart);
 }
 
 service Board {
@@ -304,7 +309,8 @@ message Capabilities {
   // #46, #51, #52, #55): "resume" (resume_session), "fork" (fork_entry),
   // "answers" (answers_json), "gates" (the gate keys in options), "adhoc"
   // (adhoc), "plan_upload" (a plan-mode session returns its plan file),
-  // "session_actions" (the console session actions in Command.name). An
+  // "session_actions" (the console session actions in Command.name),
+  // "attachments" (Dispatch.attachments and Prompt.attachments, row 53). An
   // older host sends none; Keleustes then sends none of those fields.
   repeated string dispatch_features = 12;
 }
@@ -463,6 +469,10 @@ message Dispatch {
   // Row 55, kind "worker" with agent empty: a worker made from a prompt,
   // with no stored profile. Refused together with agent.
   AdhocWorker adhoc = 57;
+  // Row 53, kind "session": files and images the first prompt carries (see
+  // Attachment for the caps); the host reads each with Sessions.FetchAttachment
+  // naming this dispatch.
+  repeated Attachment attachments = 58;
 }
 
 // A worker with no stored profile (belai `agent start -prompt`). The host
@@ -768,7 +778,45 @@ message InboxItem {
   }
 }
 
-message Prompt { string text = 1; }
+message Prompt {
+  string text = 1;
+  // Row 53: files and images the prompt carries, by reference (the host
+  // reads each with Sessions.FetchAttachment naming this item). Sent only to
+  // hosts that list "attachments" in Capabilities.dispatch_features.
+  repeated Attachment attachments = 2;
+}
+
+// Row 53: a file or an image on a prompt or a session dispatch. Caps (both
+// sides enforce them): at most 8 per prompt or dispatch; an image
+// (image/png, image/jpeg) at most 8 MiB, a text file (text/plain: UTF-8, no
+// NUL byte) at most 64 KiB; 16 MiB in all. The host admits each one as it
+// admits a local `@` attachment (an image through imageguard, a text file
+// through the classifier); one refusal refuses the prompt or the start.
+message Attachment {
+  // Display name only (no directory), at most 255 bytes.
+  string name = 1;
+  // "image/png", "image/jpeg" or "text/plain".
+  string mime = 2;
+  // Lower-case hex SHA-256 of the bytes.
+  string sha256 = 3;
+  int64 size = 4;
+}
+
+message AttachmentRequest {
+  string sha256 = 1;
+  // Either the dispatch that lists it, or the session and the inbox item
+  // that list it.
+  string dispatch_id = 2;
+  string session_id = 3;
+  string item_id = 4;
+}
+
+message AttachmentPart {
+  bytes chunk = 1;
+  // The whole size, on the first part.
+  int64 size = 2;
+  bool last = 3;
+}
 
 message Answer {
   string question_id = 1;

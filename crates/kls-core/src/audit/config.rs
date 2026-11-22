@@ -308,7 +308,7 @@ pub static SECTIONS: &[Section] = &[
     Section {
         id: "kanban",
         title: "Kanban binding",
-        desc: "Mirror the board to an outside kanban.",
+        desc: "Mirror the board to an outside kanban (board::kanban). Synced every 5 minutes; both-way edits to one field are held for you.",
         fields: &[
             f(keys::KANBAN_PROVIDER, "Bound to", Kind::Enum, "off").opts(&[
                 ("off", "Nothing (the factory board only)"),
@@ -319,7 +319,7 @@ pub static SECTIONS: &[Section] = &[
             ]),
             f(keys::KANBAN_BOARD, "Board", Kind::Str, "")
                 .range(0.0, 300.0)
-                .help("The board's address or id: https://github.com/orgs/acme/projects/3, a Linear team key, a Jira project key."),
+                .help("https://github.com/orgs/acme/projects/3, https://gitlab.com/acme/app/-/boards/1, a Linear team key (ENG), https://acme.atlassian.net/browse/ENG."),
             f(keys::KANBAN_SYNC, "Sync", Kind::Enum, "push").opts(&[
                 ("push", "Factory to board"),
                 ("pull", "Board to factory"),
@@ -530,11 +530,6 @@ pub const PENDING: &[&str] = &[
     "autonomy.plan_approval",
     "audit.calls",
     "systemone.override",
-    // The board sync that reads these is not built yet.
-    "kanban.provider",
-    "kanban.board",
-    "kanban.sync",
-    "kanban.lists",
 ];
 
 /// Settings holding time windows ([`crate::control::parse_windows`]).

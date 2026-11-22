@@ -29,6 +29,7 @@ pub mod exec;
 pub mod fake;
 pub mod forge;
 pub mod http;
+pub mod kanban;
 pub mod labels;
 pub mod local;
 pub mod login;

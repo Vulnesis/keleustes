@@ -90,8 +90,11 @@ impl std::error::Error for Refusal {}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum InboxBody {
+    /// `attachments` (#53) are references; the bytes stay in the blob store.
     Prompt {
         text: String,
+        #[serde(default)]
+        attachments: Vec<crate::attachments::AttachmentRef>,
     },
     /// `decision` and `payload_json` make it structured (WP-A): one of the
     /// open ask's option ids, or webask's clarify answer JSON. Empty for a
@@ -114,6 +117,8 @@ pub enum InboxBody {
 #[serde(rename_all = "camelCase")]
 struct PromptJson {
     text: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    attachments: Vec<crate::attachments::AttachmentRef>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -148,7 +153,10 @@ impl InboxBody {
     /// The stored payload JSON.
     pub fn payload_json(&self) -> String {
         match self {
-            InboxBody::Prompt { text } => serde_json::to_string(&PromptJson { text: text.clone() }),
+            InboxBody::Prompt { text, attachments } => serde_json::to_string(&PromptJson {
+                text: text.clone(),
+                attachments: attachments.clone(),
+            }),
             InboxBody::Answer {
                 question_id,
                 text,
@@ -173,7 +181,10 @@ impl InboxBody {
         Ok(match item.kind.as_str() {
             "prompt" => {
                 let p: PromptJson = serde_json::from_str(&item.payload_json)?;
-                InboxBody::Prompt { text: p.text }
+                InboxBody::Prompt {
+                    text: p.text,
+                    attachments: p.attachments,
+                }
             }
             "answer" => {
                 let a: AnswerJson = serde_json::from_str(&item.payload_json)?;
@@ -447,7 +458,7 @@ impl Core {
             return Err(refuse(Refusal::Ended));
         }
         match &body {
-            InboxBody::Prompt { text } if text.trim().is_empty() => {
+            InboxBody::Prompt { text, .. } if text.trim().is_empty() => {
                 return Err(refuse(Refusal::Invalid("prompt is empty".into())));
             }
             InboxBody::Answer { question_id, .. } if question_id.is_empty() => {
@@ -489,6 +500,7 @@ impl Core {
             session_id,
             InboxBody::Prompt {
                 text: text.to_string(),
+                attachments: Vec::new(),
             },
         )
         .await

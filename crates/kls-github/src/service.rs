@@ -80,6 +80,8 @@ pub fn service(core: &Core) -> Arc<Service> {
 pub fn start(core: &Core) -> Arc<Service> {
     let s = service(core);
     s.spawn_poller();
+    // The external kanban binding: forge providers and its tick.
+    crate::kanban::start(&s);
     s
 }
 

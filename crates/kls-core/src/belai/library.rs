@@ -210,6 +210,23 @@ impl Core {
                     data,
                 });
             }
+        } else if item.kind == crate::vault::AGENT_KIND {
+            // The files an agent carries (agent B): text, hashed, saved with
+            // the version by a publish. They are documents, not scripts, so
+            // they need no second confirmation; the host checks each again.
+            let entries = store.bundle_files(&item.id, v.version).await?;
+            manifest = manifest_hash(&entries);
+            for e in entries {
+                let data = store
+                    .library_blob(&e.sha256)
+                    .await?
+                    .ok_or_else(|| anyhow::Error::new(Refusal::NotFound("agent file")))?;
+                files.push(BundleFile {
+                    path: e.path,
+                    sha256: e.sha256,
+                    data,
+                });
+            }
         }
         self.audit_record(LedgerDraft {
             kind: "library".into(),

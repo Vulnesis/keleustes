@@ -135,6 +135,11 @@ pub struct DispatchSpec {
     /// #55, kind "worker" with `agent` empty: a worker made from a prompt.
     #[serde(default)]
     pub adhoc: Option<AdhocWorker>,
+    /// #53, kind "session": files and images the prompt carries, by reference
+    /// (the bytes stay in the blob store; the node reads them with
+    /// `Sessions.FetchAttachment`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<crate::attachments::AttachmentRef>,
 }
 
 /// A worker with no stored profile (the protocol's `AdhocWorker`, #55).
