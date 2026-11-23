@@ -45,7 +45,7 @@ pub struct Context {
 
 fn pix() -> Human {
     Human {
-        name: "Pix [bot]".into(),
+        name: "Vulnesis [bot]".into(),
         email: "security@vulnetix.com".into(),
     }
 }

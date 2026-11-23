@@ -12,7 +12,7 @@
             },
             "lines": [
                 "Co-authored-by: Ada Lovelace <ada@example.com>",
-                "Signed-off-by: Pix [bot] <security@vulnetix.com>",
+                "Signed-off-by: Vulnesis [bot] <security@vulnetix.com>",
                 "Session: https://vulnetix.com/resolve/factory-session?id=ses_123",
                 "Finding: https://vulnetix.com/resolve/scanner-results/finding/0f8fad5b-d9cb-469f-a165-70867728950e",
                 "Vulnerability: https://vulnetix.com/vdb/CVE-2021-44228"
@@ -22,7 +22,7 @@
             "name": "vulnetix with no human is co-authored by pix",
             "ctx": { "bot": "vulnetix" },
             "lines": [
-                "Co-authored-by: Pix [bot] <security@vulnetix.com>",
+                "Co-authored-by: Vulnesis [bot] <security@vulnetix.com>",
                 "Signed-off-by: vulnetix[bot] <176591487+vulnetix[bot]@users.noreply.github.com>"
             ]
         },
@@ -31,7 +31,7 @@
             "ctx": { "bot": "pix" },
             "lines": [
                 "Co-authored-by: vulnetix[bot] <176591487+vulnetix[bot]@users.noreply.github.com>",
-                "Signed-off-by: Pix [bot] <security@vulnetix.com>"
+                "Signed-off-by: Vulnesis [bot] <security@vulnetix.com>"
             ]
         },
         {
@@ -39,7 +39,7 @@
             "ctx": { "bot": "pix", "human": { "name": "Ada Lovelace", "email": "not an email" } },
             "lines": [
                 "Co-authored-by: vulnetix[bot] <176591487+vulnetix[bot]@users.noreply.github.com>",
-                "Signed-off-by: Pix [bot] <security@vulnetix.com>"
+                "Signed-off-by: Vulnesis [bot] <security@vulnetix.com>"
             ]
         },
         {
@@ -47,7 +47,7 @@
             "ctx": { "bot": "pix", "human": { "name": "Ada <x>\nLovelace", "email": "ada@example.com" } },
             "lines": [
                 "Co-authored-by: Ada x Lovelace <ada@example.com>",
-                "Signed-off-by: Pix [bot] <security@vulnetix.com>"
+                "Signed-off-by: Vulnesis [bot] <security@vulnetix.com>"
             ]
         },
         {
@@ -58,7 +58,7 @@
                 "advisoryPath": "/advisories/npm/GCVE-110-NPM-2026-001552.json"
             },
             "lines": [
-                "Co-authored-by: Pix [bot] <security@vulnetix.com>",
+                "Co-authored-by: Vulnesis [bot] <security@vulnetix.com>",
                 "Signed-off-by: vulnetix[bot] <176591487+vulnetix[bot]@users.noreply.github.com>",
                 "Vulnerability: https://vulnetix.com/vdb/GCVE-110-NPM-2026-001552",
                 "Advisory: https://github.com/Vulnetix/advisory-database/blob/main/advisories/npm/GCVE-110-NPM-2026-001552.json"
@@ -85,7 +85,7 @@
                 "vulnIds": ["CVE-2021-44228"]
             },
             "lines": [
-                "Co-authored-by: Pix [bot] <security@vulnetix.com>",
+                "Co-authored-by: Vulnesis [bot] <security@vulnetix.com>",
                 "Signed-off-by: Ada Lovelace <ada@example.com>",
                 "Session: https://vulnetix.com/resolve/factory-session?id=ses_123",
                 "Vulnerability: https://vulnetix.com/vdb/CVE-2021-44228"
@@ -107,7 +107,7 @@
             "name": "a GCVE record with no path links the repository",
             "ctx": { "bot": "vulnetix", "vulnIds": ["GCVE-110-NPM-2026-001552"] },
             "lines": [
-                "Co-authored-by: Pix [bot] <security@vulnetix.com>",
+                "Co-authored-by: Vulnesis [bot] <security@vulnetix.com>",
                 "Signed-off-by: vulnetix[bot] <176591487+vulnetix[bot]@users.noreply.github.com>",
                 "Vulnerability: https://vulnetix.com/vdb/GCVE-110-NPM-2026-001552",
                 "Advisory: https://github.com/Vulnetix/advisory-database"
@@ -117,7 +117,7 @@
             "name": "a path that climbs out of the repository falls back to the repository",
             "ctx": { "bot": "vulnetix", "vulnIds": ["GCVE-110-NPM-2026-001552"], "advisoryPath": "../secrets" },
             "lines": [
-                "Co-authored-by: Pix [bot] <security@vulnetix.com>",
+                "Co-authored-by: Vulnesis [bot] <security@vulnetix.com>",
                 "Signed-off-by: vulnetix[bot] <176591487+vulnetix[bot]@users.noreply.github.com>",
                 "Vulnerability: https://vulnetix.com/vdb/GCVE-110-NPM-2026-001552",
                 "Advisory: https://github.com/Vulnetix/advisory-database"
@@ -133,7 +133,7 @@
             },
             "lines": [
                 "Co-authored-by: vulnetix[bot] <176591487+vulnetix[bot]@users.noreply.github.com>",
-                "Signed-off-by: Pix [bot] <security@vulnetix.com>",
+                "Signed-off-by: Vulnesis [bot] <security@vulnetix.com>",
                 "Vulnerability: https://vulnetix.com/vdb/CVE-2024-0001"
             ]
         },
@@ -148,7 +148,7 @@
             },
             "lines": [
                 "Co-authored-by: vulnetix[bot] <176591487+vulnetix[bot]@users.noreply.github.com>",
-                "Signed-off-by: Pix [bot] <security@vulnetix.com>",
+                "Signed-off-by: Vulnesis [bot] <security@vulnetix.com>",
                 "Vulnerability: https://vulnetix.com/vdb/CVE-2024-0001",
                 "Vulnerability: https://vulnetix.com/vdb/CVE-2024-0002",
                 "Vulnerability: https://vulnetix.com/vdb/CVE-2024-0003",
@@ -166,7 +166,7 @@
             "ctx": { "bot": "pix", "sessionId": "s1", "origin": "https://example.test/" },
             "lines": [
                 "Co-authored-by: vulnetix[bot] <176591487+vulnetix[bot]@users.noreply.github.com>",
-                "Signed-off-by: Pix [bot] <security@vulnetix.com>",
+                "Signed-off-by: Vulnesis [bot] <security@vulnetix.com>",
                 "Session: https://example.test/resolve/factory-session?id=s1"
             ]
         }
@@ -177,7 +177,7 @@
             "ctx": { "bot": "pix" },
             "markdown": false,
             "text": "feat: add thing",
-            "want": "feat: add thing\n\nCo-authored-by: vulnetix[bot] <176591487+vulnetix[bot]@users.noreply.github.com>\nSigned-off-by: Pix [bot] <security@vulnetix.com>"
+            "want": "feat: add thing\n\nCo-authored-by: vulnetix[bot] <176591487+vulnetix[bot]@users.noreply.github.com>\nSigned-off-by: Vulnesis [bot] <security@vulnetix.com>"
         },
         {
             "name": "a footer paragraph is joined, and the trailing newline stays",
@@ -190,8 +190,8 @@
             "name": "a second run adds nothing",
             "ctx": { "bot": "pix" },
             "markdown": false,
-            "text": "feat: add thing\n\nCo-authored-by: vulnetix[bot] <176591487+vulnetix[bot]@users.noreply.github.com>\nSigned-off-by: Pix [bot] <security@vulnetix.com>",
-            "want": "feat: add thing\n\nCo-authored-by: vulnetix[bot] <176591487+vulnetix[bot]@users.noreply.github.com>\nSigned-off-by: Pix [bot] <security@vulnetix.com>"
+            "text": "feat: add thing\n\nCo-authored-by: vulnetix[bot] <176591487+vulnetix[bot]@users.noreply.github.com>\nSigned-off-by: Vulnesis [bot] <security@vulnetix.com>",
+            "want": "feat: add thing\n\nCo-authored-by: vulnetix[bot] <176591487+vulnetix[bot]@users.noreply.github.com>\nSigned-off-by: Vulnesis [bot] <security@vulnetix.com>"
         },
         {
             "name": "a body goes before its hidden marker",
