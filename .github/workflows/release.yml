@@ -268,10 +268,14 @@ jobs:
       - name: Create or update Release
         run: |
           VERSION=${{ needs.version.outputs.version }}
+          # A version with a hyphen (v0.1.0-rc.1) is a pre-release, so
+          # releases/latest (install.sh's default) keeps the last stable one.
+          pre=()
+          case "$VERSION" in *-*) pre=(--prerelease) ;; esac
           if gh release view "$VERSION" > /dev/null 2>&1; then
             gh release upload "$VERSION" bin/* --clobber
           else
-            gh release create "$VERSION" bin/* \
+            gh release create "$VERSION" bin/* "${pre[@]}" \
               --title "Release $VERSION" \
               --generate-notes
           fi
