@@ -26,6 +26,11 @@ env:
   # protoc for kls-proto's build script. Downloaded rather than taken from the
   # distro: ubuntu-22.04's protobuf-compiler (3.12) rejects proto3 `optional`.
   PROTOC_VERSION: "29.3"
+  # gh for the self-hosted jobs: the vulnesis-runners image (Vulnesis/ops
+  # edge/runners) ships git, curl and jq but not gh, and expects workflows to
+  # install what else they need. Pinned by version and checksum.
+  GH_CLI_VERSION: "2.103.3"
+  GH_CLI_SHA256: "4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d"
 
 jobs:
   version:
@@ -245,6 +250,18 @@ jobs:
           path: bin/checksums.txt
           retention-days: 1
 
+      - name: Install gh
+        run: |
+          set -euo pipefail
+          if command -v gh >/dev/null 2>&1; then gh --version; exit 0; fi
+          tgz="$RUNNER_TEMP/gh.tar.gz"
+          curl -fsSL --retry 5 --retry-all-errors -o "$tgz" \
+            "https://github.com/cli/cli/releases/download/v${GH_CLI_VERSION}/gh_${GH_CLI_VERSION}_linux_amd64.tar.gz"
+          echo "${GH_CLI_SHA256}  $tgz" | sha256sum -c -
+          tar -xzf "$tgz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gh_${GH_CLI_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/gh_${GH_CLI_VERSION}_linux_amd64/bin/gh" --version
+
       - name: Create or update Release
         run: |
           VERSION=${{ needs.version.outputs.version }}
@@ -442,6 +459,18 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.release.outputs.version }}
+
+      - name: Install gh
+        run: |
+          set -euo pipefail
+          if command -v gh >/dev/null 2>&1; then gh --version; exit 0; fi
+          tgz="$RUNNER_TEMP/gh.tar.gz"
+          curl -fsSL --retry 5 --retry-all-errors -o "$tgz" \
+            "https://github.com/cli/cli/releases/download/v${GH_CLI_VERSION}/gh_${GH_CLI_VERSION}_linux_amd64.tar.gz"
+          echo "${GH_CLI_SHA256}  $tgz" | sha256sum -c -
+          tar -xzf "$tgz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gh_${GH_CLI_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/gh_${GH_CLI_VERSION}_linux_amd64/bin/gh" --version
 
       - name: Install the Vulnetix CLI
         run: |
