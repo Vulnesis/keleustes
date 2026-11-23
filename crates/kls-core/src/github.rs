@@ -206,7 +206,7 @@ fn checkpoint_wait(a: &HumanAction) -> Option<i64> {
 
 /// Person time of each action by the time rules: checkpoints count their
 /// wait up to 30 minutes (else the 30 s floor), reviews their lines and
-/// comments, Pix calls their duration, the rest the sitting rule (gaps of
+/// comments, Strix calls their duration, the rest the sitting rule (gaps of
 /// at most 5 minutes between one person's actions, 30 s to start a sitting).
 pub fn action_times(actions: &[&HumanAction]) -> Vec<i64> {
     let mut out = vec![0; actions.len()];

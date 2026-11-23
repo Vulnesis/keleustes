@@ -57,7 +57,7 @@ Coverage: **done** means it works end to end over the node protocol.
 | 24 | Host inventory: profile/crew/item hashes, knowledge catalogue | `rc/inventory.go`, `rc/knowledge.go`, `rc/libhash.go` | `PUT /hosts/{id}` (inventory) | **missing** | proto `HostAdvert`: names only. |
 | 25 | Provider keys | `factorylink/grant.go`, `rc/provider_keys.go`, `internal/credentials` | `/library/provider-keys`, dispatch `provider_keys_install`/`_remove` | **partial** | Per-dispatch/per-job `VaultGrant` is done. Persistent install is missing, deliberately (keep the grant model). Gap: grants for worker/crew dispatches are dropped, so workers need host keys. |
 | 26 | MCP server secrets | `rc/mcp_secrets.go`, `internal/mcp` | `/library/mcp-secrets`, dispatch `mcp_secrets_install`/`_remove` | **missing** | proto: no MCP secret in `VaultGrant`. kls-core vault: secret → (server, key) binding. |
-| 27 | Pix Sandbox vault env and scrub report | `sessionsync/vaultenv.go`, `internal/vaultenv` | `GET /hosts/{id}/vault/env`, `POST /hosts/{id}/vault/scrub` | **n/a** | Keleustes runs no sandboxes. The grant pipe covers the desktop case. |
+| 27 | Keleustes Sandbox vault env and scrub report | `sessionsync/vaultenv.go`, `internal/vaultenv` | `GET /hosts/{id}/vault/env`, `POST /hosts/{id}/vault/scrub` | **n/a** | Keleustes runs no sandboxes. The grant pipe covers the desktop case. |
 | 28 | Project preferences from the console | `rc/prefs.go` (`--web-project-settings`) | dispatch `project_prefs` | **missing** | proto: dispatch kind + prefs payload. kls-ui: per-node directory settings. |
 | 29 | Scheduled agents | `internal/schedule`, `rc/scheduler.go`, `schedule/sync.go` | `GET/PUT /hosts/{id}/schedules` | **missing** | belai: in factory mode the daemon does not even run the local scheduler or crew adoption (`rc/daemon.go:Run` returns into `runFactory` first). proto: schedule mirror. kls-engine has its own cron triggers that can dispatch, but nothing ties them to host schedules. |
 | 30 | Forge relay (worker push/PR/issue/commit requests) and coordinator `steer` | `rc/forgerelay.go`, `fleet/escalate.go`, `fleet/coord.go` | `POST /hosts/{id}/forge-requests`, dispatch `steer` | **missing** | belai: factory mode never runs `forgeRelay`, so spooled requests pile up. proto: forge request upload + `steer` dispatch. kls-github: a coordinator that turns a request into `github` jobs or a node push. |
@@ -1036,7 +1036,7 @@ paths start with `belai/`.
 | #24 Host inventory | P2 | done | belai/internal/rc/factorylibrary.go:251 (crews with hash), :264 (knowledge catalogue), :270 (plugins, :298); belai/internal/rc/inventory.go:139; crates/kls-core/src/belai/library.rs:54 (catalogue kinds answer "listed"); proto/keleustes/node/v1/node.proto LibraryRef comment; tests: belai/internal/rc/factorylibrary_test.go:83, :177 | Knowledge and plugins ride in `inventory` as kinds `knowledge` / `plugin`; no Keleustes UI lists them separately yet (Host Library tab shows them as "listed"). |
 | #25 Provider keys | P1 | done | crates/kls-core/src/vault.rs:575; belai/internal/rc/factory.go:492 | Crews run on host keys (deliberate, WP-F). |
 | #26 MCP server secrets | P2 | done (P3, 2026-11-22) | crates/kls-core/src/sessions/start.rs:452 (`mcp_bind`: env secret must exist, names only in settings `mcp.bindings`, provenance by/surface/at, kill switch refuses, audited), :493 (`mcp_unbind`, allowed under the switch); crates/kls-ui/src/screens/vault.rs:195, :1684 (Vault › MCP tab); crates/kls-ui/src/screens/sessions.rs:2422 (pick bindings per dispatch); engine step key `mcp`; test crates/kls-node/tests/dispatch_fidelity.rs:184 (binding → `VaultGrant.mcp` value on the frame; value absent from outbox, dispatch rows, ledger and events) | none |
-| #27 Pix Sandbox vault env | - | n/a | - | none |
+| #27 Keleustes Sandbox vault env | - | n/a | - | none |
 | #28 Project preferences | P2 | done | belai/internal/rc/factory.go:467; crates/kls-ui/src/screens/project_overrides.rs:190 | none |
 | #29 Scheduled agents | P1 | done | belai/internal/rc/factory.go:96; crates/kls-core/src/belai/schedules.rs:212 | none |
 | #30 Forge relay and steer | P1 | partial (P2, 2026-11-22) | belai/internal/rc/factory.go:103; crates/kls-core/src/belai/forge.rs:120 (`forge_pending`), :157 (`forge_steer_by`: `control::check` first, refusal audited `factory.refused`, caller as actor, origin `console` for a person); crates/kls-ui/src/screens/delivery.rs:2422 ("Forge requests" panel: Took over / Wait 1h / Failed); crates/kls-node/src/forge.rs:29; test forge.rs:261 | No automatic coordinator turning requests into `github`/`forge` jobs; bundle parts refused. |
@@ -1079,7 +1079,7 @@ These are covered elsewhere, so they get no row here:
 - `/inbox` (row 34);
 - the fleet directory (rows 41 and 42).
 
-These are local only and get no row: bot attribution (Pix only), notifications (row 35), plugins (row 39), LSP, diff, code-mode internals, context offload and prompt cache.
+These are local only and get no row: bot attribution (Strix only), notifications (row 35), plugins (row 39), LSP, diff, code-mode internals, context offload and prompt cache.
 
 | # | belai feature | belai location | Cloud endpoint today | Keleustes coverage | Missing pieces: proto / kls-node / kls-core / kls-ui / factorylink |
 |---|---|---|---|---|---|

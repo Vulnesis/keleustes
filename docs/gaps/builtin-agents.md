@@ -305,7 +305,7 @@ they wait on package P2.
 | Sighting research (deps.dev, npm, pypistats, MCP registry, DoH, RDAP, crt.sh) | `H/factory_sighting_facts.go` | n/a | Could become a model-free research job on a node |
 | A rule decision closes the review ticket | `D/factory.md:5123-5134` | n/a | – |
 | `github-risk` and `github-posture` sources (risky GitHub events from webhooks and the org audit log) | `D/github-risk-rules.md`, `D/github-posture-rules.md` | missing | Portable: rules over the poller and `gh api /orgs/{org}/audit-log` |
-| Sandbox Clef bridge, Pix call memory and review | `W/software-factory.md:286-293,358-502`, `H/pix_*` | n/a | Sandboxes are out of scope |
+| Sandbox Clef bridge, Strix call memory and review | `W/software-factory.md:286-293,358-502`, `H/pix_*` | n/a | Sandboxes are out of scope |
 | Messaging centre (Slack, Teams, Chat, webhooks), web push | `H/factory_notify.go`, `H/belai_session_finished.go` | n/a; desktop notifications take their place | – |
 
 ## 3. Porting plan

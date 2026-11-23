@@ -6,7 +6,7 @@ Date: 2026-11-21.
 - **Keleustes** is `keleustes/crates/*`.
 - **Status** is done, partial or missing. n/a means the feature does not apply on a single-user desktop. "Keleustes-specific" marks something only Keleustes has.
 
-Out of scope, not reported: sandboxes and Pix, vulnes.is sign-in, multi-tenant/org/plan gating, and email/web push. Keleustes uses OS notifications, so those were checked instead.
+Out of scope, not reported: sandboxes and Strix, vulnes.is sign-in, multi-tenant/org/plan gating, and email/web push. Keleustes uses OS notifications, so those were checked instead.
 
 Covered by other auditors and only cross-referenced here: built-in agent profiles and automatic agent features, Library search, belai-side features, and non-GitHub forges.
 
@@ -452,7 +452,7 @@ This audit covers builder UX only. Built-in profiles and automatic agent feature
 | Contacted (domains/IPs from transcripts) | factory-run.vue:594 | missing | none | Needs a fact index |
 | Touched (repos, vulns, PRs, commits, files, models, tools) | factory-run.vue:614; components/factory/FactoryRunFacts.vue | missing | none | |
 | Storage (prefix, folders, rows, retention) | factory-run.vue:645 | missing | none | Local equivalent would be the data-dir paths |
-| Ask Pix about a failed run | factory-run.vue:22 (PixAskButton) | missing | none | Pix assistant, not a sandbox |
+| Ask Strix about a failed run | factory-run.vue:22 (PixAskButton) | missing | none | Strix assistant, not a sandbox |
 | Events for run | factory-run.vue:334 | missing | none | |
 | Live refresh on run events | factory-run.vue:75 | done | model.rs | |
 
@@ -694,7 +694,7 @@ Web: `website/src/pages/resolve/factory-repos.vue` (FR), `components/factory/rep
 | Org card: how many of 42 defaults run + default autonomy | FactoryOrgCards.vue:7-8 | missing | none | |
 | Managed orgs as code | FR [01] | missing | none | |
 | Repositories table | FactoryRepoTable.vue | done | KR:291-490 | |
-| Columns: opt-in signals, Pix, open findings, SLSA, workflows, scanned · enriched | FactoryRepoTable.vue:50-80 | partial | KR:381-386 | KW: Repository, Open PRs, Autonomy, Mirroring, Managed, Synced. Missing findings, SLSA, workflows attached, scanned |
+| Columns: opt-in signals, Strix, open findings, SLSA, workflows, scanned · enriched | FactoryRepoTable.vue:50-80 | partial | KR:381-386 | KW: Repository, Open PRs, Autonomy, Mirroring, Managed, Synced. Missing findings, SLSA, workflows attached, scanned |
 | Signal filter chips (App, Scanned, Kanban bound, TEA, Watched, SBOM uploads) with counts | FR:262, shared/factory-repos.ts:242 | partial | KR:308 | KW: "Managed" checkbox only |
 | Org filter select | FR org select | missing | none | |
 | Sort (name, recently enriched, open findings, SLSA) | FR:56-61 | missing | none | |
@@ -758,7 +758,7 @@ Web: `website/src/pages/resolve/factory-budgets.vue` (FB), `components/factory/b
 | [03] Providers list with "factory may use" checkbox | FB [03] | done | KB:390-500, KB:1262 | |
 | Open Secrets Vault link | FB [03] | done | KB:246 (vault panel inline) | Vault lives in Budgets in KW; cross-ref vault audit |
 | [04] Routing: fixed routes (System One decisions, code smart, code fast, planner/reviewer, images) | shared/factory-budgets.ts:159 | partial | KB:615-770 | KW has priority rules (repo, agent, label, kind → provider/model) + default and fast model; no fixed route keys |
-| Routing: when Pix allowance runs out | shared/factory-budgets.ts:167 | n/a | none | |
+| Routing: when Strix allowance runs out | shared/factory-budgets.ts:167 | n/a | none | |
 | Routing: reserve % for interactive sessions | FB reserveInteractivePct | missing | none | |
 | [05] Usage range 7/30/90 days | FB range | done | KB:776-785 | |
 | Usage totals (tokens, est cost) | FB totals | done | KB:787-790 | |
@@ -991,7 +991,7 @@ Settings keys (shared/factory-settings.ts). "stored" = in K's document but nothi
 | Jump to conflict n | ConflictFilePane.vue:89 | done | conflicts.rs:634 | |
 | J / K next / previous file | factory-conflicts.vue:17 | missing | none | |
 | Lockfiles: take the base copy, ask for regeneration, say so on done | factory-conflicts.vue:7-8,104 | missing | none | |
-| Files it cannot merge (binary, rename vs delete, fork) named, with Ask Pix + local git commands | factory-conflicts.vue:154-184 | partial | conflicts.rs:398,443 | fork and binary flagged; no git commands, no rename-vs-delete case |
+| Files it cannot merge (binary, rename vs delete, fork) named, with Ask Strix + local git commands | factory-conflicts.vue:154-184 | partial | conflicts.rs:398,443 | fork and binary flagged; no git commands, no rename-vs-delete case |
 | Commit dialog: message + extended description | components/factory/conflicts/ConflictCommitDialog.vue:110-134 | partial | conflicts.rs:307,779 | message only |
 | Commits as the person, email choice | ConflictCommitDialog.vue:139-152 | partial | conflicts.rs:365 | commits as the gh user via the API; no email choice (signing.email not read) |
 | Signature: required/preferred, "Commit without a signature" | ConflictCommitDialog.vue:1-8,169 | partial | conflicts.rs:361,699 | always API-signed; shows Verified / Unverified after |
@@ -1026,7 +1026,7 @@ Settings keys (shared/factory-settings.ts). "stored" = in K's document but nothi
 | Team equivalent (assumed) | factory-people.vue:74 | missing | none | |
 | Where people are detected, by source, with basis (measured / derived rule) | factory-people.vue:91-171 | partial | delivery.rs:526-560 | no basis or rule text |
 | Who did what matrix (top 10 + fold + total row; source off reads "Off") | components/factory/delivery/PeopleMatrix.vue:1-4 | done | delivery.rs:572-600 | no fold row |
-| Seen and left out (bots, App, Pix [bot]) | factory-people.vue:5-6 | done | delivery.rs:649 | |
+| Seen and left out (bots, App, Vulnesis [bot]) | factory-people.vue:5-6 | done | delivery.rs:649 | |
 | Rules table (how each time is derived, quoting Settings) | factory-people.vue:232-245 | missing | none | |
 | Row click opens contributor | factory-people.vue | done | delivery.rs:584 (click sense) | |
 
