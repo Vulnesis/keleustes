@@ -290,7 +290,7 @@ jobs:
     permissions:
       contents: write
       id-token: write
-    uses: Vulnesis/cli/.github/workflows/slsa-provenance.yml@400682a1fd9aff847b18eb0498e0062808e9ea44
+    uses: Vulnesis/cli/.github/workflows/slsa-provenance.yml@44612c4020b044d770e3a70f1a862d6157fe2618
     with:
       subjects_artifact: release-subjects
       version: ${{ needs.release.outputs.version }}
