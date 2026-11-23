@@ -176,11 +176,17 @@ async fn action_frame(hub: &Hub, row: &HostActionRow) -> pb::HostAction {
     let vault = match hosts::grant_for(hub.core(), row).await {
         Ok(Some(g)) => Some(pb::VaultGrant {
             grant_id: g.grant_id.clone(),
-            // Only the two variables the CLI sign-in reads.
+            // Only what the CLI's non-interactive sign-in reads: an ApiKey
+            // pair or a SigV4 pair.
             secrets: g
                 .secrets
                 .iter()
-                .filter(|s| matches!(s.env.as_str(), "VULNETIX_API_KEY" | "VULNETIX_ORG_ID"))
+                .filter(|s| {
+                    matches!(
+                        s.env.as_str(),
+                        "VULNETIX_API_KEY" | "VULNETIX_ORG_ID" | "VVD_ORG" | "VVD_SECRET"
+                    )
+                })
                 .map(|s| pb::VaultSecret {
                     provider: s.provider.clone(),
                     env: s.env.clone(),

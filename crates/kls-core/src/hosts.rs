@@ -56,8 +56,9 @@ pub mod kinds {
 pub const PREVIEW_TTL_MS: i64 = 30 * 60_000;
 /// TTL of the vault grant a `product_auth` action carries.
 pub const AUTH_GRANT_TTL_MS: i64 = 5 * 60_000;
-/// The vault provider slug whose secrets (`VULNETIX_API_KEY`,
-/// `VULNETIX_ORG_ID`) `product_auth` lends.
+/// The vault provider slug whose secrets `product_auth` lends: an ApiKey
+/// (`VULNETIX_API_KEY`, `VULNETIX_ORG_ID`) or a SigV4 secret (`VVD_ORG`,
+/// `VVD_SECRET`).
 pub const VULNETIX_VAULT_PROVIDER: &str = "vulnetix";
 /// Longest `Origin.reason` kept.
 const MAX_REASON: usize = 200;
