@@ -26,6 +26,9 @@ env:
   # protoc for kls-proto's build script. Downloaded rather than taken from the
   # distro: ubuntu-22.04's protobuf-compiler (3.12) rejects proto3 `optional`.
   PROTOC_VERSION: "29.3"
+  # The non-build jobs run on the self-hosted pool (served by vulnesis-runners
+  # when xeon is off). Set the repository variable RELEASE_RUNS_ON to a JSON
+  # list, e.g. ["ubuntu-latest"], to run them elsewhere when that pool is down.
   # gh for the self-hosted jobs: the vulnesis-runners image (Vulnesis/ops
   # edge/runners) ships git, curl and jq but not gh, and expects workflows to
   # install what else they need. Pinned by version and checksum.
@@ -34,7 +37,7 @@ env:
 
 jobs:
   version:
-    runs-on: [self-hosted, Linux, X64, vulnetix-local]
+    runs-on: ${{ fromJSON(vars.RELEASE_RUNS_ON || '["self-hosted","Linux","X64","vulnetix-local"]') }}
     timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.VERSION }}
@@ -173,7 +176,7 @@ jobs:
 
   release:
     needs: [version, build]
-    runs-on: [self-hosted, Linux, X64, vulnetix-local]
+    runs-on: ${{ fromJSON(vars.RELEASE_RUNS_ON || '["self-hosted","Linux","X64","vulnetix-local"]') }}
     timeout-minutes: 20
     permissions:
       contents: write
@@ -290,7 +293,7 @@ jobs:
 
   update-packages:
     needs: release
-    runs-on: [self-hosted, Linux, X64, vulnetix-local]
+    runs-on: ${{ fromJSON(vars.RELEASE_RUNS_ON || '["self-hosted","Linux","X64","vulnetix-local"]') }}
     timeout-minutes: 20
     # One package update at a time across versions, and never a downgrade:
     # an older release finishing last leaves the newer formula in place.
@@ -437,7 +440,7 @@ jobs:
   publish-tea:
     needs: [release, update-packages, provenance]
     if: ${{ !cancelled() && needs.release.result == 'success' && needs.update-packages.result == 'success' }}
-    runs-on: [self-hosted, Linux, X64, vulnetix-local]
+    runs-on: ${{ fromJSON(vars.RELEASE_RUNS_ON || '["self-hosted","Linux","X64","vulnetix-local"]') }}
     timeout-minutes: 20
     # id-token: keyless signing against public Fulcio.
     permissions:
