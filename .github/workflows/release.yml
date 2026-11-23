@@ -183,6 +183,7 @@ jobs:
       id-token: write
     outputs:
       version: ${{ needs.version.outputs.version }}
+      release_id: ${{ steps.gh_release.outputs.release_id }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -266,6 +267,7 @@ jobs:
           "$RUNNER_TEMP/gh_${GH_CLI_VERSION}_linux_amd64/bin/gh" --version
 
       - name: Create or update Release
+        id: gh_release
         run: |
           VERSION=${{ needs.version.outputs.version }}
           # A version with a hyphen (v0.1.0-rc.1) is a pre-release, so
@@ -279,6 +281,11 @@ jobs:
               --title "Release $VERSION" \
               --generate-notes
           fi
+          # The provenance workflow takes the id, so it never looks the
+          # release up itself (its lookup needs gh, which runners may lack).
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$VERSION" --jq .id)
+          [[ $id =~ ^[0-9]+$ ]] || { echo "::error::no release id for $VERSION" >&2; exit 1; }
+          echo "release_id=$id" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -294,6 +301,7 @@ jobs:
     with:
       subjects_artifact: release-subjects
       version: ${{ needs.release.outputs.version }}
+      release_id: ${{ needs.release.outputs.release_id }}
 
   update-packages:
     needs: release
