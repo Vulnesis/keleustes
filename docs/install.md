@@ -215,16 +215,20 @@ Linux, `~/Library/Application Support/is.vulnes.keleustes` on macOS,
 3. `.github/workflows/release.yml` builds the five binaries natively,
    publishes them with `install.sh`, `checksums.txt` and (with a release
    key set) `checksums.txt.sig`, signs SLSA
-   provenance through Vulnetix/cli's reusable `slsa-provenance.yml`, updates
-   `Formula/keleustes.rb` in the tap and `bucket/keleustes.json` in the
-   bucket (never to an older version), then signs the SBOM with cosign and
-   publishes the release to TEA.
+   provenance through Vulnesis/cli's reusable `slsa-provenance.yml`, then
+   signs the SBOM with cosign and publishes the release to TEA.
+4. Homebrew and Scoop follow on their own. `Vulnesis/homebrew-tap` and
+   `Vulnesis/scoop-bucket` each run `follow-releases.yml` twice an hour, with
+   their own `GITHUB_TOKEN`. It moves `Formula/keleustes.rb` and
+   `bucket/keleustes.json` to the latest (non-prerelease) release once its
+   release run succeeded, and never to an older version. A release candidate
+   (`-rc.N`) is a GitHub pre-release, so the channels stay where they are. The
+   entry has to exist in the tap and bucket before it is followed.
 
 ### Secrets and variables
 
 | Name | Kind | Used by |
 |---|---|---|
-| `PACKAGES_TOKEN` | secret | `update-packages`: push to `Vulnesis/homebrew-tap` and `Vulnesis/scoop-bucket` (contents: write on both) |
 | `VULNETIX_ORG_ID` | secret | `publish-tea`: the organisation the TEA release is published under |
 | `VULNETIX_API_KEY` | secret | `publish-tea`: the CLI's credentials for that organisation |
 | `VULNETIX_RELEASE_SIGNING_KEY` | secret | `release`: the Ed25519 private key as PEM (`openssl genpkey -algorithm ed25519`) that signs `checksums.txt` into `checksums.txt.sig` |
