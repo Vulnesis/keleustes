@@ -37,7 +37,7 @@ env:
 
 jobs:
   version:
-    runs-on: ${{ fromJSON(vars.RELEASE_RUNS_ON || '["self-hosted","Linux","X64","vulnetix-local"]') }}
+    runs-on: ${{ fromJSON(vars.RELEASE_RUNS_ON || '["self-hosted","Linux","X64","vulnesis-cf"]') }}
     timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.VERSION }}
@@ -176,7 +176,7 @@ jobs:
 
   release:
     needs: [version, build]
-    runs-on: ${{ fromJSON(vars.RELEASE_RUNS_ON || '["self-hosted","Linux","X64","vulnetix-local"]') }}
+    runs-on: ${{ fromJSON(vars.RELEASE_RUNS_ON || '["self-hosted","Linux","X64","vulnesis-cf"]') }}
     timeout-minutes: 20
     permissions:
       contents: write
@@ -310,7 +310,7 @@ jobs:
   publish-tea:
     needs: [release, provenance]
     if: ${{ !cancelled() && needs.release.result == 'success' && needs.provenance.result == 'success' }}
-    runs-on: ${{ fromJSON(vars.RELEASE_RUNS_ON || '["self-hosted","Linux","X64","vulnetix-local"]') }}
+    runs-on: ${{ fromJSON(vars.RELEASE_RUNS_ON || '["self-hosted","Linux","X64","vulnesis-cf"]') }}
     timeout-minutes: 20
     # id-token: keyless signing against public Fulcio.
     permissions:
