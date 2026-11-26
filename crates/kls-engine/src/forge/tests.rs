@@ -667,7 +667,7 @@ async fn file_issues_files_findings_and_a_rescan_updates_the_same_issue() {
         "{body}"
     );
     assert!(body.contains("<!-- keleustes:findings "));
-    assert!(body.contains("Vulnerability: https://vulnetix.com/vdb/CVE-2024-0001"));
+    assert!(body.contains("Vulnerability: https://www.vulnes.is/vdb/CVE-2024-0001"));
     assert_eq!(made[0]["labels"], json!(["sf:fix-deps"]));
     assert_eq!(made[0]["title"], "Vulnetix dependency findings");
 

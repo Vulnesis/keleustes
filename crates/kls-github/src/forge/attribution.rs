@@ -11,7 +11,7 @@
 
 use serde::Deserialize;
 
-pub const ORIGIN: &str = "https://vulnetix.com";
+pub const ORIGIN: &str = "https://www.vulnes.is";
 pub const ADVISORY_REPO_URL: &str = "https://github.com/Vulnetix/advisory-database";
 pub const MAX_VULN_LINKS: usize = 10;
 
@@ -52,8 +52,8 @@ fn pix() -> Human {
 
 fn vulnetix() -> Human {
     Human {
-        name: "vulnetix[bot]".into(),
-        email: "176591487+vulnetix[bot]@users.noreply.github.com".into(),
+        name: "vulnesis[bot]".into(),
+        email: "176591487+vulnesis[bot]@users.noreply.github.com".into(),
     }
 }
 

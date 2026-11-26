@@ -3740,13 +3740,13 @@ fn product_parts_label(id: &str) -> &'static str {
     }
 }
 
-/// The Vulnetix console page for a product (org policy lives there).
+/// The Vulnesis console page for a product (org policy lives there).
 fn console_url(id: &str) -> &'static str {
     match id {
-        "package_firewall" => "https://www.vulnetix.com/resolve/package-firewall",
-        "ai_firewall" => "https://www.vulnetix.com/resolve/ai-firewall",
-        "sensor" => "https://www.vulnetix.com/resolve/sensor",
-        _ => "https://www.vulnetix.com/",
+        "package_firewall" => "https://www.vulnes.is/resolve/package-firewall",
+        "ai_firewall" => "https://www.vulnes.is/resolve/ai-firewall",
+        "sensor" => "https://www.vulnes.is/resolve/sensor",
+        _ => "https://www.vulnes.is/",
     }
 }
 
