@@ -406,11 +406,15 @@ jobs:
             --output-certificate keleustes.cdx.json.pem \
             keleustes.cdx.json
 
+          # stdout to /dev/null: attest-blob also prints the whole envelope there,
+          # one line as large as the SBOM, and the runner takes minutes to ingest
+          # a line that long (717 KB: 12 min on vulnesis-cf, Vulnesis/ops runner
+          # probe run 46051184436). The file above holds the same envelope.
           cosign attest-blob --yes \
             --type cyclonedx \
             --predicate keleustes.cdx.json \
             --output-attestation keleustes.cdx.json.intoto.jsonl \
-            keleustes.cdx.json
+            keleustes.cdx.json >/dev/null
 
           cosign verify-blob \
             --signature keleustes.cdx.json.sig \
