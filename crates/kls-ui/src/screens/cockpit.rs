@@ -36,6 +36,8 @@ pub struct Screen {
     /// KPI range in hours (24, 168, 720).
     range_h: Arc<std::sync::atomic::AtomicI64>,
     hud: Loader<Hud>,
+    /// The lifecycle ledger's flow over the last 7 days (median wait per stage).
+    ledger: Loader<Vec<kls_core::github::LedgerFlow>>,
     /// The run graph's show filter and search.
     graph_show: GraphShow,
     graph_find: String,
@@ -135,6 +137,9 @@ impl Screen {
                 Ok(kls_core::control::state(&core).await?.mode)
             }),
             range_h,
+            ledger: Loader::new(model, &["lifecycle.", "audit."], |core| async move {
+                kls_core::github::ledger_flow(&core, kls_store::now_ms() - 7 * 86_400_000).await
+            }),
             hud: Loader::new(
                 model,
                 &[
@@ -1069,6 +1074,28 @@ pub fn flow_queues(cards: &[Card], now: i64) -> Vec<(&'static str, usize, i64)> 
         .collect()
 }
 
+/// The ledger's median wait for a stage, when the ledger has completions there.
+pub fn median_wait(ledger: &[kls_core::github::LedgerFlow], stage: &str) -> Option<i64> {
+    ledger
+        .iter()
+        .find(|f| f.stage == stage)
+        .and_then(|f| f.median_wait_ms)
+}
+
+/// A Flow chip: live count and oldest wait from the board, median wait (7 d)
+/// from the lifecycle ledger.
+pub fn flow_chip(stage: &str, n: usize, oldest: i64, median: Option<i64>) -> String {
+    let mut t = if n > 0 {
+        format!("{stage} {n} · {}", duration(oldest))
+    } else {
+        format!("{stage} 0")
+    };
+    if let Some(m) = median {
+        t.push_str(&format!(" · med {}", duration(m)));
+    }
+    t
+}
+
 /// A HUD panel: icon, title, (label, value) rows, the screen it opens and
 /// the focus there.
 type HudTile = (
@@ -1605,12 +1632,12 @@ impl Screen {
                 });
                 ui.horizontal_wrapped(|ui| {
                     ui.label(kit::caps(&icons::label(icons::FLOW_ARROW, "Flow"), p.muted));
+                    let ledger = match self.ledger.get() {
+                        Some(Ok(l)) => l,
+                        _ => Vec::new(),
+                    };
                     for (s, n, oldest) in flow_queues(cards, now) {
-                        let text = if n > 0 {
-                            format!("{s} {n} · {}", duration(oldest))
-                        } else {
-                            format!("{s} 0")
-                        };
+                        let text = flow_chip(s, n, oldest, median_wait(&ledger, s));
                         if kit::pick_chip(ui, &text, false, p.muted).clicked() {
                             model.go(crate::Screen::Board, None);
                         }
@@ -1930,6 +1957,25 @@ mod tests {
         let q = flow_queues(&cards, now);
         assert_eq!(q[4], ("review", 2, 120_000));
         assert_eq!(q[0].1, 0);
+    }
+
+    #[test]
+    fn flow_chips_add_the_ledger_median() {
+        let ledger = vec![kls_core::github::LedgerFlow {
+            stage: "review".into(),
+            open: 2,
+            arrivals: 5,
+            completions: 3,
+            median_wait_ms: Some(3_600_000),
+        }];
+        assert_eq!(median_wait(&ledger, "review"), Some(3_600_000));
+        assert_eq!(median_wait(&ledger, "todo"), None);
+        let with = flow_chip("review", 2, 120_000, median_wait(&ledger, "review"));
+        assert!(
+            with.starts_with("review 2 · ") && with.contains(" · med "),
+            "{with}"
+        );
+        assert_eq!(flow_chip("todo", 0, 0, None), "todo 0");
     }
 
     #[test]
