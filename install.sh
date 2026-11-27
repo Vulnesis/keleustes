@@ -29,7 +29,7 @@ REQUIRE_SIGNATURE="${KELEUSTES_REQUIRE_SIGNATURE:-0}"
 # (secret VULNETIX_RELEASE_SIGNING_KEY) into checksums.txt.sig, the base64 of
 # the raw 64-byte signature, and refuses to publish when this value and the
 # variable differ. Empty: releases are unsigned and no signature is checked.
-RELEASE_PUBLIC_KEY=""
+RELEASE_PUBLIC_KEY="Xo9QjUnzvYeW1ifTmxORoEjP+koOJc3NSd0gXGGk0W4="
 SIGNATURE_ASSET="checksums.txt.sig"
 
 # The provenance bundle and its signer, as Vulnetix/cli's reusable
