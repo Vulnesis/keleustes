@@ -61,7 +61,7 @@
                 "Co-authored-by: Vulnesis [bot] <security@vulnetix.com>",
                 "Signed-off-by: vulnesis[bot] <176591487+vulnesis[bot]@users.noreply.github.com>",
                 "Vulnerability: https://www.vulnes.is/vdb/GCVE-110-NPM-2026-001552",
-                "Advisory: https://github.com/Vulnetix/advisory-database/blob/main/advisories/npm/GCVE-110-NPM-2026-001552.json"
+                "Advisory: https://github.com/Vulnesis/advisory-database/blob/main/advisories/npm/GCVE-110-NPM-2026-001552.json"
             ]
         },
         {
@@ -110,7 +110,7 @@
                 "Co-authored-by: Vulnesis [bot] <security@vulnetix.com>",
                 "Signed-off-by: vulnesis[bot] <176591487+vulnesis[bot]@users.noreply.github.com>",
                 "Vulnerability: https://www.vulnes.is/vdb/GCVE-110-NPM-2026-001552",
-                "Advisory: https://github.com/Vulnetix/advisory-database"
+                "Advisory: https://github.com/Vulnesis/advisory-database"
             ]
         },
         {
@@ -120,7 +120,7 @@
                 "Co-authored-by: Vulnesis [bot] <security@vulnetix.com>",
                 "Signed-off-by: vulnesis[bot] <176591487+vulnesis[bot]@users.noreply.github.com>",
                 "Vulnerability: https://www.vulnes.is/vdb/GCVE-110-NPM-2026-001552",
-                "Advisory: https://github.com/Vulnetix/advisory-database"
+                "Advisory: https://github.com/Vulnesis/advisory-database"
             ]
         },
         {
