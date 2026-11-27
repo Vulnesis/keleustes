@@ -12,7 +12,7 @@
 use serde::Deserialize;
 
 pub const ORIGIN: &str = "https://www.vulnes.is";
-pub const ADVISORY_REPO_URL: &str = "https://github.com/Vulnetix/advisory-database";
+pub const ADVISORY_REPO_URL: &str = "https://github.com/Vulnesis/advisory-database";
 pub const MAX_VULN_LINKS: usize = 10;
 
 /// A person: name and email.
