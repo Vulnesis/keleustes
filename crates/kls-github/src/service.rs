@@ -8,6 +8,7 @@ use crate::budget::{Budget, factory_used};
 use crate::client::Client;
 use crate::conflicts::{self, ConflictSet};
 use crate::forge::auth::{AuthState, CliProbe, auth_for};
+use crate::forge::server::{self, ServerInfo};
 use crate::forge::{Connection, ForgeKind, RoutePref, guard};
 use crate::local::LocalGh;
 use crate::login::WebLogin;
@@ -297,10 +298,79 @@ impl Service {
         Ok(())
     }
 
-    /// Is the connection's CLI installed, which version, which flags.
+    /// Is the connection's CLI installed, which version, which flags, and
+    /// what the server says it is (so glab's device flow is offered only on
+    /// GitLab 17.9 or later).
     pub async fn probe(&self, conn: &Connection) -> CliProbe {
         let exec = self.selector.local().exec();
-        auth_for(conn.cli()).probe(exec.as_ref(), &conn.host).await
+        let mut p = auth_for(conn.cli()).probe(exec.as_ref(), &conn.host).await;
+        if !conn.is_github_com() {
+            p.server = self.server_probe(conn, USER).await.ok();
+        }
+        p
+    }
+
+    /// The server's product and version (forges.md 2.3, 2.4): through the
+    /// connection's route when signed in, else one unauthenticated GET.
+    /// Stored on the connection and audited; automation is refused while
+    /// the factory is stopped.
+    pub async fn server_probe(&self, conn: &Connection, caller: &str) -> Result<ServerInfo> {
+        guard::check_kill(&self.core, caller, "server_probe", &conn.host, &conn.id).await?;
+        let mut info = None;
+        if self.auth_state(conn).await.signed_in()
+            && let Ok(c) = self.client_conn(conn).await
+            && let Ok(v) = c
+                .get_json(server::route_path(conn.kind.dialect()), caller)
+                .await
+        {
+            let mut s = server::parse(conn.kind, &v);
+            s.via = "route".into();
+            info = s.known().then_some(s);
+        }
+        let mut info = match (info, server::http_url(conn)) {
+            (Some(s), _) => s,
+            (None, None) => ServerInfo {
+                error: "github.com has no server version".into(),
+                via: "http".into(),
+                ..Default::default()
+            },
+            (None, Some(url)) => match server::http_get(&url).await {
+                Ok((status, body)) => server::from_http(conn.kind, status, &body),
+                Err(e) => ServerInfo {
+                    error: format!("{e:#}"),
+                    via: "http".into(),
+                    ..Default::default()
+                },
+            },
+        };
+        info.at = now_ms();
+        if let Ok(js) = serde_json::to_string(&info) {
+            let _ = self.core.store().forge_set_server(&conn.id, &js).await;
+        }
+        let outcome = if info.known() {
+            "ok".to_string()
+        } else {
+            format!("error: {}", info.error)
+        };
+        guard::audit(
+            &self.core,
+            caller,
+            "server_probe",
+            &conn.host,
+            &conn.id,
+            &outcome,
+            json!({ "product": info.product, "version": info.version, "via": info.via }),
+        )
+        .await;
+        Ok(info)
+    }
+
+    /// The last stored server probe of a connection.
+    pub async fn server_info(&self, id: &str) -> Option<ServerInfo> {
+        let js = self.core.store().forge_server(id).await.ok()??;
+        serde_json::from_str::<ServerInfo>(&js)
+            .ok()
+            .filter(|s| s.at > 0)
     }
 
     /// Whether this host's CLI is signed in to the connection's host

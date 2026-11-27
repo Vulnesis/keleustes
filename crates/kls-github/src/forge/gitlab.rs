@@ -225,6 +225,29 @@ impl ForgeApi for GitLabApi {
         Ok(map_paged(p, |m| pull_json(m, &full, false)))
     }
 
+    /// `updated_after` is inclusive, so the newest pull of the last poll comes
+    /// back once more (unchanged, so not read again).
+    async fn pulls_since(
+        &self,
+        c: &Client,
+        key: &str,
+        since: i64,
+        caller: &str,
+    ) -> Result<Option<Paged>> {
+        let full = c.forge_name(key).to_string();
+        let p = c
+            .get_all(
+                &format!(
+                    "{}/merge_requests?state=all&updated_after={}&order_by=updated_at&sort=desc&per_page=100",
+                    project(c, key),
+                    crate::parse::iso(since)
+                ),
+                caller,
+            )
+            .await?;
+        Ok(Some(map_paged(p, |m| pull_json(m, &full, false))))
+    }
+
     async fn pull(&self, c: &Client, key: &str, n: i64, caller: &str) -> Result<Value> {
         let full = c.forge_name(key).to_string();
         let mr = c.get_json(&mr_path(c, key, n), caller).await?;

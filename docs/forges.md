@@ -70,12 +70,21 @@ helper (belai `internal/forgejob`).
 
 ## Live suite
 
-`just forge-live` starts Gitea 1.22 and Forgejo 11 in docker, seeds `ana/app`
-with a conflicting pull request, signs a throwaway `tea` in and runs
-`crates/kls-github/tests/live_forge.rs` (discovery, pulls, statuses, labels
-by id, issues, draft/ready, conflict commit pushed through `tea login
-helper`, stale push refused). It exits 0 with "skipped" when docker or tea
-is missing and is not part of `just check`.
+`just forge-live` starts Forgejo 13 and Gitea 1.22 in podman or docker,
+seeds `e2e/app` with a conflicting pull request, signs a throwaway `tea` in
+(token in `GITEA_SERVER_TOKEN`, never argv) and runs
+`crates/kls-github/tests/live_forge.rs`: the server probe, discovery, pulls
+(full, then by cursor), statuses, labels by id, issues, draft/ready, conflict
+commit pushed through `tea login helper`, stale push refused, and tea's OAuth
+sign-in approved headlessly. Without `tea` on `PATH`, set
+`KLS_LIVE_TEA_RELEASE` to a checksum-verified tea release binary and the
+suite runs in a small runner image. It exits 0 with "skipped" when no
+container engine or no tea is found and is not part of `just check`.
+
+The Connect dialog's Check reads the server's version (`/api/v4/version`,
+`/api/v1/version`, `/api/v3/meta`; through the CLI once signed in): the chip
+shows `GitLab 18.4` or `Forgejo 13.0`, and glab's Device method is hidden on a
+GitLab older than 17.9.
 
 ## Delivery off GitHub
 
@@ -98,7 +107,7 @@ capability matrix, sign-in UX, work packages and test plan) follows; the
 original is kept at `docs/gaps/forges.md`.
 
 
-Status: implemented (WP-1 to WP-12; the crate keeps its name `kls-github`). Docker live suites (8.2) are not built yet.
+Status: implemented (WP-1 to WP-12; the crate keeps its name `kls-github`). The Gitea and Forgejo live suites (8.2) run in containers; GitLab and github.com live suites need real accounts.
 
 Keleustes reaches GitHub only through `gh` (`crates/kls-github`): on this host
 when `gh auth status --hostname github.com` succeeds (`LocalGh`), otherwise on

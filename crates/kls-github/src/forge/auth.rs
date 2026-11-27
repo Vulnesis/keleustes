@@ -20,6 +20,10 @@ pub struct CliProbe {
     /// `device`, `web`, `stdin`, `api`, `oauth`, `client_id`.
     pub flags: BTreeSet<String>,
     pub error: String,
+    /// What the server said about itself (forges.md 2.3, 2.4); `None`
+    /// before the server probe ran.
+    #[serde(default)]
+    pub server: Option<super::server::ServerInfo>,
 }
 
 impl CliProbe {
@@ -562,7 +566,14 @@ impl CliAuth for GlabAuth {
 
     fn methods(&self, probe: &CliProbe, conn: &Connection) -> Vec<SignInMethod> {
         let mut m = Vec::new();
-        if probe.has("device") {
+        // `--device` needs GitLab 17.9: hidden when the server says it is
+        // older; offered on the CLI's word when the version is unknown.
+        let server_ok = probe
+            .server
+            .as_ref()
+            .and_then(|s| s.device_flow())
+            .unwrap_or(true);
+        if probe.has("device") && server_ok {
             m.push(SignInMethod::DeviceCode);
         }
         if probe.has("web") && (conn.host == "gitlab.com" || probe.has("client_id")) {
@@ -822,7 +833,7 @@ impl CliAuth for TeaAuth {
                 "--name",
                 &name,
                 "--url",
-                &format!("https://{}", conn.host),
+                &conn.web_base(),
                 "--oauth",
             ]),
         )
@@ -837,14 +848,7 @@ impl CliAuth for TeaAuth {
         (
             spawn(
                 CliKind::Tea,
-                crate::args([
-                    "login",
-                    "add",
-                    "--name",
-                    &name,
-                    "--url",
-                    &format!("https://{}", conn.host),
-                ]),
+                crate::args(["login", "add", "--name", &name, "--url", &conn.web_base()]),
             ),
             TokenInput::Env(TEA_TOKEN_ENV),
         )
@@ -879,9 +883,18 @@ impl CliAuth for TeaAuth {
                 t.trim_start_matches("Error: ").to_string(),
             ));
         }
-        device_url(t).map(Progress::OpenUrl)
+        // A plain-http server (a test container) prints an http:// authorize URL.
+        device_url(t)
+            .or_else(|| {
+                t.starts_with("http://")
+                    .then(|| t.split_whitespace().next().unwrap_or("").to_string())
+                    .filter(|u| u.contains("/login/oauth/authorize"))
+            })
+            .map(Progress::OpenUrl)
     }
 
+    /// git appends the verb: `tea login helper get` (tea 0.16.0's help:
+    /// "store, erase  No-op", "get  Return the stored token for a URL").
     fn git_helper(&self, _conn: &Connection) -> String {
         format!("!{} login helper", CliKind::Tea.program())
     }
@@ -998,6 +1011,34 @@ mod tests {
         // Self-managed without a client id: no browser method.
         assert_eq!(
             GlabAuth.methods(&p, &c),
+            vec![SignInMethod::DeviceCode, SignInMethod::Token]
+        );
+        // The server probe decides device flow: GitLab 17.9 or later only.
+        let with = |v: &str| CliProbe {
+            server: Some(crate::forge::server::parse(
+                ForgeKind::Gitlab,
+                &serde_json::json!({ "version": v }),
+            )),
+            ..p.clone()
+        };
+        assert_eq!(
+            GlabAuth.methods(&with("17.8.3-ee"), &c),
+            vec![SignInMethod::Token]
+        );
+        assert_eq!(
+            GlabAuth.methods(&with("17.9.0"), &c),
+            vec![SignInMethod::DeviceCode, SignInMethod::Token]
+        );
+        let unknown = CliProbe {
+            server: Some(crate::forge::server::from_http(
+                ForgeKind::Gitlab,
+                401,
+                &Value::Null,
+            )),
+            ..p.clone()
+        };
+        assert_eq!(
+            GlabAuth.methods(&unknown, &c),
             vec![SignInMethod::DeviceCode, SignInMethod::Token]
         );
         let com = conn(ForgeKind::Gitlab, "gitlab.com");
@@ -1138,5 +1179,44 @@ mod tests {
             TeaAuth.git_helper(&Connection::github_com()),
             format!("!{} login helper", CliKind::Tea.program())
         );
+    }
+
+    /// Recorded 2026-11-28: tea 0.16.0 `login add --oauth` against a stock
+    /// Forgejo 13.0.5 (plain http), with tea's pre-registered client id,
+    /// approved headlessly; then the 60 s timeout when the redirect URL is
+    /// refused (Forgejo answers 400 in the browser; tea never hears why).
+    #[test]
+    fn tea_oauth_recorded_wording() {
+        let lines = [
+            ("Starting local server on 127.0.0.1:43207...", None),
+            ("Opening browser for authorization...", None),
+            (
+                "Please authorize the application by visiting this URL in your browser:",
+                None,
+            ),
+            (
+                "http://localhost:3300/login/oauth/authorize?client_id=d57cb8c4-630c-4168-8324-ec79935e18d4&code_challenge=c&code_challenge_method=S256&redirect_uri=http%3A%2F%2F127.0.0.1%3A43207&response_type=code&scope=admin+user&state=s",
+                Some(Progress::OpenUrl("http://localhost:3300/login/oauth/authorize?client_id=d57cb8c4-630c-4168-8324-ec79935e18d4&code_challenge=c&code_challenge_method=S256&redirect_uri=http%3A%2F%2F127.0.0.1%3A43207&response_type=code&scope=admin+user&state=s".into())),
+            ),
+            (
+                "Failed to open browser:  exec: \"xdg-open\": executable file not found in $PATH",
+                None,
+            ),
+            (
+                "Login as e2e on http://localhost:3300 successful. Added this login as oauth-e2e",
+                Some(Progress::Done("e2e".into())),
+            ),
+            (
+                "Error: authorization failed: authentication timed out after 1m0s",
+                Some(Progress::Failed(
+                    "authorization failed: authentication timed out after 1m0s".into(),
+                )),
+            ),
+        ];
+        for (line, want) in lines {
+            assert_eq!(TeaAuth.progress(line), want, "{line}");
+        }
+        // A plain http link that is not the authorize page is not an Open button.
+        assert_eq!(TeaAuth.progress("http://localhost:3300/"), None);
     }
 }

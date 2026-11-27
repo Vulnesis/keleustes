@@ -183,6 +183,18 @@ impl Client {
     /// Follows `Link: rel="next"` (or GitLab's `x-next-page`) up to
     /// [`MAX_PAGES`]; each page is conditional.
     pub async fn get_all(&self, path: &str, caller: &str) -> Result<Paged> {
+        self.get_until(path, caller, |_| false).await
+    }
+
+    /// [`get_all`](Self::get_all) over a list sorted newest first that
+    /// stops at the first item `older` says is past the cursor (that item
+    /// and the rest of its page are dropped; no further page is read).
+    pub async fn get_until(
+        &self,
+        path: &str,
+        caller: &str,
+        older: impl Fn(&Value) -> bool,
+    ) -> Result<Paged> {
         let mut out = Paged {
             not_modified: true,
             ..Default::default()
@@ -195,15 +207,21 @@ impl Client {
             let r = self.get(&p, caller).await?;
             out.pages += 1;
             out.not_modified &= r.not_modified;
-            match r.json()? {
-                Value::Array(a) => out.items.extend(a),
+            let page = match r.json()? {
+                Value::Array(a) => a,
                 // Some lists wrap items: {"total_count": n, "check_runs": [...]}.
-                Value::Object(o) => {
-                    if let Some(a) = o.values().find_map(|v| v.as_array()) {
-                        out.items.extend(a.iter().cloned());
-                    }
-                }
-                _ => {}
+                Value::Object(o) => o
+                    .values()
+                    .find_map(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default(),
+                _ => Vec::new(),
+            };
+            let (n, before) = (page.len(), out.items.len());
+            out.items.extend(page.into_iter().take_while(|v| !older(v)));
+            if out.items.len() - before < n {
+                // An item past the cursor was met on this page: stop here.
+                break;
             }
             next = http::next_link(&r.link).or_else(|| http::with_page(&p, &r.next_page));
         }

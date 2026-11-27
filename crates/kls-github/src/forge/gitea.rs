@@ -63,6 +63,17 @@ pub fn pull_json(p: &Value) -> Value {
     v
 }
 
+/// A pull list item. List items carry `mergeable` too; it is dropped so a
+/// list read keeps the detail's view.
+fn list_pull(x: &Value) -> Value {
+    let mut v = pull_json(x);
+    if let Some(o) = v.as_object_mut() {
+        o.remove("mergeable");
+        o.remove("mergeable_state");
+    }
+    v
+}
+
 /// Gitea review states as GitHub's (stale verdicts dropped).
 pub fn reviews_json(list: &[Value]) -> Vec<Value> {
     list.iter()
@@ -274,20 +285,31 @@ impl ForgeApi for GiteaApi {
                 caller,
             )
             .await?;
-        // List items carry `mergeable` too; drop it so a list read keeps the detail's view.
-        p.items = p
-            .items
-            .iter()
-            .map(|x| {
-                let mut v = pull_json(x);
-                if let Some(o) = v.as_object_mut() {
-                    o.remove("mergeable");
-                    o.remove("mergeable_state");
-                }
-                v
-            })
-            .collect();
+        p.items = p.items.iter().map(list_pull).collect();
         Ok(p)
+    }
+
+    /// Gitea has no `since` on pulls: newest first by `recentupdate`, paging
+    /// stops at the first pull older than the cursor.
+    async fn pulls_since(
+        &self,
+        c: &Client,
+        key: &str,
+        since: i64,
+        caller: &str,
+    ) -> Result<Option<Paged>> {
+        let mut p = c
+            .get_until(
+                &format!(
+                    "/repos/{}/pulls?state=all&sort=recentupdate&limit=50",
+                    r(c, key)
+                ),
+                caller,
+                |x| crate::parse::ts(&x["updated_at"]).is_some_and(|t| t < since),
+            )
+            .await?;
+        p.items = p.items.iter().map(list_pull).collect();
+        Ok(Some(p))
     }
 
     async fn pull(&self, c: &Client, key: &str, n: i64, caller: &str) -> Result<Value> {

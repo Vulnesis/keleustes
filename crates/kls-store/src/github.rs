@@ -1729,6 +1729,29 @@ impl Store {
         Ok(r.rows_affected() == 1)
     }
 
+    /// Records what the server said about itself (ServerInfo JSON, migration 0260).
+    pub async fn forge_set_server(&self, id: &str, server_json: &str) -> Result<bool> {
+        let r = sqlx::query(
+            self.sql("UPDATE forge_connections SET server_json = ?, updated_at = ? WHERE id = ?"),
+        )
+        .bind(server_json)
+        .bind(now_ms())
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(r.rows_affected() == 1)
+    }
+
+    /// The last server probe of a connection (`None` when there is no such connection).
+    pub async fn forge_server(&self, id: &str) -> Result<Option<String>> {
+        let row = sqlx::query(self.sql("SELECT server_json FROM forge_connections WHERE id = ?"))
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.map(|r| r.try_get::<String, _>("server_json").map_err(Into::into))
+            .transpose()
+    }
+
     pub async fn forge_set_enabled(&self, id: &str, enabled: bool) -> Result<bool> {
         let r = sqlx::query(
             self.sql("UPDATE forge_connections SET enabled = ?, updated_at = ? WHERE id = ?"),
@@ -2320,6 +2343,93 @@ mod tests {
             assert_eq!((mode.latency_sum_ms, mode.latency_n), (100, 1));
             assert_eq!(days[1].rule_handled, 1);
         }
+    }
+
+    /// forges.md 8.1: a database stopped at 0008 (before every forge) with
+    /// GitHub rows, then opened by this build (0009 onwards): every key and
+    /// value stays, and the new columns say github.com.
+    #[tokio::test]
+    async fn upgrade_from_0008_keeps_every_github_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let url = format!("sqlite://{}?mode=rwc", dir.path().join("old.db").display());
+        sqlx::any::install_default_drivers();
+        {
+            let pool = AnyPoolOptions::new()
+                .max_connections(1)
+                .connect(&url)
+                .await
+                .unwrap();
+            crate::SQLITE_MIGRATIONS.run_to(8, &pool).await.unwrap();
+            assert!(
+                sqlx::query("SELECT id FROM forge_connections")
+                    .fetch_all(&pool)
+                    .await
+                    .is_err(),
+                "0008 has no forge_connections"
+            );
+            for q in [
+                "INSERT INTO gh_orgs (login, kind, repo_count) VALUES ('acme', 'Organization', 3)",
+                "INSERT INTO gh_repos (full_name, owner, name, can_push, managed, settings_json) \
+                 VALUES ('acme/api', 'acme', 'api', 1, 1, '{\"protected_branches\":false}')",
+                "INSERT INTO gh_pulls (repo, number, title, head_sha, mergeable) \
+                 VALUES ('acme/api', 7, 'Fix', 'abc', 'conflict')",
+                "INSERT INTO gh_quota (route, resource, rate_limit, remaining) \
+                 VALUES ('local', 'core', 5000, 4999)",
+                "INSERT INTO gh_resolutions (id, repo, number, branch, commit_sha, created_at) \
+                 VALUES ('r1', 'acme/api', 7, 'feat', 'def', 1)",
+            ] {
+                sqlx::query(q).execute(&pool).await.unwrap();
+            }
+            pool.close().await;
+        }
+        let s = Store::open(&url).await.unwrap();
+        let conns = s.forge_connections().await.unwrap();
+        assert_eq!(conns.len(), 1);
+        assert_eq!(
+            (conns[0].id.as_str(), conns[0].origin.as_str()),
+            (GITHUB_COM, "migration")
+        );
+        assert_eq!(
+            s.forge_server(GITHUB_COM).await.unwrap().as_deref(),
+            Some("{}")
+        );
+        let org = s.gh_org("acme").await.unwrap().unwrap();
+        assert_eq!(org.repo_count, 3);
+        assert_eq!(
+            s.gh_org_forge("acme").await.unwrap().map(|f| f.0),
+            Some(GITHUB_COM.to_string())
+        );
+        let r = s.gh_repo("acme/api").await.unwrap().unwrap();
+        assert!(r.can_push && r.managed && !r.settings.protected_branches);
+        let f = s.gh_repo_forge("acme/api").await.unwrap().unwrap();
+        assert_eq!(
+            (
+                f.connection.as_str(),
+                f.forge_full_name.as_str(),
+                f.forge_id
+            ),
+            (GITHUB_COM, "", None)
+        );
+        let p = s.gh_pull("acme/api", 7).await.unwrap().unwrap();
+        assert_eq!(
+            (p.title.as_str(), p.mergeable.as_str()),
+            ("Fix", "conflict")
+        );
+        let q = s.gh_quota("local", "core").await.unwrap().unwrap();
+        assert_eq!((q.limit, q.remaining), (5000, 4999));
+        let row = sqlx::query("SELECT connection, signing FROM gh_resolutions WHERE id = 'r1'")
+            .fetch_one(&s.pool)
+            .await
+            .unwrap();
+        assert_eq!(row.try_get::<String, _>("connection").unwrap(), GITHUB_COM);
+        assert_eq!(row.try_get::<String, _>("signing").unwrap(), "github_signs");
+        // The server probe column takes a value on the upgraded database.
+        assert!(s.forge_set_server(GITHUB_COM, "{\"x\":1}").await.unwrap());
+        assert_eq!(
+            s.forge_server(GITHUB_COM).await.unwrap().as_deref(),
+            Some("{\"x\":1}")
+        );
+        assert_eq!(s.forge_server("nope").await.unwrap(), None);
     }
 
     #[tokio::test]

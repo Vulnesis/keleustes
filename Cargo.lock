@@ -3298,6 +3298,7 @@ dependencies = [
  "jiff",
  "kls-core",
  "kls-store",
+ "reqwest",
  "serde",
  "serde_json",
  "similar",

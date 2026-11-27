@@ -19,6 +19,7 @@ base64.workspace = true
 jiff.workspace = true
 uuid.workspace = true
 similar.workspace = true
+reqwest.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
