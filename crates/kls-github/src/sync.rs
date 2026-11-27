@@ -1174,6 +1174,63 @@ pub async fn sync_cards(c: &Client, repo: &str, caller: &str) -> Result<CardSync
     Ok(rep)
 }
 
+/// What a backfill pass did.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct Backfill {
+    /// Issues opened for existing cards this pass.
+    pub opened: usize,
+    /// Cards still to open (the next pass takes them).
+    pub left: usize,
+    /// The backfill finished this pass.
+    pub done: bool,
+}
+
+/// The mirror row's "existing cards" choice (web `MirrorBackfill`): once a
+/// project starts mirroring a repository with `recent` or `all`, its cards
+/// that were already on the board open as issues, at most
+/// [`bsync::BACKFILL_PER_PASS`] a pass, through [`open_issue`] (kill switch,
+/// audit, link). Board-only `project:` labels stay on the card. Needs the
+/// row's outbound switch; when no card is left the row is marked done
+/// (audited) and later cards follow the normal mirror rules.
+///
+/// [`bsync::BACKFILL_PER_PASS`]: kls_core::board::sync::BACKFILL_PER_PASS
+pub async fn backfill_cards(c: &Client, repo: &str, caller: &str) -> Result<Backfill> {
+    use kls_core::board::sync as bsync;
+    let core = c.core();
+    let mut out = Backfill::default();
+    let Some(row) = core.issue_mirror_of(repo).await? else {
+        return Ok(out);
+    };
+    if !row.backfill_due() || !row.outbound {
+        return Ok(out);
+    }
+    let cards = core.store().cards(false).await?;
+    let todo = bsync::backfill_candidates(&row, &cards, now_ms());
+    for card in todo.iter().take(bsync::BACKFILL_PER_PASS) {
+        let mut card = (*card).clone();
+        card.repo = row.repo.clone();
+        card.labels
+            .retain(|l| !l.starts_with(bsync::BOARD_ONLY_PREFIX));
+        let body = {
+            let mut b = card.body.trim().to_string();
+            if !b.is_empty() {
+                b.push_str("\n\n");
+            }
+            b.push_str(&format!("Board card {}", card.key));
+            b
+        };
+        open_issue(c, &card, &body, caller).await?;
+        out.opened += 1;
+    }
+    out.left = todo.len().saturating_sub(out.opened);
+    if out.left == 0 {
+        core.mark_mirror_backfilled(repo, out.opened, caller)
+            .await?;
+        out.done = true;
+    }
+    Ok(out)
+}
+
 /// Syncs one card with its issue now (the drawer's Sync now).
 pub async fn sync_card(c: &Client, card_id: &str, caller: &str) -> Result<CardSync> {
     let core = c.core();

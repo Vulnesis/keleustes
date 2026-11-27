@@ -1570,7 +1570,7 @@ Totals (157 rows, recounted from the table below on 2026-11-28):
 | priority | done | partial | missing |
 |---|---|---|---|
 | P0 | 32 | 0 | 0 |
-| P1 | 68 | 1 | 0 |
+| P1 | 69 | 0 | 0 |
 | P2 | 49 | 7 | 0 |
 
 Counted by the 15 numbered P0 items: 10 done (1, 2, 5, 6, 8, 9, 10, 11, 12, 15) and 5 partial (3, 4, 7, 13, 14).
@@ -1675,7 +1675,7 @@ Cross-cutting findings:
 | Template security-patch-train | Templates | P1 | done | `kls-engine/src/templates.json:1124` (cron trigger, gate, draft PR) | - |
 | Template release-provenance | Templates | P1 | done | `kls-engine/src/templates.json:1228` (manual trigger, files ticket) | - (all templates validated by `kls-engine/src/templates.rs:135`) |
 | Template search + run budget in Use form | Templates | P1 | done | `kls-ui/src/screens/templates.rs:114,382` (search with synonyms), `templates.rs:278-303` (run budget passed); `kls-engine/src/templates.rs:96-110` (`use_template` sets `run_budget_tokens`) | - |
-| Issue mirroring per board project | Repos | P1 | partial | `github.issue_mirror` rows (project, repo, inbound list, outbound, merge rules, escalate hours) kls-core/src/board/sync.rs:378, `save_issue_mirrors` :435; poller kls-github/src/poller.rs:98,235; test kls-github/src/tests.rs:1418 | No "existing cards" choice; no editor screen for the rows |
+| Issue mirroring per board project | Repos | P1 | done | `github.issue_mirror` rows (project, repo, inbound list, outbound, merge rules, escalate hours, existing cards `backfill` none/recent/all + `backfilled_at`) kls-core/src/board/sync.rs:400, candidates :469, kept across saves :513 (`save_issue_mirrors` :570), done mark (audited) :597, counts :633, tests :857, :910; backfill pass (at most 20 issues a pass through `open_issue`: kill switch, audit, link; `project:` labels stay on the board) kls-github/src/sync.rs:1197, run after `sync_cards` by the poller kls-github/src/poller.rs:258, tests kls-github/src/tests.rs:1626, :1709; editor in the repo panel (project, inbound, outbound, merge rule per field, escalate hours, existing cards with counts, Save mirror / Stop mirroring) kls-ui/src/screens/repos.rs:1227 (called :1126), test :2276 | - |
 | Repo detail: attached workflows + bulk attach | Repos | P1 | done | `kls-ui/src/screens/repos.rs:1045` (detail lists workflows whose scope names the repo, `attached_workflows` `:1133`); bulk Attach menu `:768` -> `attach_repos` `:1274` (scope, save_draft, publish, audited `workflow.attach` actor owner), test `:1958` | - |
 | Default workflow catalogue, per-repo seeding, defaults_off | Repos | P1 | done | `kls-engine/src/defaults.rs:91` (core + 34 CLI defaults), `defaults.rs:422-440` (`gate` honours defaults_off/autonomy), `defaults.rs:447-545` (`seed` per managed repo, upgrade unless customised); `kls-engine/src/exec.rs:885-891` (re-seed on repo/settings events); UI `kls-ui/src/screens/repos.rs:709-790`, list chips `workflows.rs:475-484` | - |
 | OS notices: notify nodes, failed runs, finished sessions | Background | P1 | done | `kls-app/src/desktop.rs:364-381` (`run.notify`, failed `run.finished`, `session.ended`), `desktop.rs:491-520` (`start_notifications`), `desktop.rs:440-454` (notify.events filter) | - |

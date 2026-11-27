@@ -1875,43 +1875,70 @@ impl Engine {
             )
             .await?;
         let mut details = json!({ "profile": p });
-        // The forge keeps the CLI labels and the one "Software Factory
-        // profile" issue current (WP3 `repo_profile`), at `suggest` or above
-        // and never under the kill switch. A failure is noted, not fatal.
-        let have = guard::effective_autonomy(self.core(), &run.repo).await;
-        if let Some(forge) = self.inner.integrations.forge.clone()
-            && guard::autonomy_rank(&have) >= guard::autonomy_rank("suggest")
-            && guard::held(self.core(), "step").await.is_none()
-        {
-            let sc = StepContext {
-                run: run.clone(),
-                node: node.clone(),
-                step: st.clone(),
-                context: ctx,
-            };
-            let res = forge.action(&sc, "repo_profile").await;
-            let outcome = match &res {
-                Ok(_) => "done".to_string(),
-                Err(e) => format!("failed: {e:#}"),
-            };
-            guard::audit(
-                self.core(),
-                "github",
-                "repo_profile",
-                json!({ "repo": run.repo, "action": "repo_profile" }),
-                &Origin::engine(
-                    json!({ "runId": run.id, "stepId": st.id, "workflowId": run.workflow_id }),
-                ),
-                &outcome,
-                json!({}),
-            )
-            .await?;
-            details["profileIssue"] = match res {
-                Ok(v) => v,
-                Err(e) => json!(format!("error: {e:#}")),
-            };
-        }
+        details["profileIssue"] = self.profile_issue(run, node, st, ctx).await?;
         self.succeed(st, "", details).await
+    }
+
+    /// The `repo_profile` forge output after a profile is stored: the forge
+    /// keeps the CLI labels and the one "Software Factory profile" issue
+    /// current (web `factory_engine_node_profile.go`). Gated like a `github`
+    /// output step: the repo's autonomy must reach
+    /// [`guard::required_autonomy`]`("repo_profile")`, and the kill switch or
+    /// a maintenance window holds it; each skip is a refusal on the ledger,
+    /// the write itself is audited with its outcome. A failure is noted in
+    /// the step, not fatal (the profile is stored either way).
+    async fn profile_issue(
+        &self,
+        run: &Run,
+        node: &Node,
+        st: &RunStep,
+        ctx: Value,
+    ) -> Result<Value> {
+        const ACTION: &str = "repo_profile";
+        let core = self.core();
+        let data = json!({ "runId": run.id, "stepId": st.id, "workflowId": run.workflow_id,
+                           "repo": run.repo, "action": ACTION });
+        let Some(forge) = self.inner.integrations.forge.clone() else {
+            return Ok(json!({ "skipped": "integration_missing:github" }));
+        };
+        let need = guard::required_autonomy(ACTION);
+        let have = guard::effective_autonomy(core, &run.repo).await;
+        if guard::autonomy_rank(&have) < guard::autonomy_rank(need) {
+            let why = format!("autonomy {have} is below {need}");
+            guard::refuse(core, "github", &why, data).await?;
+            return Ok(json!({ "skipped": "autonomy", "required": need, "autonomy": have }));
+        }
+        if let Some(why) = guard::held(core, "step").await {
+            guard::refuse_switch(core, "step", data).await?;
+            return Ok(json!({ "skipped": "held", "why": why }));
+        }
+        let sc = StepContext {
+            run: run.clone(),
+            node: node.clone(),
+            step: st.clone(),
+            context: ctx,
+        };
+        let res = forge.action(&sc, ACTION).await;
+        let outcome = match &res {
+            Ok(_) => "done".to_string(),
+            Err(e) => format!("failed: {e:#}"),
+        };
+        guard::audit(
+            core,
+            "github",
+            ACTION,
+            json!({ "repo": run.repo, "action": ACTION }),
+            &Origin::engine(
+                json!({ "runId": run.id, "stepId": st.id, "workflowId": run.workflow_id }),
+            ),
+            &outcome,
+            json!({}),
+        )
+        .await?;
+        Ok(match res {
+            Ok(v) => v,
+            Err(e) => json!(format!("error: {e:#}")),
+        })
     }
 
     /// Wait steps that wait for an event.

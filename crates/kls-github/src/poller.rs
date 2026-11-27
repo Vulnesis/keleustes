@@ -48,6 +48,8 @@ pub struct PollReport {
     pub cards_pushed: usize,
     /// Outbound pushes that failed this pass (retried later).
     pub cards_failed: usize,
+    /// Existing cards opened as issues by a new mirror (its backfill).
+    pub cards_backfilled: usize,
     /// Push, CI, release and alert events emitted.
     pub events: usize,
     /// Why the pass stopped early, if it did.
@@ -247,11 +249,18 @@ pub async fn poll_once(core: &Core, selector: &Selector) -> Result<PollReport> {
                     1 => match sync::sync_issues(&c, &r.full_name, CALLER).await {
                         Ok(n) => {
                             rep.issues_changed += n;
-                            // Then the board side: take, push (with retry), conflicts.
-                            sync::sync_cards(&c, &r.full_name, CALLER).await.map(|s| {
-                                rep.cards_pushed += s.pushed;
-                                rep.cards_failed += s.failed;
-                            })
+                            // Then the board side: take, push (with retry),
+                            // conflicts; then a new mirror's existing cards.
+                            match sync::sync_cards(&c, &r.full_name, CALLER).await {
+                                Ok(s) => {
+                                    rep.cards_pushed += s.pushed;
+                                    rep.cards_failed += s.failed;
+                                    sync::backfill_cards(&c, &r.full_name, CALLER)
+                                        .await
+                                        .map(|b| rep.cards_backfilled += b.opened)
+                                }
+                                Err(e) => Err(e),
+                            }
                         }
                         Err(e) => Err(e),
                     },
@@ -283,7 +292,8 @@ pub async fn poll_once(core: &Core, selector: &Selector) -> Result<PollReport> {
         + rep.labels_created
         + rep.events
         + rep.cards_pushed
-        + rep.cards_failed;
+        + rep.cards_failed
+        + rep.cards_backfilled;
     if changed > 0 || rep.refused.is_some() || !rep.errors.is_empty() {
         guard::audit(
             core,
@@ -300,7 +310,8 @@ pub async fn poll_once(core: &Core, selector: &Selector) -> Result<PollReport> {
             },
             json!({ "repos": rep.repos, "pulls": rep.pulls_changed, "issues": rep.issues_changed,
                     "labels": rep.labels_created, "events": rep.events,
-                    "cardsPushed": rep.cards_pushed, "cardsFailed": rep.cards_failed, "errors": rep.errors.len(),
+                    "cardsPushed": rep.cards_pushed, "cardsFailed": rep.cards_failed,
+                    "cardsBackfilled": rep.cards_backfilled, "errors": rep.errors.len(),
                     "refused": rep.refused }),
         )
         .await;

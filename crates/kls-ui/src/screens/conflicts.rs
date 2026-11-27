@@ -25,6 +25,8 @@ pub const READY: bool = true;
 struct Data {
     conflicting: Vec<GhPull>,
     open: Vec<GhPull>,
+    /// The kill switch is on (paused or stopped).
+    stopped: bool,
 }
 
 /// The editor state of one file.
@@ -69,12 +71,13 @@ impl Screen {
     pub fn new(model: &Model) -> Self {
         let data = Loader::new(
             model,
-            &["github.pull.", "github.conflict."],
+            &["github.pull.", "github.conflict.", "factory."],
             |core| async move {
                 let s = core.store();
                 Ok(Data {
                     conflicting: s.gh_conflicting_pulls().await?,
                     open: s.gh_pulls(None, Some("open")).await?,
+                    stopped: !kls_core::control::state(&core).await?.mode.running(),
                 })
             },
         );
@@ -454,18 +457,24 @@ impl Screen {
                 if filing {
                     ui.spinner();
                 }
-                let can_hand = set.conflicting().next().is_some() && !filing;
-                if ui
-                    .add_enabled_ui(can_hand, |ui| {
+                let why = hand_off_block(
+                    set,
+                    filing,
+                    resolver_host(model, self.data.get().and_then(|d| d.ok()).as_ref(), set),
+                );
+                let r = ui
+                    .add_enabled_ui(why.is_none(), |ui| {
                         kit::ghost_button(
                             ui,
                             &icons::label(icons::ROBOT, "Resolve with belai:conflict-resolver"),
                         )
                     })
-                    .inner
-                    .on_hover_text("Files a merge-conflict card")
-                    .clicked()
-                {
+                    .inner;
+                let r = match &why {
+                    Some(w) => r.on_disabled_hover_text(w.as_str()),
+                    None => r.on_hover_text("Files a merge-conflict card and starts the worker"),
+                };
+                if r.clicked() {
                     self.hand_off(model, set);
                 }
             });
@@ -719,16 +728,38 @@ impl Screen {
         let busy = self.resolving.clone();
         *busy.lock().unwrap() = true;
         model.act(move |m| async move {
-            let r = backend::file_resolver_card(m.core(), &set, &url, "user").await;
+            let r = kls_engine::conflicts::dispatch_resolver(m.core(), &set, &url, "user").await;
             *busy.lock().unwrap() = false;
-            let c = r?;
-            Ok(Some(Notice::Info(if c.existing {
-                format!("{} already open for {}#{}", c.key, set.repo, set.number)
-            } else {
-                format!("Filed {} for {}", c.key, backend::RESOLVER)
+            let h = r?;
+            Ok(Some(Notice::Info(match &h.dispatch {
+                None => format!("{} held for fork code", h.key),
+                Some(_) if h.existing => format!("{} resumed by {}", h.key, backend::RESOLVER),
+                Some(_) => format!("{} sent to {}", h.key, backend::RESOLVER),
             })))
         });
     }
+}
+
+/// Where the resolver would run for `set`, or why it cannot.
+fn resolver_host(model: &Model, data: Option<&Data>, set: &ConflictSet) -> Result<String, String> {
+    let snap = model.snapshot();
+    kls_engine::conflicts::resolver_host(
+        &snap.nodes,
+        &snap.online,
+        data.is_none_or(|d| d.stopped),
+        &set.repo,
+    )
+}
+
+/// Why the hand-off button is disabled, if it is.
+fn hand_off_block(set: &ConflictSet, busy: bool, host: Result<String, String>) -> Option<String> {
+    if busy {
+        return Some("Sending".into());
+    }
+    if set.conflicting().next().is_none() {
+        return Some("No conflicts".into());
+    }
+    host.err()
 }
 
 /// A lockfile is never hand-merged: keep one side whole, then regenerate.
@@ -1157,4 +1188,64 @@ fn outline_button(
             })
             .stroke(egui::Stroke::new(1.0, stroke)),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kls_github::conflicts::ConflictFile;
+    use kls_github::merge3::Merge3;
+
+    fn set(conflicting: bool) -> ConflictSet {
+        let merge = if conflicting {
+            Merge3::new("a\n", "b\n", "c\n")
+        } else {
+            Merge3::new("a\n", "b\n", "a\n")
+        };
+        ConflictSet {
+            repo: "acme/api".into(),
+            number: 3,
+            title: "T".into(),
+            head_repo: "acme/api".into(),
+            head_ref: "feat".into(),
+            head_sha: "h".into(),
+            base_ref: "main".into(),
+            base_sha: "b".into(),
+            merge_base: "m".into(),
+            files: vec![ConflictFile {
+                path: "src/a.rs".into(),
+                previous: None,
+                base: Some("a\n".into()),
+                ours: Some("b\n".into()),
+                theirs: Some("c\n".into()),
+                binary: false,
+                conflicting: merge.has_conflicts(),
+                merge,
+            }],
+            base_only: Vec::new(),
+            forge: kls_github::ForgeKind::Github,
+        }
+    }
+
+    #[test]
+    fn hand_off_says_why_it_is_disabled() {
+        let ok = || Ok::<_, String>("n1".to_string());
+        assert_eq!(hand_off_block(&set(true), false, ok()), None);
+        assert_eq!(
+            hand_off_block(&set(true), false, Err("Factory stopped".into())).as_deref(),
+            Some("Factory stopped")
+        );
+        assert_eq!(
+            hand_off_block(&set(true), false, Err("no node is online".into())).as_deref(),
+            Some("no node is online")
+        );
+        assert_eq!(
+            hand_off_block(&set(false), false, ok()).as_deref(),
+            Some("No conflicts")
+        );
+        assert_eq!(
+            hand_off_block(&set(true), true, ok()).as_deref(),
+            Some("Sending")
+        );
+    }
 }

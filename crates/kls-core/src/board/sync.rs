@@ -392,20 +392,136 @@ pub struct MirrorRow {
     /// Escalate a conflict open this long (0: never).
     #[serde(default)]
     pub escalate_hours: i64,
+    /// What happens to the project's cards that were on the board before
+    /// the mirror started (web `MirrorBackfill`): `none` (default; only
+    /// cards from now on), `recent` (cards touched in the last 30 days open
+    /// as issues) or `all`.
+    #[serde(default = "default_backfill")]
+    pub backfill: String,
+    /// When the backfill finished (0: still to do). Kept across saves of the
+    /// same project, repository and choice; reset when one changes.
+    #[serde(default)]
+    pub backfilled_at: i64,
+}
+
+impl Default for MirrorRow {
+    fn default() -> Self {
+        Self {
+            project: String::new(),
+            repo: String::new(),
+            inbound: default_inbound(),
+            outbound: true,
+            rules: BTreeMap::new(),
+            escalate_hours: 0,
+            backfill: default_backfill(),
+            backfilled_at: 0,
+        }
+    }
 }
 
 fn default_inbound() -> String {
     "triage".into()
 }
 
+fn default_backfill() -> String {
+    "none".into()
+}
+
 fn yes() -> bool {
     true
 }
+
+/// The backfill choices (web `MirrorBackfill`).
+pub const BACKFILL: [&str; 3] = ["none", "recent", "all"];
+/// `recent` reaches back this far.
+pub const BACKFILL_RECENT_MS: i64 = 30 * 24 * 3_600_000;
+/// Issues a backfill opens per sync pass (the rest wait for the next pass).
+pub const BACKFILL_PER_PASS: usize = 20;
 
 impl MirrorRow {
     pub fn label(&self) -> String {
         format!("{BOARD_ONLY_PREFIX}{}", self.project.trim())
     }
+
+    /// Whether `c` is one of this project's cards (by its project label).
+    pub fn holds(&self, c: &Card) -> bool {
+        let l = self.label();
+        c.labels.iter().any(|x| x.eq_ignore_ascii_case(&l))
+    }
+
+    /// Whether a backfill is still owed.
+    pub fn backfill_due(&self) -> bool {
+        self.backfilled_at == 0 && matches!(self.backfill.as_str(), "recent" | "all")
+    }
+}
+
+/// Whether a card already names a forge issue (`meta.github.number`).
+pub fn card_linked(c: &Card) -> bool {
+    serde_json::from_str::<Value>(&c.meta_json)
+        .ok()
+        .and_then(|m| m.pointer("/github/number").and_then(Value::as_i64))
+        .is_some_and(|n| n > 0)
+}
+
+/// The existing cards a backfill of `row` would open as issues at `now`,
+/// oldest first: live, unlinked cards of the project whose repository is
+/// empty or the row's, touched within 30 days for `recent`, any for `all`.
+pub fn backfill_candidates<'a>(row: &MirrorRow, cards: &'a [Card], now: i64) -> Vec<&'a Card> {
+    let since = match row.backfill.as_str() {
+        "recent" => now - BACKFILL_RECENT_MS,
+        "all" => i64::MIN,
+        _ => return Vec::new(),
+    };
+    let mut out: Vec<&Card> = cards
+        .iter()
+        .filter(|c| {
+            !c.deleted
+                && row.holds(c)
+                && (c.repo.is_empty() || c.repo.eq_ignore_ascii_case(&row.repo))
+                && !card_linked(c)
+                && c.updated_at >= since
+        })
+        .collect();
+    out.sort_by_key(|c| (c.created_at, c.key.clone()));
+    out
+}
+
+/// Counts for the backfill choice of one project (web `backfillCounts`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+pub struct BackfillCounts {
+    pub recent: usize,
+    pub all: usize,
+}
+
+pub fn backfill_counts(row: &MirrorRow, cards: &[Card], now: i64) -> BackfillCounts {
+    let with = |b: &str| {
+        let r = MirrorRow {
+            backfill: b.into(),
+            ..row.clone()
+        };
+        backfill_candidates(&r, cards, now).len()
+    };
+    BackfillCounts {
+        recent: with("recent"),
+        all: with("all"),
+    }
+}
+
+/// Carries `backfilled_at` over from the stored rows when a row's project,
+/// repository and choice are unchanged; a new or changed row owes its
+/// backfill again.
+pub fn carry_backfill(rows: &[MirrorRow], stored: &[MirrorRow]) -> Vec<MirrorRow> {
+    rows.iter()
+        .map(|r| {
+            let mut r = r.clone();
+            r.backfilled_at = stored
+                .iter()
+                .find(|s| s.repo == r.repo && s.project == r.project && s.backfill == r.backfill)
+                .map(|s| s.backfilled_at)
+                .unwrap_or(0);
+            r
+        })
+        .collect()
 }
 
 impl Core {
@@ -444,7 +560,15 @@ impl Core {
             if !matches!(r.inbound.as_str(), "triage" | "review" | "off") {
                 bail!("inbound must be triage, review or off");
             }
+            if !BACKFILL.contains(&r.backfill.as_str()) {
+                bail!("existing cards must be none, recent or all");
+            }
+            if r.escalate_hours < 0 {
+                bail!("escalation hours cannot be negative");
+            }
         }
+        let rows = carry_backfill(rows, &self.issue_mirrors().await?);
+        let rows = rows.as_slice();
         self.store()
             .set_setting(
                 crate::github::settings::ISSUE_MIRROR,
@@ -466,6 +590,55 @@ impl Core {
         })
         .await?;
         Ok(())
+    }
+
+    /// Marks the backfill of `repo`'s row finished (the sync pass, after it
+    /// opened the last issue), audited with how many it opened.
+    pub async fn mark_mirror_backfilled(
+        &self,
+        repo: &str,
+        opened: usize,
+        actor: &str,
+    ) -> Result<()> {
+        let mut rows = self.issue_mirrors().await?;
+        let Some(r) = rows.iter_mut().find(|r| r.repo == repo) else {
+            return Ok(());
+        };
+        r.backfilled_at = kls_store::now_ms();
+        let row = r.clone();
+        self.store()
+            .set_setting(
+                crate::github::settings::ISSUE_MIRROR,
+                &serde_json::to_string(&rows)?,
+            )
+            .await?;
+        self.audit_record(LedgerDraft {
+            at: 0,
+            kind: "setting".into(),
+            actor: actor.into(),
+            actor_kind: "system".into(),
+            msg: format!("issue mirror backfill done for {repo}"),
+            subject: json!({ "action": "issue_mirror.backfilled", "key": crate::github::settings::ISSUE_MIRROR, "repo": repo }),
+            payload: json!({ "project": row.project, "backfill": row.backfill, "opened": opened }),
+            origin: "factory".into(),
+            node_id: String::new(),
+            session_id: String::new(),
+            ref_key: None,
+        })
+        .await?;
+        Ok(())
+    }
+
+    /// Backfill counts per mirrored repository (the editor's choice titles).
+    pub async fn backfill_counts(&self) -> Result<BTreeMap<String, BackfillCounts>> {
+        let cards = self.store().cards(false).await?;
+        let now = kls_store::now_ms();
+        Ok(self
+            .issue_mirrors()
+            .await?
+            .iter()
+            .map(|r| (r.repo.clone(), backfill_counts(r, &cards, now)))
+            .collect())
     }
 
     /// Every card whose fields conflict with its mirrored issue.
@@ -678,5 +851,92 @@ mod tests {
         );
         let patch = take_patch(&synced, &p.take);
         assert_eq!(patch.title.as_deref(), Some("#7 Login fails"));
+    }
+
+    #[test]
+    fn backfill_picks_the_projects_unlinked_cards() {
+        let now = 100 * 24 * 3_600_000;
+        let day = 24 * 3_600_000;
+        let card = |key: &str, labels: &[&str], repo: &str, updated: i64, meta: &str| Card {
+            key: key.into(),
+            labels: labels.iter().map(|s| s.to_string()).collect(),
+            repo: repo.into(),
+            updated_at: updated,
+            created_at: updated,
+            meta_json: meta.into(),
+            ..Default::default()
+        };
+        let cards = vec![
+            card("K-1", &["project:web"], "", now - day, "{}"),
+            card("K-2", &["project:web"], "acme/api", now - 60 * day, "{}"),
+            // Linked already, another repository, another project, deleted.
+            card(
+                "K-3",
+                &["project:web"],
+                "",
+                now,
+                r#"{"github":{"number":4}}"#,
+            ),
+            card("K-4", &["project:web"], "acme/other", now, "{}"),
+            card("K-5", &["project:ops"], "", now, "{}"),
+            Card {
+                deleted: true,
+                ..card("K-6", &["project:web"], "", now, "{}")
+            },
+        ];
+        let mut row = MirrorRow {
+            project: "web".into(),
+            repo: "acme/api".into(),
+            ..Default::default()
+        };
+        assert_eq!(row.backfill, "none");
+        assert!(!row.backfill_due());
+        assert!(backfill_candidates(&row, &cards, now).is_empty());
+        row.backfill = "recent".into();
+        assert!(row.backfill_due());
+        let keys = |v: Vec<&Card>| v.iter().map(|c| c.key.clone()).collect::<Vec<_>>();
+        assert_eq!(keys(backfill_candidates(&row, &cards, now)), ["K-1"]);
+        row.backfill = "all".into();
+        assert_eq!(keys(backfill_candidates(&row, &cards, now)), ["K-2", "K-1"]);
+        assert_eq!(
+            backfill_counts(&row, &cards, now),
+            BackfillCounts { recent: 1, all: 2 }
+        );
+        row.backfilled_at = 5;
+        assert!(!row.backfill_due());
+    }
+
+    #[test]
+    fn backfill_done_is_kept_only_for_the_same_row() {
+        let done = MirrorRow {
+            project: "web".into(),
+            repo: "acme/api".into(),
+            backfill: "all".into(),
+            backfilled_at: 9,
+            ..Default::default()
+        };
+        let same = MirrorRow {
+            backfilled_at: 0,
+            outbound: false,
+            ..done.clone()
+        };
+        let other = MirrorRow {
+            backfill: "recent".into(),
+            ..same.clone()
+        };
+        let moved = MirrorRow {
+            project: "ops".into(),
+            ..same.clone()
+        };
+        let out = carry_backfill(&[same, other, moved], std::slice::from_ref(&done));
+        assert_eq!(
+            out.iter().map(|r| r.backfilled_at).collect::<Vec<_>>(),
+            [9, 0, 0]
+        );
+        // An older row without the new fields reads as "none".
+        let old: MirrorRow =
+            serde_json::from_str(r#"{"project":"web","repo":"acme/api"}"#).unwrap();
+        assert_eq!((old.backfill.as_str(), old.backfilled_at), ("none", 0));
+        assert_eq!(old.inbound, "triage");
     }
 }

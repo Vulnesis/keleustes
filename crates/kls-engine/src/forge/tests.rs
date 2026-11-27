@@ -1272,3 +1272,174 @@ async fn live_pr_review_posts_once_through_real_gh() {
     eprintln!("second: {again}");
     assert_eq!(again["skipped"], "already_reviewed", "{again}");
 }
+
+/// A scout run (scan, then `profile`) with `signals` as the scan's result,
+/// advanced once.
+async fn scout(t: &T, wf: &str, signals: &[&str]) -> Run {
+    let out = ops::start_run(
+        &t.core,
+        StartRun {
+            workflow_id: wf.into(),
+            trigger: TriggerInfo {
+                kind: "manual".into(),
+                ..Default::default()
+            },
+            repo: "acme/api".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let r = out.run().unwrap().clone();
+    t.core
+        .store()
+        .insert_step(&RunStep {
+            id: uuid::Uuid::now_v7().to_string(),
+            run_id: r.id.clone(),
+            node_id: "s".into(),
+            node_type: "scan".into(),
+            status: "succeeded".into(),
+            details_json: json!({ "result": { "signals": signals } }).to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    t.engine.advance(&r.id).await.unwrap();
+    t.core.store().run(&r.id).await.unwrap().unwrap()
+}
+
+fn profile_details(st: &[RunStep]) -> Value {
+    let p = st
+        .iter()
+        .find(|s| s.node_id == "b")
+        .unwrap_or_else(|| panic!("{st:#?}"));
+    serde_json::from_str(&p.details_json).unwrap()
+}
+
+/// The repo-scout shape: a CLI scout scan, then the `profile` output.
+fn scout_flow() -> Graph {
+    serde_json::from_value(json!({
+        "nodes": [
+            {"id":"t","type":"trigger","title":"Go","config":{"kind":"manual"}},
+            {"id":"s","type":"scan","title":"Scout","config":{"source":"cli","job":"scout"}},
+            {"id":"b","type":"profile","title":"Store","config":{"output":"repo_profile"}},
+        ],
+        "edges": [{"from":"t","to":"s"},{"from":"s","to":"b"}]
+    }))
+    .unwrap()
+}
+
+const PROFILE_ISSUES: &str =
+    "/repos/acme/api/issues?labels=sf%3Aprofile&state=all&sort=created&direction=desc&per_page=100";
+
+#[tokio::test]
+async fn profile_step_keeps_the_labels_and_one_profile_issue() {
+    let t = setup().await;
+    t.gh.on("GET", "/user", 200, json!({"login": "kel"}));
+    t.gh.on(
+        "POST",
+        "/repos/acme/api/labels",
+        201,
+        json!({"name": "sf:scout"}),
+    );
+    t.gh.on("GET", PROFILE_ISSUES, 200, json!([]));
+    t.gh.on(
+        "POST",
+        "/repos/acme/api/issues",
+        201,
+        json!({"number": 5, "html_url": "https://github.com/acme/api/issues/5"}),
+    );
+    let wf = published(&t.core, scout_flow()).await;
+    let r = scout(&t, &wf, &["Dockerfile"]).await;
+    assert_eq!(r.status, "succeeded", "{r:?}");
+    // The twelve CLI labels, then the one marked profile issue.
+    assert_eq!(
+        posted(&t.gh, "POST", "/repos/acme/api/labels").len(),
+        PROFILE_LABELS.len()
+    );
+    let made = posted(&t.gh, "POST", "/repos/acme/api/issues");
+    assert_eq!(made.len(), 1);
+    assert_eq!(made[0]["title"], "Software Factory profile");
+    assert_eq!(made[0]["labels"], json!(["sf:profile"]));
+    let body = made[0]["body"].as_str().unwrap().to_string();
+    assert!(body.contains("Signals: `dockerfile`"), "{body}");
+    assert!(body.contains(PROFILE_MARKER));
+    let d = profile_details(&steps(&t, &r.id).await);
+    assert_eq!(d["profileIssue"]["number"], 5, "{d}");
+    assert_eq!(d["profileIssue"]["created"], true);
+    assert_eq!(d["profile"]["signals"], json!(["dockerfile"]));
+
+    // A rescan with new signals edits the same issue (a stranger's copy of
+    // the marker is left alone) and opens none.
+    t.gh.on(
+        "GET",
+        PROFILE_ISSUES,
+        200,
+        json!([
+            {"number": 3, "user": {"login": "mallory"}, "body": body, "state": "open", "labels": [{"name":"sf:profile"}]},
+            {"number": 5, "user": {"login": "kel"}, "body": body, "state": "open", "labels": [{"name":"sf:profile"}]},
+        ]),
+    );
+    t.gh.on(
+        "PATCH",
+        "/repos/acme/api/issues/5",
+        200,
+        json!({"number": 5}),
+    );
+    let r = scout(&t, &wf, &["Dockerfile", "terraform"]).await;
+    assert_eq!(r.status, "succeeded");
+    assert_eq!(posted(&t.gh, "POST", "/repos/acme/api/issues").len(), 1);
+    assert!(posted(&t.gh, "PATCH", "/repos/acme/api/issues/3").is_empty());
+    let edits = posted(&t.gh, "PATCH", "/repos/acme/api/issues/5");
+    assert_eq!(edits.len(), 1);
+    assert!(
+        edits[0]["body"]
+            .as_str()
+            .unwrap()
+            .contains("`dockerfile`, `terraform`")
+    );
+    let d = profile_details(&steps(&t, &r.id).await);
+    assert_eq!(d["profileIssue"]["created"], false, "{d}");
+    // The write is audited on both ledgers: the forge call and the output.
+    assert!(
+        forge_audit(&t.core)
+            .await
+            .iter()
+            .any(|(a, _, o)| a == "POST /repos/acme/api/issues" && o == "ok")
+    );
+    assert!(
+        crate::guard::audited(&t.core, "github")
+            .await
+            .iter()
+            .any(|e| e.subject["action"] == "repo_profile" && e.payload["outcome"] == "done")
+    );
+}
+
+#[tokio::test]
+async fn profile_step_below_suggest_stores_the_profile_and_writes_nothing() {
+    let t = setup().await;
+    t.core
+        .store()
+        .set_setting("autonomy.max", "observe")
+        .await
+        .unwrap();
+    let wf = published(&t.core, scout_flow()).await;
+    let r = scout(&t, &wf, &["Dockerfile"]).await;
+    assert_eq!(r.status, "succeeded", "{r:?}");
+    assert!(t.gh.calls().iter().all(|c| c.method == "GET"));
+    let d = profile_details(&steps(&t, &r.id).await);
+    assert_eq!(d["profileIssue"]["skipped"], "autonomy", "{d}");
+    assert_eq!(d["profile"]["signals"], json!(["dockerfile"]));
+    assert!(
+        crate::exec::repo_profile(&t.core, "acme/api")
+            .await
+            .is_some()
+    );
+    assert!(
+        crate::guard::audited(&t.core, "refused")
+            .await
+            .iter()
+            .any(|e| e.subject["action"] == "github"
+                && e.subject["target"]["action"] == "repo_profile")
+    );
+}
