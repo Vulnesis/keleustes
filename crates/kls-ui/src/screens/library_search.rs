@@ -1449,6 +1449,21 @@ impl Discover {
                             Ok(None)
                         });
                     }
+                    // WP8: a node's gh when this process has no path (off by default).
+                    let mut node_gh = status.node_gh;
+                    if ui
+                        .checkbox(
+                            &mut node_gh,
+                            icons::label(icons::PLUGS_CONNECTED, "Node gh"),
+                        )
+                        .on_hover_text("Offline: fetch GitHub through a node's gh")
+                        .changed()
+                    {
+                        model.act(move |m| async move {
+                            ls::set_setting(m.core(), "node_gh", node_gh).await?;
+                            Ok(None)
+                        });
+                    }
                     let mut s4 = status.skills_sh;
                     if ui
                         .checkbox(&mut s4, icons::label(icons::FLAG, "skills.sh"))

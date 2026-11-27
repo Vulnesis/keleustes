@@ -24,6 +24,7 @@
 pub mod budget;
 pub mod client;
 pub mod conflicts;
+pub mod delivery;
 pub mod events;
 pub mod exec;
 pub mod fake;
@@ -37,6 +38,7 @@ pub mod merge3;
 pub mod node;
 pub mod parse;
 pub mod poller;
+pub mod profile;
 pub mod select;
 pub mod service;
 pub mod sync;

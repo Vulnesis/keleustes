@@ -258,6 +258,71 @@ pub trait GhApi: Send + Sync {
     }
 }
 
+/// WP8 node fallback (off by default): GitHub through a connected belai
+/// node's signed-in `gh`, used only when this process has no usable path
+/// (offline, or the anonymous budget parked). kls-core implements it over
+/// the node `github` job and audits each fetch.
+#[async_trait::async_trait]
+pub trait NodeGh: Send + Sync {
+    /// `gh <args>` on a node: stdout on exit 0, `None` for a 404.
+    async fn gh(&self, args: Vec<String>, url: &str, class: Class) -> Result<Option<Bytes>>;
+}
+
+/// No usable network path: offline, or the host budget is parked.
+pub fn no_path(e: &anyhow::Error) -> bool {
+    is_offline(e) || is_limited(e).is_some()
+}
+
+/// A GitHub owner or repo name (no `..`, no separators).
+fn gh_name(s: &str) -> bool {
+    !s.is_empty()
+        && s != "."
+        && s != ".."
+        && s.len() <= 100
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+}
+
+/// A relative API path or file path: no `..`, no control or space.
+fn gh_path(s: &str) -> bool {
+    !s.is_empty()
+        && !s.starts_with('/')
+        && s.split(['/', '?', '&', '=']).all(|seg| seg != "..")
+        && !s.bytes().any(|b| b <= 0x20 || b == 0x7f || b == b'\\')
+}
+
+/// The `gh api` argv that fetches `url` on a node, or `None` for a URL a
+/// node cannot fetch this way (codeload tarballs, smart HTTP, other hosts).
+/// `raw.githubusercontent.com/{o}/{r}/{ref}/{path}` becomes the contents API
+/// with the raw media type; `api.github.com/{path}` is passed through. The
+/// endpoint is the last argument (belai checks it there).
+pub fn gh_args_for(url: &str) -> Option<Vec<String>> {
+    let rest = url.strip_prefix("https://")?;
+    let (host, path) = rest.split_once('/')?;
+    match host.to_ascii_lowercase().as_str() {
+        "api.github.com" if gh_path(path) => Some(vec!["api".into(), path.into()]),
+        "raw.githubusercontent.com" => {
+            let mut it = path.splitn(4, '/');
+            let (o, r, git_ref, file) = (it.next()?, it.next()?, it.next()?, it.next()?);
+            if !gh_name(o)
+                || !gh_name(r)
+                || !gh_name(git_ref)
+                || !gh_path(file)
+                || file.contains('?')
+            {
+                return None;
+            }
+            Some(vec![
+                "api".into(),
+                "-H".into(),
+                "Accept: application/vnd.github.raw".into(),
+                format!("repos/{o}/{r}/contents/{file}?ref={git_ref}"),
+            ])
+        }
+        _ => None,
+    }
+}
+
 // ---- the per-call context --------------------------------------------------------
 
 /// What a source call gets: the fetcher, the kill-switch gate, the
@@ -269,6 +334,8 @@ pub struct Ctx {
     pub class: Class,
     pub gate: Option<Arc<dyn Gate>>,
     pub gh: Option<Arc<dyn GhApi>>,
+    /// WP8 node fallback, set only when the person turned it on.
+    pub node_gh: Option<Arc<dyn NodeGh>>,
     /// Clock for `fetched_at` (passed in so converters stay pure).
     pub now_ms: i64,
 }
@@ -281,8 +348,34 @@ impl Ctx {
             class: Class::User,
             gate: None,
             gh: None,
+            node_gh: None,
             now_ms: kls_store::now_ms(),
         }
+    }
+
+    /// `url` through the node fallback after `e` (no usable path), or `e`.
+    async fn via_node(&self, url: &str, max_bytes: u64, e: anyhow::Error) -> Result<Resp> {
+        let (Some(n), Some(args)) = (&self.node_gh, gh_args_for(url)) else {
+            return Err(e);
+        };
+        if !no_path(&e) {
+            return Err(e);
+        }
+        self.check().await?;
+        let (status, body) = match n.gh(args, url, self.class).await? {
+            Some(b) => (200, b),
+            None => (404, Bytes::new()),
+        };
+        if body.len() as u64 > max_bytes {
+            bail!("{url}: the node's answer is over the size cap");
+        }
+        Ok(Resp {
+            status,
+            headers: vec![("x-kls-via".into(), "node-gh".into())],
+            body,
+            not_modified: false,
+            url: url.to_string(),
+        })
     }
 
     pub fn with_deadline(mut self, d: std::time::Duration) -> Self {
@@ -310,14 +403,19 @@ impl Ctx {
 
     pub async fn get_req(&self, url: &str, accept: &str, max_bytes: u64) -> Result<Resp> {
         self.check().await?;
-        self.http
+        let r = self
+            .http
             .get(Req {
                 url,
                 accept,
                 class: self.class,
                 max_bytes,
             })
-            .await
+            .await;
+        match r {
+            Err(e) => self.via_node(url, max_bytes, e).await,
+            ok => ok,
+        }
     }
 
     /// A GET that must answer 2xx.
@@ -360,7 +458,43 @@ impl Ctx {
 
     pub async fn ls_refs(&self, owner: &str, repo: &str) -> Result<Vec<(String, String)>> {
         self.check().await?;
-        self.http.ls_refs(owner, repo, self.class).await
+        let e = match self.http.ls_refs(owner, repo, self.class).await {
+            Ok(r) => return Ok(r),
+            Err(e) => e,
+        };
+        if self.node_gh.is_none() || !no_path(&e) || !gh_name(owner) || !gh_name(repo) {
+            return Err(e);
+        }
+        // Through the node: the default branch, then heads and tags.
+        let api = |p: String| format!("https://api.github.com/{p}");
+        let meta: serde_json::Value = self
+            .get_json(&api(format!("repos/{owner}/{repo}")), FILE_MAX)
+            .await?;
+        let refs: serde_json::Value = self
+            .get_json(
+                &api(format!("repos/{owner}/{repo}/git/refs?per_page=100")),
+                8 * 1024 * 1024,
+            )
+            .await?;
+        let mut out: Vec<(String, String)> = refs
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|r| {
+                let name = r.get("ref")?.as_str()?;
+                let sha = r.get("object")?.get("sha")?.as_str()?;
+                git::is_sha(sha).then(|| (name.to_string(), sha.to_string()))
+            })
+            .collect();
+        if let Some(b) = meta.get("default_branch").and_then(|b| b.as_str())
+            && let Some(sha) = out
+                .iter()
+                .find(|(r, _)| *r == format!("refs/heads/{b}"))
+                .map(|(_, s)| s.clone())
+        {
+            out.insert(0, ("HEAD".into(), sha));
+        }
+        Ok(out)
     }
 
     /// The commit a ref names: a 40-hex ref is already one; `None` is HEAD.

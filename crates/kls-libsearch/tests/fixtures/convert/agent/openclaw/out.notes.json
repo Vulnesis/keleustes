@@ -1,22 +1,82 @@
 [
   {
-    "field": "mcp",
+    "field": "files",
+    "kind": "dropped",
+    "text": "1 credential file(s) never read"
+  },
+  {
+    "field": "agent.model.primary",
     "kind": "metadata",
-    "text": "MCP entries named in notes only: {\"gmail\":{\"command\":\"npx\"}}"
+    "text": "kept in metadata; routing picks the model"
   },
   {
-    "field": "cron",
-    "kind": "warning",
-    "text": "schedule named in notes only, never carried: [\"0 9 * * *\"]"
+    "field": "agent.model.fallbacks",
+    "kind": "metadata",
+    "text": "kept in metadata as claws.model.fallbacks"
   },
   {
-    "field": "convert",
+    "field": "agent.tools.allow",
+    "kind": "dropped",
+    "text": "tools with no match: github__list_issues"
+  },
+  {
+    "field": "agent.tools.deny",
+    "kind": "mapped",
+    "text": "removed: write"
+  },
+  {
+    "field": "agent.tools.fs",
     "kind": "warning",
-    "text": "Keleustes fallback: CLAW.md body only (node conversion carries belai's notes)"
+    "text": "file-system limits upstream; not enforced"
+  },
+  {
+    "field": "subagents",
+    "kind": "warning",
+    "text": "A2A / peer setting dropped: imported agents are single-mode and supervised"
+  },
+  {
+    "field": "agent.memory",
+    "kind": "dropped",
+    "text": "memory settings are the person's own, not imported"
+  },
+  {
+    "field": "packages",
+    "kind": "dropped",
+    "text": "no package installed from a definition: skill:@acme/deploy@1.2.3"
+  },
+  {
+    "field": "mcpServers",
+    "kind": "metadata",
+    "text": "MCP entries named in notes only: github"
+  },
+  {
+    "field": "cronJobs",
+    "kind": "warning",
+    "text": "1 schedule(s) named in notes only, never carried: nightly 0 3 * * *"
+  },
+  {
+    "field": "front matter",
+    "kind": "dropped",
+    "text": "keys not read: extra"
+  },
+  {
+    "field": "body",
+    "kind": "mapped",
+    "text": "the CLAW.md body became the system prompt"
+  },
+  {
+    "field": "name",
+    "kind": "mapped",
+    "text": "Release Helper → release-helper"
   },
   {
     "field": "tools",
     "kind": "warning",
-    "text": "no tools named: read-only set (Read, Grep, Glob)"
+    "text": "changes things: Bash"
+  },
+  {
+    "field": "skills/deploy/SKILL.md",
+    "kind": "mapped",
+    "text": "skill deploy imported alongside"
   }
 ]

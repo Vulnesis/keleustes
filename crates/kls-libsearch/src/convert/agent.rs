@@ -426,8 +426,516 @@ fn md_agent(b: &mut Builder, eco: Ecosystem, doc: &Doc, file_stem: &str) {
     b.prompt = doc.body.clone();
 }
 
+// ---- Hermes and OpenClaw (Claws) profiles -------------------------------------
+//
+// Ports of belai `agentimport/hermes.go` and `claws.go`. What belai keeps in
+// metadata for its own use (subagents, memory search, packages) is named in
+// notes here instead: an imported agent carries no A2A path, schedule,
+// MCP server, memory or package (WORKSTREAMS rule 4).
+
+/// Caps for an exported profile archive (belai `agentimport` limits).
+pub const ARCHIVE_LIMITS: crate::git::Limits = crate::git::Limits {
+    files: 256,
+    file_bytes: 1024 * 1024,
+    kept_bytes: 8 * 1024 * 1024,
+    expanded_bytes: 64 * 1024 * 1024,
+    depth: 6,
+};
+
+/// At most this many names in one note.
+const NOTE_NAMES: usize = 12;
+
+fn capped(mut v: Vec<String>, n: usize) -> String {
+    let more = v.len().saturating_sub(n);
+    v.truncate(n);
+    let mut s = v.join(", ");
+    if more > 0 {
+        s.push_str(&format!(" and {more} more"));
+    }
+    s
+}
+
+/// The shallowest path whose base name is `name` (case-insensitive).
+fn find_file<'a>(src: &'a Fetched, name: &str) -> Option<&'a str> {
+    src.files
+        .keys()
+        .filter(|k| {
+            k.rsplit('/')
+                .next()
+                .is_some_and(|b| b.eq_ignore_ascii_case(name))
+        })
+        .min_by_key(|k| (k.matches('/').count(), k.len()))
+        .map(|k| k.as_str())
+}
+
+fn yaml_map(src: &Fetched, path: &str) -> Result<serde_norway::Mapping> {
+    let (t, _) = super::text(src, path)?;
+    match serde_norway::from_str::<serde_norway::Value>(&t) {
+        Ok(serde_norway::Value::Mapping(m)) => Ok(m),
+        Ok(serde_norway::Value::Null) => Ok(Default::default()),
+        Ok(_) => bail!("{path}: not a mapping"),
+        Err(e) => bail!("{path}: {e}"),
+    }
+}
+
+fn get<'a>(m: &'a serde_norway::Mapping, path: &[&str]) -> Option<&'a serde_norway::Value> {
+    let mut v = m.get(path.first()?)?;
+    for k in &path[1..] {
+        v = v.as_mapping()?.get(k)?;
+    }
+    Some(v)
+}
+
+fn get_str(m: &serde_norway::Mapping, path: &[&str]) -> String {
+    get(m, path).and_then(scalar).unwrap_or_default()
+}
+
+fn keys_of(v: &serde_norway::Value) -> Vec<String> {
+    v.as_mapping()
+        .map(|m| m.keys().filter_map(scalar).collect())
+        .unwrap_or_default()
+}
+
+/// An exported profile (`.tar.gz` / `.tgz`) in place of the profile dir:
+/// read with [`crate::git::extract_archive`] when no `SOUL.md` / `CLAW.md`
+/// was fetched. A path escape refuses the import; skipped entries are noted.
+fn profile_archive(eco: Ecosystem, src: &Fetched, b: &mut Builder) -> Option<Fetched> {
+    if !matches!(eco, Ecosystem::Hermes | Ecosystem::OpenClaw)
+        || find_file(src, "SOUL.md").is_some()
+        || find_file(src, "CLAW.md").is_some()
+    {
+        return None;
+    }
+    let (path, gz) = src
+        .files
+        .iter()
+        .find(|(k, _)| k.ends_with(".tar.gz") || k.ends_with(".tgz"))?;
+    match crate::git::extract_archive(gz, ARCHIVE_LIMITS) {
+        Ok(t) => {
+            b.notes
+                .push(Note::mapped(path, format!("{} files read", t.files.len())));
+            if !t.skipped.is_empty() {
+                b.notes.push(Note::new(
+                    NoteKind::Dropped,
+                    "files",
+                    format!(
+                        "{} file(s) not read: links, special and credential files, files over 1 MiB",
+                        t.skipped.len()
+                    ),
+                ));
+            }
+            if t.truncated {
+                b.notes.push(Note::warning(
+                    path,
+                    "archive cut at its caps (256 files, 8 MiB)",
+                ));
+            }
+            Some(Fetched {
+                files: t.files,
+                name_hint: src.name_hint.clone(),
+                upstream: src.upstream.clone(),
+                licence_files: src.licence_files.clone(),
+                licence_hint: src.licence_hint.clone(),
+                file_urls: src.file_urls.clone(),
+                ..Default::default()
+            })
+        }
+        Err(e) => {
+            b.flags.push(Flag::Refused(format!("{path}: {e}")));
+            None
+        }
+    }
+}
+
+/// Credential stores (`auth.json`, `.env`, keys) are dropped before any
+/// converter reads the files, so they reach no profile, note, node or log.
+fn without_credentials(src: &Fetched, b: &mut Builder) -> Option<Fetched> {
+    let is_cred = |k: &str| crate::git::credential_name(k.rsplit('/').next().unwrap_or(k));
+    let n = src.files.keys().filter(|k| is_cred(k)).count();
+    if n == 0 {
+        return None;
+    }
+    b.notes.push(Note::new(
+        NoteKind::Dropped,
+        "files",
+        format!("{n} credential file(s) never read"),
+    ));
+    let mut out = src.clone();
+    out.files.retain(|k, _| !is_cred(k));
+    out.file_urls.retain(|k, _| !is_cred(k));
+    if out.primary.as_deref().is_some_and(is_cred) {
+        out.primary = None;
+    }
+    Some(out)
+}
+
+/// A file's text as the prompt; hidden characters flagged.
+fn read_prompt(b: &mut Builder, src: &Fetched, path: &str) -> Result<String> {
+    let (t, hidden) = super::text(src, path)?;
+    if hidden {
+        b.flags.push(Flag::HiddenText);
+    }
+    Ok(t)
+}
+
+/// Hermes: `SOUL.md` is the prompt, `profile.yaml` the description,
+/// `config.yaml` the model, `distribution.yaml` the version, `skills/` the
+/// bundled skills. `mcp.json`, `cron/`, `memories/` and credential stores
+/// are never taken (named in notes only).
+fn hermes(b: &mut Builder, src: &Fetched) -> Result<()> {
+    if let Some(p) = find_file(src, "profile.yaml") {
+        for (k, v) in &yaml_map(src, p)? {
+            let Some(k) = scalar(k) else { continue };
+            if b.guard_key(&k) {
+                continue;
+            }
+            match k.as_str() {
+                "name" => b.name = scalar(v).unwrap_or_default(),
+                "description" => b.description = scalar(v).unwrap_or_default(),
+                "display_name" => b.display = scalar(v).unwrap_or_default(),
+                "tools" | "toolsets" => b.tools("tools", &list(v)),
+                "model" => {
+                    let m = scalar(v).unwrap_or_default();
+                    b.model("model", &m)
+                }
+                _ => b.notes.push(Note::dropped(&k)),
+            }
+        }
+    }
+    if let Some(s) = find_file(src, "SOUL.md") {
+        let t = read_prompt(b, src, s)?;
+        b.prompt = frontmatter::parse(&t).body;
+        b.notes
+            .push(Note::mapped("SOUL.md", "became the system prompt"));
+    }
+    if b.name.is_empty() {
+        b.name = src.name_hint.clone();
+    }
+    if let Some(p) = find_file(src, "distribution.yaml")
+        && let Ok(d) = yaml_map(src, p)
+    {
+        let v = get_str(&d, &["version"]);
+        if !v.is_empty() {
+            b.meta.insert("hermes.version".into(), one_line(&v));
+            b.notes.push(Note::metadata(
+                "distribution.yaml",
+                "kept in metadata as hermes.version",
+            ));
+        }
+    }
+    if let Some(p) = find_file(src, "config.yaml") {
+        let cfg = yaml_map(src, p)?;
+        // `model: x`, or `model: {default|name|model: x, provider: y}`.
+        let (model, provider) = match get(&cfg, &["model"]) {
+            Some(serde_norway::Value::Mapping(m)) => {
+                let pick = ["default", "name", "model"]
+                    .iter()
+                    .map(|k| get_str(m, &[k]))
+                    .find(|s| !s.is_empty())
+                    .unwrap_or_default();
+                (pick, get_str(m, &["provider"]))
+            }
+            Some(v) => (scalar(v).unwrap_or_default(), get_str(&cfg, &["provider"])),
+            None => (String::new(), String::new()),
+        };
+        if !model.is_empty() {
+            let joined = if provider.is_empty() || model.contains('/') {
+                model
+            } else {
+                format!("{provider}/{model}")
+            };
+            b.model("config.yaml model", &joined);
+        }
+        let keys: Vec<String> = cfg
+            .keys()
+            .filter_map(scalar)
+            .filter(|k| k != "model" && k != "provider")
+            .collect();
+        if !keys.is_empty() {
+            b.notes.push(Note::new(
+                NoteKind::Dropped,
+                "config.yaml",
+                format!(
+                    "settings with no profile field: {}",
+                    capped(keys, NOTE_NAMES)
+                ),
+            ));
+        }
+    }
+    if find_file(src, "mcp.json").is_some() {
+        b.notes.push(Note::new(
+            NoteKind::Dropped,
+            "mcp.json",
+            "MCP servers are the person's own settings, never taken from a definition",
+        ));
+    }
+    let count = |dir: &str| {
+        src.files
+            .keys()
+            .filter(|k| k.starts_with(dir) || k.contains(&format!("/{dir}")))
+            .count()
+    };
+    let (cron, mem) = (count("cron/"), count("memories/"));
+    if cron > 0 {
+        b.notes.push(Note::warning(
+            "cron/",
+            format!("{cron} scheduled job file(s) not imported"),
+        ));
+    }
+    if mem > 0 {
+        b.notes.push(Note::new(
+            NoteKind::Dropped,
+            "memories/",
+            format!("{mem} memory file(s) are the person's own, not imported"),
+        ));
+    }
+
+    Ok(())
+}
+
+/// OpenClaw / Claws: `CLAW.md` front matter (`schemaVersion`, `agent`,
+/// `workspace`, `packages`, `mcpServers`, `cronJobs`) and body; `SOUL.md`
+/// (the workspace bootstrap file, else the root one) when the body is empty.
+fn claws(b: &mut Builder, src: &Fetched) -> Result<()> {
+    let Some(claw) = find_file(src, "CLAW.md").map(str::to_string) else {
+        // A SOUL.md alone still gives the instructions.
+        if let Some(s) = find_file(src, "SOUL.md") {
+            b.prompt = read_prompt(b, src, s)?;
+            b.notes
+                .push(Note::mapped("SOUL.md", "used as the instructions"));
+        }
+        if b.name.is_empty() {
+            b.name = src.name_hint.clone();
+        }
+
+        return Ok(());
+    };
+    let (t, hidden) = super::text(src, &claw)?;
+    if hidden {
+        b.flags.push(Flag::HiddenText);
+    }
+    let doc = frontmatter::parse(&t);
+    let mut unknown = Vec::new();
+    let mut bootstrap = String::new();
+    for (k, v) in &doc.fields {
+        match k.as_str() {
+            "schemaVersion" => {
+                let s = scalar(v).unwrap_or_default();
+                if !s.is_empty() && s != "1" {
+                    b.notes.push(Note::warning(
+                        k,
+                        format!(
+                            "schema version {} is not 1; unknown fields are named below",
+                            one_line(&s)
+                        ),
+                    ));
+                }
+            }
+            "agent" => {
+                let Some(m) = v.as_mapping() else { continue };
+                for (ak, av) in m {
+                    let Some(ak) = scalar(ak) else { continue };
+                    let field = format!("agent.{ak}");
+                    match ak.as_str() {
+                        "id" => b.name = scalar(av).unwrap_or_default(),
+                        "name" => b.display = scalar(av).unwrap_or_default(),
+                        "description" => b.description = scalar(av).unwrap_or_default(),
+                        "model" => match av {
+                            serde_norway::Value::Mapping(mm) => {
+                                let p = get_str(mm, &["primary"]);
+                                b.model("agent.model.primary", &p);
+                                let fb = get(mm, &["fallbacks"]).map(list).unwrap_or_default();
+                                if !fb.is_empty() {
+                                    b.meta.insert(
+                                        "claws.model.fallbacks".into(),
+                                        one_line(&fb.join(", ")),
+                                    );
+                                    b.notes.push(Note::metadata(
+                                        "agent.model.fallbacks",
+                                        "kept in metadata as claws.model.fallbacks",
+                                    ));
+                                }
+                            }
+                            other => {
+                                let p = scalar(other).unwrap_or_default();
+                                b.model("agent.model", &p);
+                            }
+                        },
+                        "tools" => match av {
+                            serde_norway::Value::Mapping(tm) => {
+                                let mut allow = get(tm, &["allow"]).map(list).unwrap_or_default();
+                                allow.extend(get(tm, &["alsoAllow"]).map(list).unwrap_or_default());
+                                let deny = get(tm, &["deny"]).map(list).unwrap_or_default();
+                                let (denied, _) = super::tools::map_all(&deny);
+                                b.tools("agent.tools.allow", &allow);
+                                b.tools.retain(|t| !denied.contains(t));
+                                if !deny.is_empty() {
+                                    b.notes.push(Note::mapped(
+                                        "agent.tools.deny",
+                                        format!("removed: {}", capped(deny, NOTE_NAMES)),
+                                    ));
+                                }
+                                if get(tm, &["fs"]).is_some() {
+                                    b.notes.push(Note::warning(
+                                        "agent.tools.fs",
+                                        "file-system limits upstream; not enforced",
+                                    ));
+                                }
+                            }
+                            other => b.tools(&field, &list(other)),
+                        },
+                        "memory" => b.notes.push(Note::new(
+                            NoteKind::Dropped,
+                            &field,
+                            "memory settings are the person's own, not imported",
+                        )),
+                        o if b.guard_key(o) => {}
+                        _ => b.notes.push(Note::dropped(&field)),
+                    }
+                }
+            }
+            "workspace" => {
+                if let Some(m) = v.as_mapping() {
+                    bootstrap = get_str(m, &["bootstrapFiles", "SOUL.md", "source"]);
+                }
+                b.notes.push(Note::new(
+                    NoteKind::Dropped,
+                    k,
+                    "workspace files are not copied",
+                ));
+            }
+            "packages" => {
+                let refs: Vec<String> = match v {
+                    serde_norway::Value::Sequence(s) => s
+                        .iter()
+                        .filter_map(|x| x.as_mapping())
+                        .map(|m| {
+                            format!(
+                                "{}:{}@{}",
+                                get_str(m, &["kind"]),
+                                get_str(m, &["ref"]),
+                                get_str(m, &["version"])
+                            )
+                        })
+                        .map(|s| one_line(&s))
+                        .collect(),
+                    _ => vec![],
+                };
+                b.notes.push(Note::new(
+                    NoteKind::Dropped,
+                    k,
+                    format!(
+                        "no package installed from a definition: {}",
+                        capped(refs, NOTE_NAMES)
+                    ),
+                ));
+            }
+            // Names only: an MCP entry's args or env may hold secrets.
+            "mcp" | "mcpServers" => b.notes.push(Note::metadata(
+                k,
+                format!("MCP entries named in notes only: {}", capped(keys_of(v), 8)),
+            )),
+            "cron" | "schedule" | "cronJobs" => {
+                let items: Vec<String> = match v {
+                    serde_norway::Value::Sequence(s) => s
+                        .iter()
+                        .map(|x| match x.as_mapping() {
+                            Some(m) => format!(
+                                "{} {}",
+                                get_str(m, &["id"]),
+                                get_str(m, &["schedule", "cron"])
+                            ),
+                            None => scalar(x).unwrap_or_default(),
+                        })
+                        .map(|s| one_line(s.trim()))
+                        .collect(),
+                    other => vec![one_line(&scalar(other).unwrap_or_default())],
+                };
+                b.notes.push(Note::warning(
+                    k,
+                    format!(
+                        "{} schedule(s) named in notes only, never carried: {}",
+                        items.len(),
+                        capped(items, 8)
+                    ),
+                ));
+            }
+            "description" => b.description = scalar(v).unwrap_or_default(),
+            "tools" => b.tools("tools", &list(v)),
+            other if b.guard_key(other) => {}
+            other => unknown.push(other.to_string()),
+        }
+    }
+    if !unknown.is_empty() {
+        b.notes.push(Note::new(
+            NoteKind::Dropped,
+            "front matter",
+            format!("keys not read: {}", capped(unknown, 10)),
+        ));
+    }
+    b.prompt = doc.body.clone();
+    if b.prompt.trim().is_empty() {
+        let dir = claw
+            .rsplit_once('/')
+            .map(|(d, _)| format!("{d}/"))
+            .unwrap_or_default();
+        // The bootstrap path is untrusted: a clean relative path only.
+        let boot = (!bootstrap.is_empty())
+            .then(|| crate::git::clean_path(bootstrap.trim_start_matches("./")))
+            .and_then(|r| match r {
+                Ok(p) => Some(format!("{dir}{p}")),
+                Err(why) => {
+                    b.notes.push(Note::warning(
+                        "workspace.bootstrapFiles.SOUL.md",
+                        format!("source not read: {why}"),
+                    ));
+                    None
+                }
+            })
+            .filter(|p| src.files.contains_key(p));
+        if let Some(p) = boot {
+            b.prompt = read_prompt(b, src, &p)?;
+            b.notes.push(Note::mapped(
+                "workspace.bootstrapFiles.SOUL.md",
+                "used as the instructions",
+            ));
+        } else if let Some(s) = Some(format!("{dir}SOUL.md")).filter(|s| src.files.contains_key(s))
+        {
+            // Only the SOUL.md beside CLAW.md.
+            b.prompt = read_prompt(b, src, &s)?;
+            b.notes
+                .push(Note::mapped("SOUL.md", "used as the instructions"));
+        }
+    } else {
+        b.notes.push(Note::mapped(
+            "body",
+            "the CLAW.md body became the system prompt",
+        ));
+    }
+    if b.name.is_empty() {
+        b.name = src.name_hint.clone();
+    }
+    Ok(())
+}
+
 pub fn convert(eco: Ecosystem, src: &Fetched, opts: &Opts) -> Result<Draft> {
     let mut b = Builder::default();
+    let expanded;
+    let src = match profile_archive(eco, src, &mut b) {
+        Some(x) => {
+            expanded = x;
+            &expanded
+        }
+        None => src,
+    };
+    let cleaned;
+    let src = match without_credentials(src, &mut b) {
+        Some(x) => {
+            cleaned = x;
+            &cleaned
+        }
+        None => src,
+    };
     let path = primary(
         src,
         &[
@@ -603,117 +1111,8 @@ pub fn convert(eco: Ecosystem, src: &Fetched, opts: &Opts) -> Result<Draft> {
                 "LobeHub agents get the read-only set",
             ));
         }
-        Ecosystem::Hermes => {
-            // Rust fallback: SOUL.md + profile.yaml only (WP9 converts on a node).
-            let soul = primary(src, &["SOUL.md"]).map(str::to_string);
-            if let Some(p) = src
-                .files
-                .keys()
-                .find(|k| k.ends_with("profile.yaml"))
-                .cloned()
-            {
-                let (t, _) = super::text(src, &p)?;
-                if let Ok(serde_norway::Value::Mapping(m)) =
-                    serde_norway::from_str::<serde_norway::Value>(&t)
-                {
-                    for (k, v) in &m {
-                        let Some(k) = scalar(k) else { continue };
-                        if b.guard_key(&k) {
-                            continue;
-                        }
-                        match k.as_str() {
-                            "name" => b.name = scalar(v).unwrap_or_default(),
-                            "description" => b.description = scalar(v).unwrap_or_default(),
-                            "display_name" => b.display = scalar(v).unwrap_or_default(),
-                            "tools" | "toolsets" => b.tools("tools", &list(v)),
-                            "model" => {
-                                let m = scalar(v).unwrap_or_default();
-                                b.model("model", &m)
-                            }
-                            _ => b.notes.push(Note::dropped(&k)),
-                        }
-                    }
-                }
-            }
-            if let Some(s) = soul.filter(|s| s.ends_with("SOUL.md")) {
-                let (t, hidden) = super::text(src, &s)?;
-                if hidden {
-                    b.flags.push(Flag::HiddenText);
-                }
-                b.prompt = frontmatter::parse(&t).body;
-            }
-            if b.name.is_empty() {
-                b.name = src.name_hint.clone();
-            }
-            b.notes.push(Note::warning(
-                "convert",
-                "Keleustes fallback: SOUL.md and profile.yaml only (node conversion carries belai's notes)",
-            ));
-            if src.files.keys().any(|k| k.ends_with("config.yaml")) {
-                b.notes.push(Note::dropped("config.yaml"));
-            }
-        }
-        Ecosystem::OpenClaw => {
-            let claw = primary(src, &["CLAW.md"]).unwrap_or(&path).to_string();
-            let (t, hidden) = super::text(src, &claw)?;
-            if hidden {
-                b.flags.push(Flag::HiddenText);
-            }
-            let doc = frontmatter::parse(&t);
-            for (k, v) in &doc.fields {
-                match k.as_str() {
-                    "agent" => {
-                        if let serde_norway::Value::Mapping(m) = v {
-                            for (ak, av) in m {
-                                match scalar(ak).as_deref() {
-                                    Some("id") => b.name = scalar(av).unwrap_or_default(),
-                                    Some("name") => b.display = scalar(av).unwrap_or_default(),
-                                    Some("description") => {
-                                        b.description = scalar(av).unwrap_or_default()
-                                    }
-                                    Some(o) if !b.guard_key(o) => {
-                                        b.notes.push(Note::dropped(&format!("agent.{o}")))
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                    }
-                    "description" => b.description = scalar(v).unwrap_or_default(),
-                    "tools" => b.tools("tools", &list(v)),
-                    "mcp" | "mcpServers" => b.notes.push(Note::metadata(
-                        k,
-                        format!(
-                            "MCP entries named in notes only: {}",
-                            frontmatter::to_json_line(v)
-                        ),
-                    )),
-                    "cron" | "schedule" => b.notes.push(Note::warning(
-                        k,
-                        format!(
-                            "schedule named in notes only, never carried: {}",
-                            frontmatter::to_json_line(v)
-                        ),
-                    )),
-                    other if b.guard_key(other) => {}
-                    other => b.notes.push(Note::dropped(other)),
-                }
-            }
-            b.prompt = doc.body.clone();
-            if b.prompt.trim().is_empty()
-                && let Some(s) = src.files.keys().find(|k| k.ends_with("SOUL.md")).cloned()
-            {
-                b.prompt = super::text(src, &s)?.0;
-                b.notes.push(Note::mapped("SOUL.md", "used as the prompt"));
-            }
-            if b.name.is_empty() {
-                b.name = src.name_hint.clone();
-            }
-            b.notes.push(Note::warning(
-                "convert",
-                "Keleustes fallback: CLAW.md body only (node conversion carries belai's notes)",
-            ));
-        }
+        Ecosystem::Hermes => hermes(&mut b, src)?,
+        Ecosystem::OpenClaw => claws(&mut b, src)?,
         _ => {
             let (t, hidden) = super::text(src, &path)?;
             if hidden {

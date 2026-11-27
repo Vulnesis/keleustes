@@ -1,1 +1,6 @@
-model: x
+model:
+  default: anthropic/claude-sonnet-4-5
+terminal:
+  cwd: /tmp
+display:
+  theme: dark

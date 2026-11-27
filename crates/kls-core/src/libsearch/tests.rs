@@ -748,3 +748,102 @@ async fn node_convert_refuses_without_a_library_node_or_for_a_non_agent() {
     );
     assert!(outcomes.iter().any(|o| o == "no_node"), "{outcomes:?}");
 }
+
+/// A node with a signed-in `gh` answering `github` jobs.
+struct GhNode {
+    jobs: Mutex<Vec<(String, String, bool)>>,
+}
+
+#[async_trait::async_trait]
+impl crate::NodeGateway for GhNode {
+    async fn online(&self) -> Vec<String> {
+        vec!["n-gh".into()]
+    }
+    async fn dispatch(&self, _: &str, _: crate::DispatchSpec) -> Result<String> {
+        bail!("no dispatches here")
+    }
+    async fn job(
+        &self,
+        node: Option<&str>,
+        kind: &str,
+        payload: &str,
+        needs: crate::JobNeeds,
+        _: i64,
+    ) -> Result<crate::JobOutcome> {
+        assert!(node.is_none(), "routed by capability");
+        self.jobs
+            .lock()
+            .unwrap()
+            .push((kind.into(), payload.into(), needs.gh));
+        let missing = payload.contains("missing.md");
+        let out = if missing {
+            json!({"stdout": "", "stderr": "gh: Not Found (HTTP 404)", "exit": 1})
+        } else {
+            json!({"stdout": "---\nname: x\n---\nVia node.\n", "stderr": "", "exit": 0})
+        };
+        Ok(crate::JobOutcome {
+            status: "ok".into(),
+            output_json: out.to_string(),
+            node_id: "n-gh".into(),
+            ..Default::default()
+        })
+    }
+}
+
+#[tokio::test]
+async fn node_gh_fallback_is_off_by_default_audited_and_held_by_the_switch() {
+    let (core, _fake, _src, _d) = setup().await;
+    let gw = Arc::new(GhNode {
+        jobs: Mutex::new(vec![]),
+    });
+    core.set_gateway(gw.clone());
+    let e = engine(&core).await.unwrap();
+    // Off by default: no node route, the offline error stands, no job.
+    assert!(!status(&core).await.unwrap().node_gh);
+    let url = "https://raw.githubusercontent.com/acme/x/main/SKILL.md";
+    let cx = ctx(&core, &e, false).await;
+    assert!(cx.node_gh.is_none());
+    assert!(cx.get(url, fetch::FILE_MAX).await.is_err());
+    assert!(gw.jobs.lock().unwrap().is_empty());
+    // On: the fetch goes to the node's gh, routed by capability.
+    set_setting(&core, "node_gh", true).await.unwrap();
+    assert!(status(&core).await.unwrap().node_gh);
+    let cx = ctx(&core, &e, false).await;
+    let r = cx.get(url, fetch::FILE_MAX).await.unwrap();
+    assert!(r.text().unwrap().contains("Via node."));
+    let missing = cx
+        .get_req(
+            "https://raw.githubusercontent.com/acme/x/main/missing.md",
+            "*/*",
+            fetch::FILE_MAX,
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing.status, 404);
+    {
+        let jobs = gw.jobs.lock().unwrap();
+        assert_eq!(jobs.len(), 2);
+        let (kind, payload, needs_gh) = &jobs[0];
+        assert_eq!(kind, NODE_GH_JOB_KIND);
+        assert!(*needs_gh);
+        let p: Value = serde_json::from_str(payload).unwrap();
+        assert_eq!(p["args"][0], "api");
+        assert_eq!(
+            p["args"].as_array().unwrap().last().unwrap(),
+            "repos/acme/x/contents/SKILL.md?ref=main"
+        );
+    }
+    // Audited, with the node as the actor and origin.
+    let fetched: Vec<_> = ledger_kinds(&core)
+        .await
+        .into_iter()
+        .filter(|e| e.kind == "libsearch.node_fetch")
+        .collect();
+    assert_eq!(fetched.len(), 2, "{fetched:?}");
+    assert!(fetched.iter().all(|e| e.actor == "node:n-gh"));
+    assert!(fetched.iter().any(|e| e.payload["outcome"] == "not_found"));
+    // The kill switch holds it: no job goes out.
+    control::pause(&core, "drill").await.unwrap();
+    assert!(cx.get(url, fetch::FILE_MAX).await.is_err());
+    assert_eq!(gw.jobs.lock().unwrap().len(), 2);
+}

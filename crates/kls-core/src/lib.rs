@@ -30,6 +30,7 @@ pub mod harness;
 pub mod hosts;
 pub mod libsearch;
 pub mod needs;
+pub mod repo_profile;
 pub mod sessions;
 pub mod sweeps;
 pub mod vault;

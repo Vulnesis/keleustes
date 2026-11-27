@@ -1,10 +1,10 @@
 ---
-name: "inbox-triage"
-display_name: "Inbox Triage"
+name: "release-helper"
+display_name: "Release helper"
 description: "Imported OpenClaw agent"
-tools: ["Read","Grep","Glob"]
+tools: ["Read","Grep","Bash"]
 mode: "single"
 autonomy: "supervised"
-metadata: {"source.format":"openclaw"}
+metadata: {"claws.model.fallbacks":"openai/gpt-5","model":"anthropic/claude-sonnet-4-5","source.format":"openclaw"}
 ---
-Sort the inbox.
+You cut releases. Check the changelog first.

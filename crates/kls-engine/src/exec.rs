@@ -456,8 +456,8 @@ pub fn stagger_offset(repo: &str, spread_ms: i64) -> i64 {
     (n % spread_ms as u64) as i64
 }
 
-/// The profile the repo scout stored for `repo`, if any.
-pub async fn repo_profile(core: &Core, repo: &str) -> Option<crate::triggers::RepoProfile> {
+/// The profile stored for `repo` (path refresh and repo scout), as stored.
+async fn stored_profile(core: &Core, repo: &str) -> Option<crate::triggers::RepoProfile> {
     let raw = core
         .store()
         .setting(&crate::triggers::RepoProfile::key(repo))
@@ -465,6 +465,14 @@ pub async fn repo_profile(core: &Core, repo: &str) -> Option<crate::triggers::Re
         .ok()
         .flatten()?;
     serde_json::from_str(&raw).ok()
+}
+
+/// The profile of `repo` as readers use it: deep signals drop out once
+/// the scout is older than the TTL.
+pub async fn repo_profile(core: &Core, repo: &str) -> Option<crate::triggers::RepoProfile> {
+    let mut p = stored_profile(core, repo).await?;
+    p.signals = p.effective_signals(now_ms());
+    Some(p)
 }
 
 /// The branch a run is about, for `base: pr_head`: the trigger event's
@@ -1913,7 +1921,10 @@ impl Engine {
             .and_then(|s| serde_json::from_str::<Value>(&s.details_json).ok())
             .and_then(|d| d.get("result").cloned())
             .unwrap_or(Value::Null);
-        let p = crate::triggers::RepoProfile::from_result(&result, now_ms());
+        // The scout writes the deep signals; what the paths showed stays.
+        let scout = crate::triggers::RepoProfile::from_result(&result, now_ms());
+        let stored = stored_profile(self.core(), &run.repo).await;
+        let p = crate::triggers::RepoProfile::after_scout(stored.as_ref(), scout);
         let key = crate::triggers::RepoProfile::key(&run.repo);
         self.core()
             .store()

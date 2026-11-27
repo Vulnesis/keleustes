@@ -165,10 +165,127 @@ async fn ctx(core: &Core, e: &Engine, background: bool) -> Ctx {
     let mut cx = Ctx::new(e.http.clone());
     cx.gate = Some(Arc::new(CoreGate(core.clone())));
     cx.gh = e.gh.read().unwrap().clone();
+    if node_gh_on(core).await {
+        cx.node_gh = Some(Arc::new(NodeGhRoute(core.clone())));
+    }
     if background {
         cx = cx.background();
     }
     cx
+}
+
+// ---- WP8: a belai node's gh as the GitHub path (off by default) ------------------
+
+/// The node job that runs `gh` (belai `rc/factoryjobs.go` `jobKindGitHub`).
+pub const NODE_GH_JOB_KIND: &str = "github";
+/// The setting row that turns the node fallback on (off by default).
+pub const NODE_GH_SETTING: &str = "setting:node_gh";
+const NODE_GH_TIMEOUT_MS: i64 = 90_000;
+
+/// Whether the person turned the node `gh` fallback on.
+pub async fn node_gh_on(core: &Core) -> bool {
+    core.store()
+        .library_sources()
+        .await
+        .map(|rows| rows.iter().any(|r| r.id == NODE_GH_SETTING && r.enabled))
+        .unwrap_or(false)
+}
+
+/// GitHub through a connected node that advertises a signed-in `gh`
+/// (`JobNeeds.gh`), when this process has no usable path. Read-only `gh
+/// api` calls only ([`fetch::gh_args_for`]); held by the kill switch; each
+/// fetch is chained as `libsearch.node_fetch` with origin `host:<node>`.
+struct NodeGhRoute(Core);
+
+#[async_trait::async_trait]
+impl fetch::NodeGh for NodeGhRoute {
+    async fn gh(
+        &self,
+        args: Vec<String>,
+        url: &str,
+        class: fetch::Class,
+    ) -> Result<Option<bytes::Bytes>> {
+        let core = &self.0;
+        if stopped(core).await {
+            return Err(fetch::Stopped.into());
+        }
+        if args.first().map(String::as_str) != Some("api") {
+            bail!("the node fallback runs gh api only");
+        }
+        let payload = json!({ "args": args, "stdin": Value::Null });
+        let needs = crate::JobNeeds {
+            gh: true,
+            ..Default::default()
+        };
+        let out = core
+            .gateway()?
+            .job(
+                None,
+                NODE_GH_JOB_KIND,
+                &payload.to_string(),
+                needs,
+                NODE_GH_TIMEOUT_MS,
+            )
+            .await;
+        #[derive(Deserialize, Default)]
+        #[serde(default)]
+        struct GhOut {
+            stdout: String,
+            stderr: String,
+            exit: i64,
+            truncated: bool,
+        }
+        let (node, result) = match out {
+            Ok(o) if o.status == "ok" => {
+                let g: GhOut = serde_json::from_str(&o.output_json).unwrap_or_default();
+                let r = if g.truncated {
+                    Err(anyhow!("{url}: the node cut the answer"))
+                } else if g.exit == 0 {
+                    Ok(Some(bytes::Bytes::from(g.stdout)))
+                } else if g.stderr.contains("404") || g.stderr.contains("Not Found") {
+                    Ok(None)
+                } else {
+                    Err(anyhow!("{url}: gh on the node exited {}", g.exit))
+                };
+                (o.node_id, r)
+            }
+            Ok(o) => (o.node_id, Err(anyhow!("{url}: node job {}", o.status))),
+            Err(e) => (String::new(), Err(e.context(format!("{url}: no node gh")))),
+        };
+        let outcome = match &result {
+            Ok(Some(b)) => format!("ok:{}", b.len()),
+            Ok(None) => "not_found".into(),
+            Err(_) => "failed".into(),
+        };
+        let actor = if node.is_empty() {
+            Actor::System
+        } else {
+            Actor::Node(node.clone())
+        };
+        let r = core
+            .audit_record(LedgerDraft {
+                kind: "libsearch.node_fetch".into(),
+                actor: actor.as_str(),
+                actor_kind: if node.is_empty() { "system" } else { "host" }.into(),
+                msg: format!("libsearch.node_fetch {url} {outcome}"),
+                subject: json!({ "url": url }),
+                payload: json!({ "url": url, "node": node, "outcome": outcome,
+                                 "class": format!("{class:?}"), "job": NODE_GH_JOB_KIND }),
+                origin: if node.is_empty() {
+                    "factory".into()
+                } else {
+                    format!("host:{node}")
+                },
+                node_id: node,
+                ref_key: Some(format!("libsearch:node_fetch:{}", uuid::Uuid::now_v7())),
+                ..Default::default()
+            })
+            .await;
+        if let Err(e) = r {
+            tracing::warn!("libsearch.node_fetch ledger: {e:#}");
+        }
+        result
+    }
 }
 
 // ---- guard (rules 1-4) -----------------------------------------------------------
@@ -477,6 +594,8 @@ pub struct Status {
     pub gh_quota: Option<(i64, i64)>,
     pub stopped: bool,
     pub skills_sh: bool,
+    /// WP8 node `gh` fallback (off by default).
+    pub node_gh: bool,
 }
 
 pub async fn status(core: &Core) -> Result<Status> {
@@ -513,6 +632,7 @@ pub async fn status(core: &Core) -> Result<Status> {
         gh_quota: gh.as_ref().and_then(|g| g.quota()),
         stopped: stopped(core).await,
         skills_sh: cfg.skills_sh,
+        node_gh: rows.iter().any(|r| r.id == NODE_GH_SETTING && r.enabled),
     })
 }
 
@@ -554,11 +674,12 @@ pub async fn set_source(core: &Core, id: &str, on: bool) -> Result<()> {
     source_changed(core, id, if on { "on" } else { "off" }).await
 }
 
-/// The gh boost (WP8) and the skills.sh feature flag.
+/// The gh boost (WP8), the node gh fallback (`node_gh`, off by default)
+/// and the skills.sh feature flag.
 pub async fn set_setting(core: &Core, key: &str, on: bool) -> Result<()> {
     let id = format!("setting:{key}");
     guard(core, Action::SourceChange(&id)).await?;
-    if !matches!(key, "gh" | "skills_sh") {
+    if !matches!(key, "gh" | "skills_sh" | "node_gh") {
         bail!("unknown library search setting {key}");
     }
     core.store()

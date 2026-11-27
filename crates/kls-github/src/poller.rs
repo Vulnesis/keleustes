@@ -52,6 +52,8 @@ pub struct PollReport {
     pub cards_backfilled: usize,
     /// Push, CI, release and alert events emitted.
     pub events: usize,
+    /// Repository profiles read again from their file names.
+    pub profiles: usize,
     /// Why the pass stopped early, if it did.
     pub refused: Option<String>,
     /// Do not poll again before this (a rate limit), 0 when free to.
@@ -232,11 +234,13 @@ pub async fn poll_once(core: &Core, selector: &Selector) -> Result<PollReport> {
             }
             rep.repos += 1;
             part.repos += 1;
-            let steps: [(bool, u8); 4] = [
+            let steps: [(bool, u8); 5] = [
                 (r.mirror_pulls, 0),
                 (r.mirror_issues || mirrored.contains(&r.full_name), 1),
                 (r.sync_labels, 2),
                 (true, 3),
+                // The repository profile from its file names, when due.
+                (true, 4),
             ];
             for (on, step) in steps {
                 if !on {
@@ -267,9 +271,12 @@ pub async fn poll_once(core: &Core, selector: &Selector) -> Result<PollReport> {
                     2 => sync::sync_labels(&c, &r.full_name, true, CALLER)
                         .await
                         .map(|l| rep.labels_created += l.created.len()),
-                    _ => events::poll_repo(&c, r, CALLER)
+                    3 => events::poll_repo(&c, r, CALLER)
                         .await
                         .map(|e| rep.events += e.total()),
+                    _ => crate::profile::refresh_if_due(&c, r, CALLER)
+                        .await
+                        .map(|n| rep.profiles += usize::from(n)),
                 };
                 if let Err(e) = res {
                     if let Some((why, until)) = refusal(&e) {
@@ -293,7 +300,8 @@ pub async fn poll_once(core: &Core, selector: &Selector) -> Result<PollReport> {
         + rep.events
         + rep.cards_pushed
         + rep.cards_failed
-        + rep.cards_backfilled;
+        + rep.cards_backfilled
+        + rep.profiles;
     if changed > 0 || rep.refused.is_some() || !rep.errors.is_empty() {
         guard::audit(
             core,
@@ -311,7 +319,8 @@ pub async fn poll_once(core: &Core, selector: &Selector) -> Result<PollReport> {
             json!({ "repos": rep.repos, "pulls": rep.pulls_changed, "issues": rep.issues_changed,
                     "labels": rep.labels_created, "events": rep.events,
                     "cardsPushed": rep.cards_pushed, "cardsFailed": rep.cards_failed,
-                    "cardsBackfilled": rep.cards_backfilled, "errors": rep.errors.len(),
+                    "cardsBackfilled": rep.cards_backfilled, "profiles": rep.profiles,
+                    "errors": rep.errors.len(),
                     "refused": rep.refused }),
         )
         .await;

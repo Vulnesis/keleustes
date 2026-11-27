@@ -4,6 +4,6 @@ description: "Research assistant"
 tools: ["WebSearch","Bash"]
 mode: "single"
 autonomy: "supervised"
-metadata: {"source.format":"hermes"}
+metadata: {"hermes.version":"0.4.1","model":"anthropic/claude-sonnet-4-5","source.format":"hermes"}
 ---
 You are Hermes, a careful research assistant.

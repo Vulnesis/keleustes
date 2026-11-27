@@ -14,8 +14,8 @@ use egui_extras::{Column, TableBuilder};
 use egui_plot::{Bar, BarChart, Plot};
 use kls_core::estimates::{self, Estimate, EstimateInputs, EstimateSettings, GroupBy, PerfRow};
 use kls_core::github::{
-    self as delivery, ContributorDetail, ContributorsReport, DecisionsReport, LedgerFlow,
-    OutcomeDetail, OutcomesReport, PeopleReport, Range, Scope,
+    self as delivery, ContributorDetail, ContributorsReport, CoverageReport, DecisionsReport,
+    LedgerFlow, OutcomeDetail, OutcomesReport, PeopleReport, Range, Scope,
 };
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -98,6 +98,8 @@ pub struct Screen {
     part: Option<String>,
     /// Stage flow read from the stored lifecycle ledger.
     ledger: Loader<Vec<LedgerFlow>>,
+    /// The ledger against the source rows, per stage (7 days).
+    coverage: Loader<CoverageReport>,
     /// Worker forge requests waiting for an answer (WP-H).
     forge: Loader<Vec<kls_core::belai::forge::ForgeRequest>>,
     /// The pull request link a "Took over" steer sends.
@@ -223,6 +225,11 @@ impl Screen {
             outcome,
             part: None,
             ledger,
+            coverage: Loader::new(
+                model,
+                &["lifecycle.", "audit.", "github."],
+                |core| async move { delivery::lifecycle_coverage(&core, 7).await },
+            ),
             forge: Loader::new(model, &["forge."], |core| async move {
                 core.forge_pending(50).await
             }),
@@ -427,6 +434,8 @@ impl Screen {
                         }
                         ui.add_space(14.0);
                         ledger_panel(ui, model, self.ledger.get(), &p);
+                        ui.add_space(14.0);
+                        coverage_panel(ui, self.coverage.get(), &p);
                         ui.add_space(14.0);
                         forge_panel(ui, model, self.forge.get(), &mut self.steer_url, &p);
                     }
@@ -2376,8 +2385,8 @@ fn ledger_panel(
                     Ok(Some(match r.refused {
                         Some(why) => Notice::Error(format!("Refused: {why}")),
                         None => Notice::Info(format!(
-                            "{} linked, {} rolled up, {} missed",
-                            r.linked, r.rolled_up, r.missed
+                            "{} linked, {} rolled up, {} re-captured, {} missed",
+                            r.linked, r.rolled_up, r.recaptured, r.missed
                         )),
                     }))
                 });
@@ -2405,6 +2414,68 @@ fn ledger_panel(
                     });
             }
             Some(Ok(_)) => kit::empty(ui, icons::STACK, "Nothing recorded"),
+            Some(Err(e)) => {
+                ui.colored_label(p.red, e);
+            }
+            None => {
+                ui.spinner();
+            }
+        },
+    );
+}
+
+/// Ledger coverage per stage (web `GET /lifecycle/coverage`): the ledger's
+/// entered / exited / open against the source rows, up to the last pass.
+fn coverage_panel(
+    ui: &mut egui::Ui,
+    report: Option<Result<CoverageReport, String>>,
+    p: &theme::Palette,
+) {
+    kit::section(
+        ui,
+        icons::SEAL_CHECK,
+        "Ledger coverage · 7d",
+        false,
+        |_| {},
+        |ui| match report {
+            Some(Ok(r)) if !r.stages.is_empty() => {
+                let n = |v: Option<i64>| v.map(|v| v.to_string()).unwrap_or_else(|| "-".into());
+                egui::Grid::new("ledger_coverage")
+                    .num_columns(6)
+                    .striped(true)
+                    .spacing([16.0, 4.0])
+                    .show(ui, |ui| {
+                        for t in ["Stage", "In", "Out", "Open", "Source", "Status"] {
+                            kit::th(ui, t);
+                        }
+                        ui.end_row();
+                        for s in &r.stages {
+                            ui.label(&s.label).on_hover_text(&s.stage);
+                            for v in [s.ledger.entered, s.ledger.exited, s.ledger.open] {
+                                ui.label(egui::RichText::new(n(v)).monospace());
+                            }
+                            let t = s.truth.unwrap_or_default();
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{} / {} / {}",
+                                    n(t.entered),
+                                    n(t.exited),
+                                    n(t.open)
+                                ))
+                                .monospace()
+                                .color(p.muted),
+                            );
+                            let (icon, word, color) = match s.status {
+                                "ok" => (icons::CHECK_CIRCLE, "ok".to_string(), p.green),
+                                "gap" => (icons::WARNING, format!("gap {}", s.gap), p.amber),
+                                _ => (icons::QUESTION, "not captured".to_string(), p.muted),
+                            };
+                            ui.label(egui::RichText::new(icons::label(icon, &word)).color(color));
+                            ui.end_row();
+                        }
+                    });
+            }
+            Some(Ok(_)) => kit::empty(ui, icons::SEAL_CHECK, "Nothing to compare"),
             Some(Err(e)) => {
                 ui.colored_label(p.red, e);
             }
