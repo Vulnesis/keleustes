@@ -3242,9 +3242,12 @@ fn node_ui(ui: &mut egui::Ui, ed: &mut Editor, id: &str) {
             match cfg.get("action").and_then(Value::as_str).unwrap_or("move") {
                 "label" | "unlabel" => text(ui, cfg, "label", "Label"),
                 "assign" => text(ui, cfg, "assignee", "Assignee"),
+                "ensure" => text(ui, cfg, "ref", "Card ref"),
                 _ => combo(ui, cfg, "status", "To list", &g::CARD_STATUSES, &salt),
             }
-            text(ui, cfg, "card", "Card (empty: the run's card)");
+            if cfg.get("action").and_then(Value::as_str) != Some("ensure") {
+                text(ui, cfg, "card", "Card (empty: the run's card)");
+            }
         }
         "notify" => {
             multiline(ui, cfg, "message", "Message", g::MAX_MESSAGE);

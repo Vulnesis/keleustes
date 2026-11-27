@@ -320,15 +320,20 @@ pub fn conflict_note(ev: &kls_store::Event) -> Option<Note> {
     })
 }
 
-/// The kind `notify.events` filters on: a failed run reads as `run.failed`.
+/// The kind `notify.events` filters on (the web's `factory.run.*`): a run
+/// that finished reads as `run.failed`, `run.succeeded` or `run.cancelled`,
+/// one that started or paused as `run.started` or `run.paused`. Failed and
+/// held runs pass the default level; the rest only `everything`.
 fn notice_kind(ev: &kls_store::Event, d: &serde_json::Value) -> String {
-    if ev.kind == "run.finished" {
-        let st = d.get("status").and_then(|s| s.as_str()).unwrap_or("");
-        if st == "failed" {
-            return "run.failed".into();
-        }
+    let s = |k: &str| d.get(k).and_then(|s| s.as_str()).unwrap_or("");
+    match (ev.kind.as_str(), s("status"), s("action")) {
+        ("run.finished", "failed", _) => "run.failed".into(),
+        ("run.finished", "succeeded", _) => "run.succeeded".into(),
+        ("run.finished", "cancelled", _) => "run.cancelled".into(),
+        ("run.updated", _, "start") => "run.started".into(),
+        ("run.updated", _, "pause") => "run.paused".into(),
+        _ => ev.kind.clone(),
     }
-    ev.kind.clone()
 }
 
 /// Words for a failed run's machine reason (`stopped_line:<node>`,
@@ -368,8 +373,38 @@ pub fn event_note(ev: &kls_store::Event) -> Option<Note> {
             format!("keleustes://runs/{}", ev.subject),
         ),
         "run.finished" if s("status") == "failed" => (
-            "Run failed".into(),
+            if s("reason").starts_with("stopped_line") {
+                "Line stopped".into()
+            } else {
+                "Run failed".into()
+            },
             format!("Run {short}: {}", failure_cause(&s("reason"))),
+            format!("keleustes://runs/{}", ev.subject),
+        ),
+        "run.finished" if matches!(s("status").as_str(), "succeeded" | "cancelled") => (
+            if s("status") == "succeeded" {
+                "Run succeeded".into()
+            } else {
+                "Run cancelled".into()
+            },
+            format!("Run {short}"),
+            format!("keleustes://runs/{}", ev.subject),
+        ),
+        "run.updated" if matches!(s("action").as_str(), "start" | "pause") => (
+            if s("action") == "start" {
+                "Run started".into()
+            } else {
+                "Run paused".into()
+            },
+            format!("Run {short}"),
+            format!("keleustes://runs/{}", ev.subject),
+        ),
+        "run.held" => (
+            "Run held".into(),
+            match s("reason") {
+                r if r.is_empty() => format!("Run {short}"),
+                r => format!("Run {short}: {r}"),
+            },
             format!("keleustes://runs/{}", ev.subject),
         ),
         // `session.finished` carries the outcome (`session.ended` fires with
@@ -620,10 +655,37 @@ mod tests {
             r#"{"status":"failed","reason":"stopped_line:build"}"#,
         ))
         .unwrap();
-        assert_eq!(n.summary, "Run failed");
+        assert_eq!(n.summary, "Line stopped");
         assert!(n.body.contains("the line stopped") && n.body.contains("build"));
         assert_eq!(parse_link(&n.link).unwrap().0, Screen::Runs);
-        assert!(event_note(&ev("run.finished", "r", r#"{"status":"succeeded"}"#)).is_none());
+        let failed = r#"{"status":"failed","reason":"timeout"}"#;
+        assert_eq!(
+            event_note(&ev("run.finished", "r", failed))
+                .unwrap()
+                .summary,
+            "Run failed"
+        );
+        // The rest of the web's factory.run.* notices.
+        for (kind, data, summary) in [
+            ("run.finished", r#"{"status":"succeeded"}"#, "Run succeeded"),
+            ("run.finished", r#"{"status":"cancelled"}"#, "Run cancelled"),
+            (
+                "run.updated",
+                r#"{"status":"running","action":"start"}"#,
+                "Run started",
+            ),
+            (
+                "run.updated",
+                r#"{"status":"paused","action":"pause"}"#,
+                "Run paused",
+            ),
+            ("run.held", r#"{"reason":"window:deploys"}"#, "Run held"),
+        ] {
+            let n = event_note(&ev(kind, "run-abcdefgh", data)).unwrap();
+            assert_eq!(n.summary, summary, "{kind} {data}");
+            assert_eq!(parse_link(&n.link).unwrap().0, Screen::Runs);
+        }
+        assert!(event_note(&ev("run.updated", "r", r#"{"status":"waiting_approval"}"#)).is_none());
         let n = event_note(&ev("run.notify", "r", r#"{"message":"deployed"}"#)).unwrap();
         assert_eq!(n.body, "deployed");
         let n = event_note(&ev("budget.alert", "b", r#"{"name":"Month","pct":80}"#)).unwrap();
@@ -703,11 +765,20 @@ mod tests {
             "default level skips finished sessions"
         );
         assert!(event_allowed(&core, &alert).await);
+        // Held and failed runs pass the default level; started and
+        // succeeded ones wait for `everything`.
+        let held = ev("run.held", "r", r#"{"reason":"w"}"#);
+        let failed = ev("run.finished", "r", r#"{"status":"failed"}"#);
+        let ok = ev("run.finished", "r", r#"{"status":"succeeded"}"#);
+        let started = ev("run.updated", "r", r#"{"action":"start"}"#);
+        assert!(event_allowed(&core, &held).await && event_allowed(&core, &failed).await);
+        assert!(!event_allowed(&core, &ok).await && !event_allowed(&core, &started).await);
         core.store()
             .set_setting("notify.events", "everything")
             .await
             .unwrap();
         assert!(event_allowed(&core, &fin).await);
+        assert!(event_allowed(&core, &ok).await && event_allowed(&core, &started).await);
         core.store()
             .set_setting("notify.events", "escalations_only")
             .await

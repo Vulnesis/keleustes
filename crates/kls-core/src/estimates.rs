@@ -877,6 +877,86 @@ pub async fn record_for_event(core: &Core, ev: &kls_store::Event) -> Result<Opti
 mod tests {
     use super::*;
 
+    /// The web's shared golden case (website `src/shared/factory-delivery.golden.json`,
+    /// copied to `testdata/`): the same settings and inputs price to the same
+    /// dollars and tenths of an hour. The web takes decision hours directly;
+    /// here they are 18 672 `other` decisions at 2 minutes (622.4 h).
+    #[test]
+    fn the_web_golden_estimate() {
+        let g: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/testdata/factory-delivery.golden.json"
+        )))
+        .unwrap();
+        let flat: BTreeMap<String, String> = g["settings"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| {
+                let s = match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                (k.clone(), s)
+            })
+            .collect();
+        let s = EstimateSettings::resolve(|k| flat.get(k).cloned());
+        // The golden settings are the defaults the code holds.
+        assert_eq!(s, EstimateSettings::default());
+        let inp = &g["inputs"];
+        let mut i = EstimateInputs::default();
+        for (role, h) in inp["agentHours"].as_object().unwrap() {
+            i.agent_hours.insert(role.clone(), h.as_f64().unwrap());
+        }
+        let per = s.kinds["other"].1;
+        let n = (inp["decisionHours"].as_f64().unwrap() * 60.0 / per).round() as i64;
+        i.decisions.insert("other".into(), n);
+        i.people_hours = inp["peopleHours"].as_f64();
+        i.model_cost_usd = inp["modelCostMicroUsd"].as_f64().map(|m| m / 1e6);
+        let e = estimate(&i, &s);
+        let x = &g["expected"];
+        let f = |k: &str| x[k].as_f64().unwrap();
+        let close =
+            |a: f64, b: f64, what: &str| assert!((a - b).abs() < 0.05, "{what}: {a} vs {b}");
+        for (role, want) in x["roles"].as_object().unwrap() {
+            let line = e.roles.iter().find(|r| &r.role == role).unwrap();
+            close(
+                line.engineer_hours,
+                want["engineerHours"].as_f64().unwrap(),
+                role,
+            );
+            assert_eq!(line.value, want["value"].as_f64().unwrap(), "{role}");
+        }
+        assert_eq!(e.agent_hours, f("agentHours"));
+        close(e.engineer_hours, f("engineerHours"), "engineerHours");
+        assert_eq!(e.agent_value, f("agentValue"));
+        close(e.decision_hours, f("decisionHours"), "decisionHours");
+        assert_eq!(e.decision_value, f("decisionValue"));
+        close(e.overhead_hours, f("overheadHours"), "overheadHours");
+        assert_eq!(e.overhead_value, f("overheadValue"));
+        assert_eq!(e.by_hand_hours, f("byHandHours"));
+        assert_eq!(e.by_hand_value, f("byHandValue"));
+        assert_eq!(e.model_cost, Some(f("modelCost")));
+        assert_eq!(e.people_cost, Some(f("peopleCost")));
+        assert_eq!(e.factory_cost, Some(f("factoryCost")));
+        assert_eq!(e.return_on_model, Some(f("returnOnModel")));
+        assert_eq!(e.return_on_total, Some(f("returnOnTotal")));
+        let c = &x["conservative"];
+        assert_eq!(
+            e.conservative.agent_value,
+            c["agentValue"].as_f64().unwrap()
+        );
+        assert_eq!(
+            e.conservative.decision_value,
+            c["decisionValue"].as_f64().unwrap()
+        );
+        assert_eq!(e.conservative.value, c["value"].as_f64().unwrap());
+        assert_eq!(e.conservative.return_x, c["returnX"].as_f64());
+        assert_eq!(e.hours_given_back, Some(f("hoursGivenBack")));
+        assert_eq!(e.baseline_people, f("baselinePeople"));
+        assert_eq!(e.given_back_people, Some(f("givenBackPeople")));
+    }
+
     #[test]
     fn estimate_matches_the_web_arithmetic() {
         let s = EstimateSettings::default();

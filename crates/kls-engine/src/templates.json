@@ -2082,18 +2082,18 @@
   {
     "id": "flaky-test-quarantine",
     "category": "Testing",
-    "name": "Flaky test issue",
-    "description": "When a check fails, the flaky hunter looks for flips at the same commit and files an issue for a test that is flaky.",
+    "name": "Flaky test card",
+    "description": "When a check fails, the flaky hunter compares it with the same check at the same commit. A test that flips gets the workflow's flaky-tests card on the board; nothing is skipped or quarantined without the sf:quarantine label.",
     "flow": [
       "check completed",
       "belai:flaky-hunter",
-      "issue"
+      "kanban card"
     ],
     "trigger": {
       "kind": "webhook",
       "label": "check completed"
     },
-    "output": "Issue",
+    "output": "Card",
     "badges": [
       "needs GitHub"
     ],
@@ -2174,12 +2174,11 @@
         },
         {
           "id": "n4",
-          "type": "github",
-          "title": "File the flaky test issue",
+          "type": "card",
+          "title": "Flaky test card",
           "config": {
-            "action": "file_issues",
-            "label": "sf:flaky",
-            "title": "Flaky test"
+            "action": "ensure",
+            "ref": "flaky-tests"
           },
           "position": {
             "x": 700,
@@ -2339,18 +2338,18 @@
   {
     "id": "build-artifacts-to-tea",
     "category": "Security",
-    "name": "Sign build artifacts",
-    "description": "When a workflow run succeeds, the publisher matches the artifacts it can sign, signs them and records the run as provenance. A notice reports the result.",
+    "name": "Sign build artifacts into TEA",
+    "description": "When a workflow run succeeds on the default branch, the publisher matches the artifacts TEA accepts and records their digests, and the Vulnetix CLI publishes them to TEA with the run as provenance, private by default. Publishing needs the repository at draft_pr autonomy.",
     "flow": [
       "workflow run succeeded",
       "belai:tea-publisher",
-      "notice"
+      "TEA"
     ],
     "trigger": {
       "kind": "webhook",
       "label": "workflow run succeeded"
     },
-    "output": "Notice",
+    "output": "TEA",
     "badges": [
       "needs GitHub"
     ],
@@ -2373,7 +2372,10 @@
             "event": "workflow_run.completed",
             "overlap": "skip_if_running",
             "conditions": {
-              "origin": "same_repo"
+              "origin": "same_repo",
+              "headBranches": [
+                "$default"
+              ]
             },
             "maxRunsPerHour": 12
           },
@@ -2430,11 +2432,11 @@
         },
         {
           "id": "n4",
-          "type": "notify",
-          "title": "Artifacts signed",
+          "type": "scan",
+          "title": "Publish to TEA",
           "config": {
-            "message": "{workflow}: build artifacts signed ({run})",
-            "severity": "info"
+            "source": "cli",
+            "job": "tea-release"
           },
           "position": {
             "x": 700,
@@ -2465,18 +2467,18 @@
   {
     "id": "sbom-to-tea",
     "category": "Security",
-    "name": "SBOM on dependency change",
-    "description": "After a push to the default branch that changes dependencies, the publisher builds or picks up the CycloneDX SBOM for the new commit and records it.",
+    "name": "SBOM to TEA",
+    "description": "After a push to the default branch that changes dependencies, the publisher builds or picks up the CycloneDX SBOM for the new commit, and the Vulnetix CLI publishes it to TEA against the component, private by default. Publishing needs the repository at draft_pr autonomy.",
     "flow": [
       "push to the default branch",
       "belai:tea-publisher",
-      "notice"
+      "TEA"
     ],
     "trigger": {
       "kind": "webhook",
       "label": "push"
     },
-    "output": "Notice",
+    "output": "TEA",
     "badges": [
       "needs GitHub"
     ],
@@ -2514,6 +2516,9 @@
                 "build.gradle*",
                 "Gemfile.lock",
                 "composer.lock"
+              ],
+              "headBranches": [
+                "$default"
               ]
             },
             "maxRunsPerHour": 12,
@@ -2543,11 +2548,11 @@
         },
         {
           "id": "n3",
-          "type": "notify",
-          "title": "SBOM recorded",
+          "type": "scan",
+          "title": "Publish to TEA",
           "config": {
-            "message": "{workflow}: SBOM recorded ({run})",
-            "severity": "info"
+            "source": "cli",
+            "job": "tea-release"
           },
           "position": {
             "x": 480,
@@ -3789,6 +3794,490 @@
       ],
       "limits": {
         "runBudgetTokens": 120000
+      }
+    }
+  },
+  {
+    "id": "github-risk-investigation",
+    "category": "Security",
+    "name": "Investigate a risky GitHub event",
+    "description": "When the organisation's audit log shows a risky change (two-factor off, protection removed or bypassed, visibility changed, a repository deleted or transferred, an app or webhook added), the investigator reads the facts and the mirror and files a ticket that says expected, needs an owner, or incident. It never changes GitHub.",
+    "flow": [
+      "risky GitHub event",
+      "belai:github-investigator",
+      "kanban card"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "risky GitHub event"
+    },
+    "output": "Card",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:github-investigator"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Risky GitHub event",
+          "config": {
+            "kind": "webhook",
+            "event": "github-risk",
+            "overlap": "queue",
+            "maxRunsPerHour": 60
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Investigate the event",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:github-investigator",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Read the event's facts (rule, action, actor, repository) and the mirror. Say whether it is expected, needs an owner, or is an incident, and why. Do not change GitHub."
+          },
+          "budget": {
+            "tokens": 40000
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "card",
+          "title": "Investigation ticket",
+          "config": {
+            "action": "ensure",
+            "ref": "github-investigate"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2",
+          "label": "event"
+        },
+        {
+          "from": "n2",
+          "to": "n3",
+          "label": "ticket"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 40000
+      }
+    }
+  },
+  {
+    "id": "settings-fix-ticket",
+    "category": "Security",
+    "name": "Ticket a GitHub settings fix",
+    "description": "When a repository setting gets weaker (made public, secret scanning or push protection off, default branch protection removed), the ticket writer files one ticket for the person who can change it: the setting, its current and recommended value, where it lives on GitHub and why. Nothing changes the setting itself.",
+    "flow": [
+      "settings misconfiguration",
+      "belai:ticket-writer",
+      "kanban card"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "settings misconfiguration"
+    },
+    "output": "Card",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:ticket-writer"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Posture finding: settings misconfiguration",
+          "config": {
+            "kind": "webhook",
+            "event": "github-posture",
+            "overlap": "queue",
+            "maxRunsPerHour": 60
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "crew",
+          "title": "Write the settings ticket",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:ticket-writer",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "The finding is a GitHub repository or organisation setting. Write one ticket in the ticket standard: the setting, its current and recommended value, the GitHub settings page it lives on, and the abuse it allows. Do not change the setting or open a pull request."
+          },
+          "budget": {
+            "tokens": 25000
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "card",
+          "title": "Settings ticket",
+          "config": {
+            "action": "ensure",
+            "ref": "settings-fix"
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2",
+          "label": "finding"
+        },
+        {
+          "from": "n2",
+          "to": "n3",
+          "label": "ticket"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 30000
+      }
+    }
+  },
+  {
+    "id": "container-published-to-tea",
+    "category": "Security",
+    "name": "Container published to TEA",
+    "description": "When a container image is published to GitHub Packages, the publisher records its digest and SBOM, and the Vulnetix CLI publishes it to TEA, private by default. Publishing needs the repository at draft_pr autonomy.",
+    "flow": [
+      "container published",
+      "belai:tea-publisher",
+      "TEA"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "package published"
+    },
+    "output": "TEA",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:tea-publisher"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Package published",
+          "config": {
+            "kind": "webhook",
+            "event": "registry_package.published",
+            "overlap": "queue",
+            "maxRunsPerHour": 30
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "condition",
+          "title": "A container image?",
+          "config": {
+            "rules": [
+              {
+                "path": "event.data.ecosystem",
+                "op": "in",
+                "value": [
+                  "container",
+                  "docker"
+                ],
+                "outcome": "container"
+              }
+            ],
+            "default": "other",
+            "outcomes": [
+              {
+                "value": "container"
+              },
+              {
+                "value": "other",
+                "end": true
+              }
+            ]
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "crew",
+          "title": "Sign the digest and gather its SBOM",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:tea-publisher",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Record the published image's name, digest and SBOM for the Transparency Exchange."
+          },
+          "budget": {
+            "tokens": 15000
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        },
+        {
+          "id": "n4",
+          "type": "scan",
+          "title": "Publish the image to TEA",
+          "config": {
+            "source": "cli",
+            "job": "tea-release"
+          },
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2",
+          "label": "package"
+        },
+        {
+          "from": "n2",
+          "to": "n3",
+          "outcome": "container"
+        },
+        {
+          "from": "n3",
+          "to": "n4",
+          "label": "artifacts.json"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 20000
+      }
+    }
+  },
+  {
+    "id": "deploy-failed-card",
+    "category": "Operations",
+    "name": "Deploy failed card",
+    "description": "When a deployment to production fails, the explainer files a card with the diff since the last good deployment and the failing step, for whoever owns the rollback.",
+    "flow": [
+      "deployment failed",
+      "belai:ci-explainer",
+      "kanban card"
+    ],
+    "trigger": {
+      "kind": "webhook",
+      "label": "deployment failed"
+    },
+    "output": "Card",
+    "badges": [
+      "needs GitHub"
+    ],
+    "requires": {
+      "crews": [
+        "belai:ci-explainer"
+      ],
+      "integrations": [
+        "github"
+      ]
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "trigger",
+          "title": "Deployment status",
+          "config": {
+            "kind": "webhook",
+            "event": "deployment_status.created",
+            "overlap": "queue",
+            "maxRunsPerHour": 10
+          },
+          "position": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        {
+          "id": "n2",
+          "type": "condition",
+          "title": "Did it fail?",
+          "config": {
+            "rules": [
+              {
+                "path": "event.data.state",
+                "op": "in",
+                "value": [
+                  "failure",
+                  "error"
+                ],
+                "outcome": "failed"
+              }
+            ],
+            "default": "other",
+            "outcomes": [
+              {
+                "value": "failed"
+              },
+              {
+                "value": "other",
+                "end": true
+              }
+            ]
+          },
+          "position": {
+            "x": 260,
+            "y": 80
+          }
+        },
+        {
+          "id": "n3",
+          "type": "condition",
+          "title": "In production?",
+          "config": {
+            "rules": [
+              {
+                "path": "event.data.environment",
+                "op": "contains",
+                "value": "prod",
+                "outcome": "production"
+              }
+            ],
+            "default": "other",
+            "outcomes": [
+              {
+                "value": "production"
+              },
+              {
+                "value": "other",
+                "end": true
+              }
+            ]
+          },
+          "position": {
+            "x": 480,
+            "y": 80
+          }
+        },
+        {
+          "id": "n4",
+          "type": "crew",
+          "title": "Explain the failed deployment",
+          "config": {
+            "dispatch": "worker",
+            "agent": "belai:ci-explainer",
+            "mode": "agent",
+            "await": "session",
+            "maxAttempts": 1,
+            "brief": "Explain the failed deployment named in the trigger: the failing step, the lines that matter, and the diff since the last good deployment to the same environment."
+          },
+          "budget": {
+            "tokens": 30000
+          },
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        },
+        {
+          "id": "n5",
+          "type": "card",
+          "title": "Rollback card",
+          "config": {
+            "action": "ensure",
+            "ref": "deploy-failures"
+          },
+          "position": {
+            "x": 920,
+            "y": 80
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2",
+          "label": "deployment"
+        },
+        {
+          "from": "n2",
+          "to": "n3",
+          "outcome": "failed"
+        },
+        {
+          "from": "n3",
+          "to": "n4",
+          "outcome": "production"
+        },
+        {
+          "from": "n4",
+          "to": "n5",
+          "label": "card"
+        }
+      ],
+      "limits": {
+        "runBudgetTokens": 40000
       }
     }
   }

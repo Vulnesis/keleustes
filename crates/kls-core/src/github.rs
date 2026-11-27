@@ -51,6 +51,10 @@ pub mod kinds {
     pub const DEPLOY_REVIEW_APPROVED: &str = "github.deployment_review.approved";
     /// The review was rejected, or the run ended without one (data `reason`).
     pub const DEPLOY_REVIEW_REJECTED: &str = "github.deployment_review.rejected";
+    /// A deployment reached a new state (`deployment_status.created`; subject
+    /// `<repo>:<deployment id>`, data `{repo, deploymentId, environment,
+    /// state, ref, sha, url, creator}`).
+    pub const DEPLOYMENT_STATUS: &str = "github.deployment.status";
     /// A release was published (`release.published`).
     pub const RELEASE: &str = "github.release";
     /// A security alert appeared (data `alert`: dependabot, code_scanning, secret_scanning).

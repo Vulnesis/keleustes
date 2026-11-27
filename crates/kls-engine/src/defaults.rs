@@ -96,7 +96,7 @@ pub fn entries() -> Vec<DefaultSpec> {
     out.extend(crate::defaults_cli::SPECS.iter().map(|s| DefaultSpec {
         key: s.key,
         name: s.name,
-        rev: 1,
+        rev: crate::defaults_cli::rev(s.key),
         min_autonomy: s.min_autonomy,
         description: s.description,
     }));
@@ -482,6 +482,109 @@ pub struct SeedReport {
     pub enabled: usize,
     pub disabled: usize,
     pub skipped_customised: usize,
+    /// Published after a first publish that did not finish.
+    pub resumed: usize,
+    /// `<system key>: <why>`: customised, a draft in progress, a newer
+    /// revision, archived.
+    pub skipped: Vec<String>,
+}
+
+/// What [`converge`] did to one seeded workflow.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Converged {
+    Upgraded,
+    Resumed,
+    Unchanged,
+    Skipped(&'static str),
+}
+
+/// The hash a published `g` has: the canonical form after one round trip
+/// through the parser, which is what a save stores.
+pub fn canon_sha(g: &Graph) -> String {
+    Graph::parse(&g.to_json())
+        .map(|g2| g2.sha256())
+        .unwrap_or_else(|_| g.sha256())
+}
+
+/// Keeps a seeded default equal to the catalogue (web `fdSeedOne`): a
+/// customised or archived one, one at a newer revision and one with a
+/// draft in progress are left alone; one whose first publish did not finish
+/// is published; one whose published graph or revision differs from the
+/// catalogue gets the catalogue graph as its next version. Each change is
+/// audited with its origin.
+pub async fn converge(
+    core: &Core,
+    w: &kls_store::engine::Workflow,
+    d: &DefaultSpec,
+    g: &Graph,
+    key: &str,
+    origin: &Origin,
+) -> Result<Converged> {
+    let s = core.store();
+    if w.customised {
+        return Ok(Converged::Skipped("customised"));
+    }
+    if w.status == "archived" {
+        return Ok(Converged::Skipped("archived"));
+    }
+    if w.system_rev > d.rev {
+        return Ok(Converged::Skipped("newer_revision"));
+    }
+    let audit = |action: &'static str, outcome: &'static str, data: Value| {
+        guard::audit(
+            core,
+            "workflow",
+            action,
+            json!({ "workflowId": w.id, "key": key }),
+            origin,
+            outcome,
+            data,
+        )
+    };
+    let note = format!("catalogue rev {}", d.rev);
+    if w.published_version == 0 {
+        // A first publish that failed after the create: finish it.
+        let version = if w.draft_version > 0 {
+            w.draft_version
+        } else {
+            ops::save_draft(core, &w.id, 0, g).await?.version
+        };
+        ops::publish(core, &w.id, version, &note).await?;
+        s.set_workflow_system(&w.id, "system", key, d.rev, false)
+            .await?;
+        audit("defaults.resume", "resumed", json!({ "version": version })).await?;
+        return Ok(Converged::Resumed);
+    }
+    let want = canon_sha(g);
+    let have = s
+        .workflow_version(&w.id, w.published_version)
+        .await?
+        .map(|v| v.graph_sha256)
+        .unwrap_or_default();
+    let same = have == want || have == g.sha256();
+    if same && w.system_rev == d.rev {
+        return Ok(Converged::Unchanged);
+    }
+    if w.draft_version > 0 {
+        return Ok(Converged::Skipped("draft_in_progress"));
+    }
+    if same {
+        // Same graph, older revision number: record the revision only.
+        s.set_workflow_system(&w.id, "system", key, d.rev, false)
+            .await?;
+        return Ok(Converged::Unchanged);
+    }
+    let saved = ops::save_draft(core, &w.id, 0, g).await?;
+    ops::publish(core, &w.id, saved.version, &note).await?;
+    s.set_workflow_system(&w.id, "system", key, d.rev, false)
+        .await?;
+    audit(
+        "defaults.upgrade",
+        "upgraded",
+        json!({ "version": saved.version, "from": w.system_rev, "rev": d.rev, "sha": want }),
+    )
+    .await?;
+    Ok(Converged::Upgraded)
 }
 
 /// The settings key that turns one default off for every repository
@@ -581,30 +684,15 @@ pub async fn seed(core: &Core) -> Result<SeedReport> {
                 Origin::engine(json!({ "catalogue": d.key, "rev": d.rev, "repo": repo.full_name }));
             let w = match s.workflow_by_system_key(&key).await? {
                 Some(w) => {
-                    if w.system_rev < d.rev {
-                        if w.customised {
-                            out.skipped_customised += 1;
-                        } else {
-                            let doc = ops::workflow_doc(core, &w.id)
-                                .await?
-                                .ok_or_else(|| anyhow::anyhow!("workflow vanished"))?;
-                            let (version, revision, _) = doc.editable();
-                            ops::save_draft(core, &w.id, revision, &g).await?;
-                            ops::publish(core, &w.id, version, &format!("catalogue rev {}", d.rev))
-                                .await?;
-                            s.set_workflow_system(&w.id, "system", &key, d.rev, false)
-                                .await?;
-                            guard::audit(
-                                core,
-                                "workflow",
-                                "defaults.upgrade",
-                                json!({ "workflowId": w.id, "key": key }),
-                                &origin,
-                                "upgraded",
-                                json!({}),
-                            )
-                            .await?;
-                            out.upgraded += 1;
+                    match converge(core, &w, d, &g, &key, &origin).await? {
+                        Converged::Upgraded => out.upgraded += 1,
+                        Converged::Resumed => out.resumed += 1,
+                        Converged::Unchanged => {}
+                        Converged::Skipped(why) => {
+                            if why == "customised" {
+                                out.skipped_customised += 1;
+                            }
+                            out.skipped.push(format!("{key}: {why}"));
                         }
                     }
                     s.workflow(&w.id).await?.unwrap_or(w)
@@ -625,9 +713,11 @@ pub async fn seed(core: &Core) -> Result<SeedReport> {
                         },
                     )
                     .await?;
-                    ops::publish(core, &w.id, 1, &format!("catalogue rev {}", d.rev)).await?;
+                    // Marked first, so a publish that fails is found and
+                    // resumed by the next pass.
                     s.set_workflow_system(&w.id, "system", &key, d.rev, false)
                         .await?;
+                    ops::publish(core, &w.id, 1, &format!("catalogue rev {}", d.rev)).await?;
                     guard::audit(
                         core,
                         "workflow",
@@ -835,6 +925,123 @@ mod tests {
         let t = graph("test-sweep", "acme/api").unwrap();
         let c = t.triggers().find(|t| t.trigger_kind() == "cron").unwrap();
         assert!(c.str("tz").is_empty() && c.str("catchUp").is_empty());
+    }
+
+    #[tokio::test]
+    async fn seed_converges_by_graph_and_leaves_drafts_and_edits_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = Core::open(dir.path(), None).await.unwrap();
+        let s = core.store();
+        let r = kls_store::github::GhRepo {
+            full_name: "acme/api".into(),
+            owner: "acme".into(),
+            name: "api".into(),
+            default_branch: "main".into(),
+            managed: true,
+            ..Default::default()
+        };
+        s.gh_upsert_repo(&r).await.unwrap();
+        s.gh_set_repo_managed("acme/api", true).await.unwrap();
+        let first = seed(&core).await.unwrap();
+        // Every default with a graph (`conflict-fix` is a rule).
+        assert_eq!(first.created, entries().len() - 1, "{first:?}");
+        let again = seed(&core).await.unwrap();
+        assert_eq!((again.created, again.upgraded), (0, 0), "{again:?}");
+        assert!(again.skipped.is_empty(), "{again:?}");
+
+        let key = system_key("lint-sweep", "acme/api");
+        let w = s.workflow_by_system_key(&key).await.unwrap().unwrap();
+        let d = spec("lint-sweep").unwrap();
+        // The published graph drifts from the catalogue at the same revision
+        // (an older build seeded it): the catalogue graph is published.
+        let mut other = graph("lint-sweep", "acme/api").unwrap();
+        other.nodes[0].title = "Older title".into();
+        let v = ops::save_draft(&core, &w.id, 0, &other).await.unwrap();
+        ops::publish(&core, &w.id, v.version, "drift")
+            .await
+            .unwrap();
+        s.set_workflow_system(&w.id, "system", &key, d.rev, false)
+            .await
+            .unwrap();
+        let out = seed(&core).await.unwrap();
+        assert_eq!(out.upgraded, 1, "{out:?}");
+        let w2 = s.workflow(&w.id).await.unwrap().unwrap();
+        let pv = s
+            .workflow_version(&w.id, w2.published_version)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            pv.graph_sha256,
+            graph("lint-sweep", "acme/api").unwrap().sha256()
+        );
+        assert!(!w2.customised);
+        assert!(
+            crate::guard::audited(&core, "workflow")
+                .await
+                .iter()
+                .any(|e| e.subject["action"] == "defaults.upgrade")
+        );
+
+        // A draft in progress is left alone, and says so.
+        ops::save_draft(&core, &w.id, 0, &other).await.unwrap();
+        s.set_workflow_system(&w.id, "system", &key, d.rev - 1, false)
+            .await
+            .unwrap();
+        let out = seed(&core).await.unwrap();
+        assert_eq!(out.upgraded, 0);
+        assert!(
+            out.skipped.contains(&format!("{key}: draft_in_progress")),
+            "{out:?}"
+        );
+        ops::discard_draft(&core, &w.id).await.unwrap();
+        // Same graph, older revision: the revision is recorded, nothing published.
+        let before = s.workflow(&w.id).await.unwrap().unwrap().published_version;
+        let out = seed(&core).await.unwrap();
+        assert_eq!(out.upgraded, 0, "{out:?}");
+        let w3 = s.workflow(&w.id).await.unwrap().unwrap();
+        assert_eq!((w3.system_rev, w3.published_version), (d.rev, before));
+        // A newer revision (a later build seeded it) and a person's edit stay.
+        s.set_workflow_system(&w.id, "system", &key, d.rev + 1, false)
+            .await
+            .unwrap();
+        let out = seed(&core).await.unwrap();
+        assert!(
+            out.skipped.contains(&format!("{key}: newer_revision")),
+            "{out:?}"
+        );
+        s.set_workflow_system(&w.id, "system", &key, d.rev, true)
+            .await
+            .unwrap();
+        let out = seed(&core).await.unwrap();
+        assert_eq!(out.skipped_customised, 1, "{out:?}");
+    }
+
+    #[test]
+    fn cli_card_and_vex_stages_are_a_kept_card_and_the_vex_output() {
+        let g = graph("cli-malscan", "acme/api").unwrap();
+        let card = g.nodes.iter().find(|n| n.kind == "card").unwrap();
+        assert_eq!(
+            (card.str("action"), card.str("ref")),
+            ("ensure", "malware-response")
+        );
+        assert!(
+            !g.nodes
+                .iter()
+                .any(|n| n.kind == "notify" && n.title.contains("card"))
+        );
+        let g = graph("cli-vex-triage", "acme/api").unwrap();
+        let vex = g.nodes.iter().find(|n| n.str("action") == "vex").unwrap();
+        assert_eq!(vex.kind, "github");
+        // The vex output feeds the vex-apply job.
+        let apply = g
+            .nodes
+            .iter()
+            .find(|n| n.str("job") == "vex-apply")
+            .unwrap();
+        assert!(g.edges.iter().any(|e| e.from == vex.id && e.to == apply.id));
+        assert_eq!(spec("cli-malscan").unwrap().rev, 2);
+        assert_eq!(spec("cli-sca").unwrap().rev, 1);
     }
 
     #[tokio::test]

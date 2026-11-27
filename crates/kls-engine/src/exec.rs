@@ -1822,23 +1822,9 @@ impl Engine {
                     continue;
                 }
                 if blocked {
-                    self.fail(&st, "scan_failed", details).await?;
+                    self.fail(&st, "card_blocked", details).await?;
                 } else if card.status == "done" || card.status == "review" {
-                    let meta: Value = serde_json::from_str(&card.meta_json).unwrap_or(Value::Null);
-                    let result = meta
-                        .pointer("/belai/agent/cliResult")
-                        .cloned()
-                        .unwrap_or(Value::Null);
-                    let not_eval = result
-                        .get("notEvaluable")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false);
-                    details["result"] = result;
-                    details["cardStatus"] = json!(card.status);
-                    if not_eval {
-                        details["notEvaluable"] = json!(true);
-                    }
-                    self.succeed(&st, "", details).await?;
+                    self.settle_scan(&st, &card, details).await?;
                 } else {
                     continue;
                 }
@@ -2486,8 +2472,10 @@ impl Engine {
             "crew" => self.dispatch(run, &node, &st, prior).await,
             "scan" => {
                 // A CLI job runs as a card the CLI runner claims (`cli-job:<id>`).
+                let Ok(mut n) = self.prepare_scan(run, &node, &st, steps, &prior).await? else {
+                    return Ok(());
+                };
                 let job = node.str("job").to_string();
-                let mut n = node.clone();
                 n.kind = "crew".into();
                 let agent = if crate::catalogue::cli_write_job(&job) {
                     "belai:cli-runner-write"
@@ -2521,6 +2509,9 @@ impl Engine {
             "profile" => self.store_profile(run, &node, &st, steps, ctx).await,
             "provision" => self.run_provision(run, &node, &st, prior).await,
             "job" => self.start_job(run, &node, &st, prior, ctx).await,
+            "card" if node.str("action") == "ensure" => {
+                self.ensure_state_card(run, &node, &st, prior).await
+            }
             "card" => {
                 let card = match node.str("card") {
                     "" => run.card_id.clone(),
@@ -2548,6 +2539,9 @@ impl Engine {
                             .await
                     }
                 }
+            }
+            "github" if node.str("action") == "vex" => {
+                self.write_vex(run, &node, &st, steps, prior).await
             }
             "github" if node.str("action") == "conflict_cards" => {
                 self.conflict_cards(run, &node, &st, prior).await
@@ -2901,6 +2895,10 @@ impl Engine {
             let m = crate::route::card_meta(&r, &run.id, &st.id, &run.workflow_id, prior);
             let mut v: Value = serde_json::from_str(&m).unwrap_or_else(|_| json!({}));
             v["keleustes"]["nodeId"] = json!(node.id);
+            // The run's OpenVEX document, as data for a `vex-apply` job.
+            if let Some(doc) = node.config.get("vexDoc") {
+                v["keleustes"]["vex"] = doc.clone();
+            }
             v.to_string()
         };
         let card = match existing {
@@ -2929,6 +2927,7 @@ impl Engine {
                     status: r.status.clone(),
                     labels: r.labels.clone(),
                     repo: run.repo.clone(),
+                    branch: node.str("branch").to_string(),
                     meta_json: meta_for("{}"),
                     ..Default::default()
                 };
@@ -3979,5 +3978,7 @@ impl Engine {
 }
 
 mod policy;
+mod steps;
+pub use steps::{RUN_SCAN, RUN_STATE_CARD, RUN_VEX, branch_ok, cli_result};
 #[cfg(test)]
 mod tests;

@@ -949,6 +949,7 @@ fn check_node(c: &mut Ctx, n: &Node, p: &str, mode: Mode) {
                     "" | "move" => required(c, n, p, "status", "the list"),
                     "label" | "unlabel" => required(c, n, p, "label", "the label"),
                     "assign" => required(c, n, p, "assignee", "who to assign"),
+                    "ensure" => required(c, n, p, "ref", "the card it keeps"),
                     _ => {}
                 }
             }

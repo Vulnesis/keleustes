@@ -452,6 +452,10 @@ fn webhook_names_of_polled_events() {
         webhook_events(&ev(k::RISK), &json!({})),
         vec!["github-risk".to_string()]
     );
+    assert!(webhook_matches(
+        "deployment_status.created",
+        &webhook_events(&ev(k::DEPLOYMENT_STATUS), &json!({"state": "failure"}))
+    ));
 }
 
 #[tokio::test]

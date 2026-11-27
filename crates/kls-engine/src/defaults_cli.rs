@@ -1184,6 +1184,15 @@ pub fn spec(key: &str) -> Option<&'static Spec> {
     SPECS.iter().find(|s| s.key == key)
 }
 
+/// The catalogue revision of a CLI default: 2 for the two whose `card` and
+/// `vex` stages became a kept card and the OpenVEX output.
+pub fn rev(key: &str) -> i64 {
+    match key {
+        "cli-malscan" | "cli-vex-triage" => 2,
+        _ => 1,
+    }
+}
+
 /// `fdcQuestion`.
 pub fn question(threshold: &str) -> String {
     match threshold {
@@ -1309,11 +1318,14 @@ pub fn build(sp: &Spec, repo: &str) -> Graph {
             "tea" => {
                 json!({"id": id, "type": "scan", "title": st.title, "config": {"source": "cli", "job": "tea-release"}})
             }
-            // The OpenVEX document rides on the triage result; record it in the run.
-            "vex" => json!({"id": id, "type": "notify", "title": st.title, "config": {
-                "severity": "info", "message": "{workflow}: OpenVEX statements written for {repo} ({run})"}}),
-            "card" => json!({"id": id, "type": "notify", "title": st.title, "config": {
-                "severity": "critical", "message": "{workflow}: malware response needed on {repo} ({run})"}}),
+            // The OpenVEX document of the triaged findings, kept on the step
+            // and handed to the `vex-apply` job after it.
+            "vex" => {
+                json!({"id": id, "type": "github", "title": st.title, "config": {"action": "vex"}})
+            }
+            // The web's `kanban_card` state: the open card kept for `ref`.
+            "card" => json!({"id": id, "type": "card", "title": st.title, "config": {
+                "action": "ensure", "ref": cfg.get("ref").cloned().unwrap_or(json!("state"))}}),
             _ => {
                 let mut c = cfg.clone();
                 c.entry("severity").or_insert(json!("info"));
