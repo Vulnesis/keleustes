@@ -43,10 +43,12 @@ pub struct Context {
     pub bot_as: Option<Human>,
 }
 
+/// Pix signs off as the GitHub App's bot, like `vulnetix()`, so GitHub credits
+/// the commit to vulnesis[bot].
 fn pix() -> Human {
     Human {
-        name: "Vulnesis [bot]".into(),
-        email: "security@vulnetix.com".into(),
+        name: "vulnesis[bot]".into(),
+        email: "176591487+vulnesis[bot]@users.noreply.github.com".into(),
     }
 }
 
