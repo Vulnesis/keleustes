@@ -1570,15 +1570,7 @@ Totals (157 rows, recounted from the table below on 2026-11-28):
 | priority | done | partial | missing |
 |---|---|---|---|
 | P0 | 32 | 0 | 0 |
-| P1 | 68 | 1 | 0 |
-| P2 | 49 | 7 | 0 |
-
-Recounted from the table on 2026-11-28, after issue mirroring per board project:
-
-| priority | done | partial | missing |
-|---|---|---|---|
-| P0 | 32 | 0 | 0 |
-| P1 | 66 | 3 | 0 |
+| P1 | 69 | 0 | 0 |
 | P2 | 49 | 7 | 0 |
 
 Counted by the 15 numbered P0 items: 10 done (1, 2, 5, 6, 8, 9, 10, 11, 12, 15) and 5 partial (3, 4, 7, 13, 14).
