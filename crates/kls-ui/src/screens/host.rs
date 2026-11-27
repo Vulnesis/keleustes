@@ -336,6 +336,13 @@ struct InstallForm {
     profile: String,
 }
 
+/// Uninstall of a sensor whose profile is locked: the host refuses without a
+/// one-time code the console makes for that device.
+struct UninstallForm {
+    product: String,
+    code: String,
+}
+
 struct PartsForm {
     product: String,
     parts: Vec<(String, String, bool)>,
@@ -356,6 +363,7 @@ pub struct HostScreen {
     clone: CloneForm,
     parts: Option<PartsForm>,
     install: Option<InstallForm>,
+    uninstall: Option<UninstallForm>,
     repo_filter: String,
     agents_repo: Option<String>,
     log_lines: u32,
@@ -420,6 +428,7 @@ impl HostScreen {
             clone: CloneForm::default(),
             parts: None,
             install: None,
+            uninstall: None,
             repo_filter: String::new(),
             agents_repo: None,
             log_lines: 200,
@@ -572,6 +581,7 @@ impl HostScreen {
         self.edit_dialog(ui.ctx(), model, &view);
         self.parts_dialog(ui.ctx(), model);
         self.install_dialog(ui.ctx(), model);
+        self.uninstall_dialog(ui.ctx(), model);
         self.clone_dialog(ui.ctx(), model);
         self.dispatch_dialog(ui.ctx(), model, &view, &node);
         self.rename_dialog(ui.ctx(), model, &node);
@@ -1232,12 +1242,19 @@ impl HostScreen {
                         if !absent
                             && self.gated(ui, g, "product_uninstall", icons::TRASH, "Uninstall")
                         {
-                            self.preview(
-                                model,
-                                "product_uninstall",
-                                &[("product", id)],
-                                &format!("Uninstall {}", product_name(id)),
-                            );
+                            if locked(&st) {
+                                self.uninstall = Some(UninstallForm {
+                                    product: id.into(),
+                                    code: String::new(),
+                                });
+                            } else {
+                                self.preview(
+                                    model,
+                                    "product_uninstall",
+                                    &[("product", id)],
+                                    &format!("Uninstall {}", product_name(id)),
+                                );
+                            }
                         }
                         if kit::ghost_button(ui, &icons::label(icons::COPY, "Copy diagnostics"))
                             .clicked()
@@ -1331,6 +1348,47 @@ impl HostScreen {
             });
         if keep {
             self.install = Some(f);
+        }
+    }
+
+    fn uninstall_dialog(&mut self, ctx: &egui::Context, model: &Model) {
+        let Some(mut f) = self.uninstall.take() else {
+            return;
+        };
+        let mut keep = true;
+        let title = format!("Uninstall {}", product_name(&f.product));
+        egui::Window::new(icons::label(icons::TRASH, &title))
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label(icons::label(icons::LOCK_SIMPLE, "Locked profile"));
+                kit::field(ui, "Code", |ui| {
+                    ui.add(egui::TextEdit::singleline(&mut f.code).hint_text("XXXX-XXXX-XXXX"))
+                });
+                ui.horizontal(|ui| {
+                    let code = f.code.trim();
+                    if ui
+                        .add_enabled(
+                            !code.is_empty(),
+                            egui::Button::new(icons::label(icons::EYE, "Preview")),
+                        )
+                        .clicked()
+                    {
+                        self.preview(
+                            model,
+                            "product_uninstall",
+                            &[("product", f.product.as_str()), ("code", code)],
+                            &title,
+                        );
+                        keep = false;
+                    }
+                    if kit::ghost_button(ui, &icons::label(icons::X, "Cancel")).clicked() {
+                        keep = false;
+                    }
+                });
+            });
+        if keep {
+            self.uninstall = Some(f);
         }
     }
 
@@ -3712,6 +3770,12 @@ fn lib_kind(kind: &str) -> String {
 /// Vulnetix scanner subcommands a repo may run.
 const SCANS: [&str; 5] = ["sca", "sast", "secrets", "iac", "containers"];
 
+/// A sensor whose profile is locked reports a "protection" check (belai
+/// `internal/products/sensor.go`): its uninstall needs a code.
+fn locked(st: &hosts::ProductStatus) -> bool {
+    st.product == "sensor" && st.checks.iter().any(|c| c.id == "protection")
+}
+
 fn product_name(id: &str) -> &'static str {
     match id {
         "cli" => "CLI",
@@ -4210,5 +4274,22 @@ mod tests {
         assert!(matches!(g.state("repo_trust"), GateState::Disabled(_)));
         g.offered.retain(|k| k != "repo_trust");
         assert_eq!(g.state("repo_trust"), GateState::Hidden);
+    }
+
+    #[test]
+    fn only_a_locked_sensor_asks_for_a_code() {
+        let mut st = hosts::ProductStatus {
+            product: "sensor".into(),
+            ..Default::default()
+        };
+        assert!(!locked(&st));
+        st.checks.push(hosts::Check {
+            id: "protection".into(),
+            status: "info".into(),
+            hint: "locked".into(),
+        });
+        assert!(locked(&st));
+        st.product = "cli".into();
+        assert!(!locked(&st));
     }
 }

@@ -673,7 +673,7 @@ validated enums, so no shell is involved. Every recipe has a dry run that return
 | `product_configure ai_firewall` | `vulnetix ai-firewall install --client <id> --scope <user\|project>` and `uninstall --client <id>`. The exact client flags must be checked against `cli/cmd/ai_firewall.go` (open item O1). A project scope is allowed only for a trusted repo path. |
 | `product_install sensor` | Linux only. belai can do the download and verify step to a staging path. The root steps (`install`, `enroll`, unit enable) are a `needs_root` hand-off (§5.4). |
 | `product_upgrade sensor` | The sensor updates itself. The action only runs `vulnetix-sensor guard-check` (no root) and reports. If `autoUpdate=false`, it hands off (`needs_root`). |
-| `product_uninstall sensor` | `needs_root` hand-off: `sudo vulnetix-sensor uninstall` |
+| `product_uninstall sensor` | `needs_root` hand-off: `sudo vulnetix-sensor uninstall`. A locked profile (the probe's `protection` check) refuses without the one-time code the console makes for that device. The host screen asks for it, and `code=XXXX-XXXX-XXXX` adds `--code` to the hand-off; the plan's params record only that a code was given. |
 | `product_probe <p>` | read: rerun the prober and Report |
 
 ### 5.4 Root and browser hand-offs
