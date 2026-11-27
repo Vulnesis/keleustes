@@ -18,6 +18,7 @@ use kls_store::engine::{
 use kls_store::now_ms;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::HashMap;
 
 /// Who acts: the desktop has one person, the owner.
 pub const OWNER: &str = "owner";
@@ -848,6 +849,86 @@ pub async fn prerequisites(core: &Core, g: &Graph) -> Result<Vec<String>> {
                 out.push(msg);
             }
         }
+    }
+    Ok(out)
+}
+
+/// A workflow with `scope` is attached to `repo`: its scope is empty (any
+/// repository) or names it. The Repositories screen and the workflow list
+/// both count with this.
+pub fn attached_to(scope: &[String], repo: &str) -> bool {
+    scope.is_empty() || repo_in_scope(scope, repo)
+}
+
+/// How many of `repos` a workflow with `scope` is attached to.
+pub fn attached_repo_count<'a>(
+    scope: &[String],
+    repos: impl IntoIterator<Item = &'a str>,
+) -> usize {
+    repos.into_iter().filter(|r| attached_to(scope, r)).count()
+}
+
+/// The version a workflow runs and lists: the published one, else the draft.
+pub fn live_version(w: &Workflow) -> Option<i64> {
+    match (w.published_version, w.draft_version) {
+        (0, 0) => None,
+        (0, d) => Some(d),
+        (p, _) => Some(p),
+    }
+}
+
+/// Runs counted in the workflow list's "7d" column.
+pub const LIST_RUNS_WINDOW_MS: i64 = 7 * 86_400_000;
+
+/// The workflow list's summary of one workflow.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ListStats {
+    /// First trigger in a few words, `+N` for the others ([`Graph::trigger_summary`]).
+    pub triggers: String,
+    /// Known repositories the workflow is attached to ([`attached_to`]).
+    pub repos: usize,
+    /// The scope as written (empty: any repository).
+    pub scope: Vec<String>,
+    /// Real runs in the last [`LIST_RUNS_WINDOW_MS`].
+    pub runs_7d: i64,
+}
+
+/// One workflow's list summary from its live graph, the known repositories
+/// and the per-workflow run counts ([`kls_store::Store::run_counts_since`]).
+pub fn list_stats(
+    workflow_id: &str,
+    g: &Graph,
+    repos: &[String],
+    runs: &HashMap<String, i64>,
+) -> ListStats {
+    ListStats {
+        triggers: g.trigger_summary(),
+        repos: attached_repo_count(&g.scope.repos, repos.iter().map(String::as_str)),
+        scope: g.scope.repos.clone(),
+        runs_7d: runs.get(workflow_id).copied().unwrap_or(0),
+    }
+}
+
+/// List summaries of every unarchived workflow, by id (read only).
+pub async fn workflow_list_stats(core: &Core) -> Result<HashMap<String, ListStats>> {
+    let s = core.store();
+    let repos: Vec<String> = s
+        .gh_repos(None)
+        .await?
+        .into_iter()
+        .map(|r| r.full_name)
+        .collect();
+    let runs = s.run_counts_since(now_ms() - LIST_RUNS_WINDOW_MS).await?;
+    let mut out = HashMap::new();
+    for w in s.workflows(false).await? {
+        let g = match live_version(&w) {
+            Some(v) => match s.workflow_version(&w.id, v).await? {
+                Some(ver) => Graph::parse(&ver.graph_json).unwrap_or_default(),
+                None => Graph::default(),
+            },
+            None => Graph::default(),
+        };
+        out.insert(w.id.clone(), list_stats(&w.id, &g, &repos, &runs));
     }
     Ok(out)
 }
@@ -1786,5 +1867,49 @@ mod facts_tests {
         let f = d.facts();
         assert_eq!(f.pulls.len(), 3, "{:?}", f.pulls);
         assert!(f.pulls.iter().any(|p| p.contains("merge_requests/42")));
+    }
+}
+
+#[cfg(test)]
+mod list_tests {
+    use super::*;
+
+    #[test]
+    fn attachment_and_live_version() {
+        let repos = ["acme/api", "acme/web", "other/x"];
+        assert_eq!(attached_repo_count(&[], repos), 3);
+        assert_eq!(attached_repo_count(&["acme/*".into()], repos), 2);
+        assert_eq!(attached_repo_count(&["ACME/API".into()], repos), 1);
+        assert_eq!(attached_repo_count(&["none/x".into()], repos), 0);
+        assert!(attached_to(&[], "any/thing"));
+        let w = |p, d| Workflow {
+            published_version: p,
+            draft_version: d,
+            ..Default::default()
+        };
+        assert_eq!(live_version(&w(0, 0)), None);
+        assert_eq!(live_version(&w(0, 2)), Some(2));
+        assert_eq!(live_version(&w(3, 4)), Some(3));
+    }
+
+    #[test]
+    fn list_stats_reads_graph_repos_and_runs() {
+        let mut g: Graph = serde_json::from_value(json!({
+            "nodes": [
+                {"id":"a","type":"trigger","config":{"kind":"webhook","event":"pull_request"}},
+                {"id":"b","type":"trigger","config":{"kind":"manual"}}
+            ],
+            "scope": {"repos": ["acme/*"]}
+        }))
+        .unwrap();
+        let repos = vec!["acme/api".to_string(), "other/x".to_string()];
+        let runs = HashMap::from([("w1".to_string(), 5)]);
+        let s = list_stats("w1", &g, &repos, &runs);
+        assert_eq!(s.triggers, "webhook pull_request +1");
+        assert_eq!(s.repos, 1);
+        assert_eq!(s.runs_7d, 5);
+        g.scope.repos.clear();
+        let s = list_stats("w2", &g, &repos, &runs);
+        assert_eq!((s.repos, s.runs_7d), (2, 0));
     }
 }

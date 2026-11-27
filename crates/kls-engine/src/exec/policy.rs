@@ -85,29 +85,8 @@ impl Engine {
         node: &Node,
     ) -> std::collections::BTreeMap<String, String> {
         let crew = node.str("crew");
-        let mut members: Vec<(String, String)> = match self
-            .core()
-            .store()
-            .crews()
-            .await
-            .ok()
-            .and_then(|cs| cs.into_iter().find(|c| c.name == crew || c.id == crew))
-        {
-            Some(c) => c
-                .members
-                .into_iter()
-                .map(|m| (m.agent, m.model.trim().to_string()))
-                .collect(),
-            None => crate::catalogue::crew(crew)
-                .map(|c| {
-                    c.members
-                        .iter()
-                        .map(|m| (m.profile.clone(), String::new()))
-                        .collect()
-                })
-                .unwrap_or_default(),
-        };
-        members.dedup_by(|a, b| a.0 == b.0);
+        let defined = self.core().store().crews().await.unwrap_or_default();
+        let members = crate::catalogue::crew_members(&defined, crew);
         let own = node.config.get("memberModels").and_then(Value::as_object);
         let map = self
             .core()
