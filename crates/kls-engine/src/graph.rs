@@ -362,6 +362,46 @@ impl Node {
     }
 }
 
+impl Node {
+    /// A trigger in a few words for the workflow list: `cron 0 3 * * *`,
+    /// `webhook pull_request`, `manual`.
+    pub fn trigger_short(&self) -> String {
+        let k = self.trigger_kind();
+        let arg = match k {
+            "cron" => self.str("cron").trim().to_string(),
+            "webhook" | "event" => self.str("event").trim().to_string(),
+            "label" => self.str("label").trim().to_string(),
+            "kanban" => match self.str("toList") {
+                "" => String::new(),
+                to => format!("→ {to}"),
+            },
+            _ => String::new(),
+        };
+        if arg.is_empty() {
+            k.to_string()
+        } else {
+            format!("{k} {arg}")
+        }
+    }
+}
+
+impl Graph {
+    /// The first trigger in a few words, `+N` for the others; empty when the
+    /// graph has none.
+    pub fn trigger_summary(&self) -> String {
+        let mut t = self.triggers();
+        let Some(first) = t.next() else {
+            return String::new();
+        };
+        let more = t.count();
+        if more == 0 {
+            first.trigger_short()
+        } else {
+            format!("{} +{more}", first.trigger_short())
+        }
+    }
+}
+
 fn dispatch_kind(n: &Node) -> &str {
     match n.str("dispatch") {
         "" => "worker",
@@ -728,6 +768,31 @@ mod tests {
             .unwrap(),
             r#"{"from":"a","to":"b"}"#
         );
+    }
+
+    #[test]
+    fn trigger_summary_names_first_and_counts_rest() {
+        let mut g = Graph::default();
+        assert_eq!(g.trigger_summary(), "");
+        g.nodes.push(Node::new("x", "crew", ""));
+        assert_eq!(g.trigger_summary(), "");
+        let mut cron = Node::new("n1", "trigger", "");
+        cron.config.insert("kind".into(), "cron".into());
+        cron.config.insert("cron".into(), "0 3 * * *".into());
+        g.nodes.push(cron);
+        assert_eq!(g.trigger_summary(), "cron 0 3 * * *");
+        let mut hook = Node::new("n2", "trigger", "");
+        hook.config.insert("kind".into(), "webhook".into());
+        hook.config.insert("event".into(), "pull_request".into());
+        assert_eq!(hook.trigger_short(), "webhook pull_request");
+        g.nodes.push(hook);
+        g.nodes.push(Node::new("n3", "trigger", ""));
+        assert_eq!(g.trigger_summary(), "cron 0 3 * * * +2");
+        assert_eq!(Graph::starter().trigger_summary(), "manual");
+        let mut k = Node::new("n4", "trigger", "");
+        k.config.insert("kind".into(), "kanban".into());
+        k.config.insert("toList".into(), "doing".into());
+        assert_eq!(k.trigger_short(), "kanban → doing");
     }
 
     #[test]

@@ -40,6 +40,9 @@ struct Row {
     last: Option<Run>,
     /// Why the workflow cannot start (no provider for a model step).
     blocked: Option<String>,
+    /// Trigger summary, attached repositories, runs in 7 days
+    /// (`ops::workflow_list_stats`).
+    stats: ops::ListStats,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -185,7 +188,7 @@ pub struct Screen {
     detail: Loader<Option<Arc<WorkflowDoc>>>,
     schedules: Loader<Arc<Vec<(Schedule, String)>>>,
     /// Models and nodes for the crew inspector.
-    pickers: Loader<(Vec<String>, Vec<String>)>,
+    pickers: Loader<(Vec<String>, Vec<String>, Vec<kls_store::vault::Crew>)>,
     editor: Option<Editor>,
     new_name: Option<String>,
     filter: String,
@@ -205,9 +208,11 @@ impl Screen {
                 "schedule.",
                 "budget.provider",
                 "vault.",
+                "github.",
             ],
             |core| async move {
                 let mut rows = Vec::new();
+                let mut list_stats = ops::workflow_list_stats(&core).await?;
                 let providers: Vec<String> = core
                     .store()
                     .providers()
@@ -236,7 +241,13 @@ impl Screen {
                         .await?
                         .into_iter()
                         .next();
-                    rows.push(Row { w, last, blocked });
+                    let stats = list_stats.remove(&w.id).unwrap_or_default();
+                    rows.push(Row {
+                        w,
+                        last,
+                        blocked,
+                        stats,
+                    });
                 }
                 Ok(Arc::new(rows))
             },
@@ -278,23 +289,28 @@ impl Screen {
             selected,
             detail,
             schedules,
-            pickers: Loader::new(model, &["budget.provider", "node."], |core| async move {
-                let mut models = Vec::new();
-                for p in core.store().providers().await? {
-                    for m in &p.models {
-                        models.push(format!("{}/{m}", p.id));
+            pickers: Loader::new(
+                model,
+                &["budget.provider", "node.", "crew."],
+                |core| async move {
+                    let mut models = Vec::new();
+                    for p in core.store().providers().await? {
+                        for m in &p.models {
+                            models.push(format!("{}/{m}", p.id));
+                        }
                     }
-                }
-                let nodes = core
-                    .store()
-                    .nodes()
-                    .await?
-                    .into_iter()
-                    .filter(|n| n.revoked_at.is_none())
-                    .map(|n| n.id)
-                    .collect();
-                Ok((models, nodes))
-            }),
+                    let nodes = core
+                        .store()
+                        .nodes()
+                        .await?
+                        .into_iter()
+                        .filter(|n| n.revoked_at.is_none())
+                        .map(|n| n.id)
+                        .collect();
+                    let crews = core.store().crews().await?;
+                    Ok((models, nodes, crews))
+                },
+            ),
             editor: None,
             new_name: None,
             filter: String::new(),
@@ -325,8 +341,9 @@ impl Screen {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui, model: &Model) {
-        if let Some(Ok((m, n))) = self.pickers.get() {
+        if let Some(Ok((m, n, c))) = self.pickers.get() {
             set_pickers(m, n);
+            set_defined_crews(c);
         }
         let in_builder = self.tab == Tab::Workflows && self.selected.lock().unwrap().is_some();
         // The builder carries its own header (the workflow's name).
@@ -436,12 +453,18 @@ impl Screen {
                     .sense(Sense::click())
                     .column(Column::auto().at_least(240.0))
                     .column(Column::auto().at_least(100.0))
+                    .column(Column::auto().at_least(160.0))
+                    .column(Column::auto().at_least(60.0))
+                    .column(Column::auto().at_least(60.0))
                     .column(Column::auto().at_least(120.0))
                     .column(Column::auto().at_least(140.0))
                     .column(Column::remainder().at_least(120.0))
                     .column(Column::auto())
                     .header(30.0, |mut h| {
-                        for t in ["Workflow", "State", "Version", "Last run", "Updated", ""] {
+                        for t in [
+                            "Workflow", "State", "Trigger", "Repos", "Runs 7d", "Version",
+                            "Last run", "Updated", "",
+                        ] {
                             h.col(|ui| {
                                 kit::th(ui, t);
                                 kit::header_rule(ui);
@@ -512,6 +535,31 @@ impl Screen {
                                     } else {
                                         kit::chip(ui, "draft", p.gold_text);
                                     }
+                                });
+                                row.col(|ui| {
+                                    let t = &r.stats.triggers;
+                                    if t.is_empty() {
+                                        ui.label(RichText::new("—").color(p.muted));
+                                    } else {
+                                        ui.label(
+                                            RichText::new(icons::label(trigger_icon(t), t))
+                                                .monospace(),
+                                        );
+                                    }
+                                });
+                                row.col(|ui| {
+                                    ui.label(icons::label(
+                                        icons::GIT_BRANCH,
+                                        &r.stats.repos.to_string(),
+                                    ))
+                                    .on_hover_text(scope_hover(&r.stats.scope));
+                                });
+                                row.col(|ui| {
+                                    let n = r.stats.runs_7d;
+                                    ui.label(
+                                        RichText::new(icons::label(icons::PLAY, &n.to_string()))
+                                            .color(if n == 0 { p.muted } else { p.text }),
+                                    );
                                 });
                                 row.col(|ui| {
                                     let mut s = String::new();
@@ -1904,30 +1952,161 @@ fn inspector_head(ui: &mut egui::Ui, kind: &str, title: &str) {
     ui.add_space(6.0);
 }
 
-/// The per-card agent limits (`limits`, sent as `Dispatch.budget`): the
-/// field, its label, range and the value a tick starts at.
-type LimitRow<'a> = (&'a mut Option<i64>, &'static str, i64, i64, i64);
+/// One integer limit: the field, its label and its `limits.<key>` path
+/// (what `validate::validate` names in an issue).
+type LimitRow<'a> = (&'a mut Option<i64>, String, &'static str);
 
-fn limit_rows(l: &mut g::Limits) -> [LimitRow<'_>; 6] {
+/// The run-level limits.
+fn run_limit_rows(l: &mut g::Limits) -> [LimitRow<'_>; 4] {
     [
-        (&mut l.finalize_at_pct, "Finalize at %", 1, 100, 80),
-        (&mut l.max_attempts_per_card, "Attempts", 1, 20, 3),
-        (&mut l.max_continuations, "Continuations", 0, 50, 3),
-        (&mut l.max_passes, "Passes", 1, 50, 4),
-        (&mut l.max_wall_minutes, "Wall minutes", 1, 10_080, 60),
-        (&mut l.max_iterations, "Tool rounds", 1, 1_000, 50),
+        (
+            &mut l.run_budget_tokens,
+            icons::label(icons::COINS, "Run tokens"),
+            "runBudgetTokens",
+        ),
+        (
+            &mut l.month_budget_tokens,
+            icons::label(icons::COINS, "Month tokens"),
+            "monthBudgetTokens",
+        ),
+        (
+            &mut l.concurrency,
+            icons::label(icons::STACK, "Runs at once"),
+            "concurrency",
+        ),
+        (
+            &mut l.stop_the_line_attempts,
+            icons::label(icons::PROHIBIT, "Stop the line after"),
+            "stopTheLineAttempts",
+        ),
     ]
 }
 
-/// The agents a crew step may give a model: the catalogue crew's members,
-/// then any agent `memberModels` already names.
-fn crew_member_names(crew: &str, own: Option<&Map<String, Value>>) -> Vec<String> {
-    let mut out: Vec<String> = kls_engine::catalogue::crew(crew)
-        .map(|c| c.members.iter().map(|m| m.profile.clone()).collect())
-        .unwrap_or_default();
+/// The per-card agent limits (`limits`, sent as `Dispatch.budget`).
+fn limit_rows(l: &mut g::Limits) -> [LimitRow<'_>; 6] {
+    [
+        (
+            &mut l.finalize_at_pct,
+            icons::label(icons::PERCENT, "Finalize at"),
+            "finalizeAtPct",
+        ),
+        (
+            &mut l.max_attempts_per_card,
+            icons::label(icons::ARROWS_CLOCKWISE, "Attempts"),
+            "maxAttemptsPerCard",
+        ),
+        (
+            &mut l.max_continuations,
+            icons::label(icons::ARROW_RIGHT, "Continuations"),
+            "maxContinuations",
+        ),
+        (
+            &mut l.max_passes,
+            icons::label(icons::CHECK, "Passes"),
+            "maxPasses",
+        ),
+        (
+            &mut l.max_wall_minutes,
+            icons::label(icons::TIMER, "Wall minutes"),
+            "maxWallMinutes",
+        ),
+        (
+            &mut l.max_iterations,
+            icons::label(icons::WRENCH, "Tool rounds"),
+            "maxIterations",
+        ),
+    ]
+}
+
+/// A limit as typed: blank is unset, else a number (`Err` when it is not one).
+fn parse_limit<T: std::str::FromStr>(s: &str) -> Result<Option<T>, ()> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Ok(None);
+    }
+    s.parse().map(Some).map_err(|_| ())
+}
+
+/// The validator's message for `limits.<key>`, if any.
+fn limit_issue<'a>(issues: &'a [Issue], key: &str) -> Option<&'a str> {
+    let path = format!("limits.{key}");
+    issues
+        .iter()
+        .find(|i| i.path == path)
+        .map(|i| i.message.as_str())
+}
+
+/// A limit field: blank is unset. The text is kept while it is not a
+/// number; the engine's range check shows under it.
+fn limit_field<T>(
+    ui: &mut egui::Ui,
+    salt: &str,
+    v: &mut Option<T>,
+    label: &str,
+    key: &str,
+    issues: &[Issue],
+) where
+    T: std::str::FromStr + ToString + PartialEq + Copy,
+{
+    let id = egui::Id::unique(("wf-limit", salt, key));
+    let shown = || v.map(|x| x.to_string()).unwrap_or_default();
+    let mut text: String = ui
+        .ctx()
+        .data(|d| d.get_temp::<String>(id))
+        .filter(|t| match parse_limit::<T>(t) {
+            // Our text still says what the graph holds (or is a typo).
+            Ok(p) => p == *v,
+            Err(()) => true,
+        })
+        .unwrap_or_else(shown);
+    ui.horizontal(|ui| {
+        ui.label(label);
+        let r = ui.add(
+            egui::TextEdit::singleline(&mut text)
+                .desired_width(110.0)
+                .hint_text("—")
+                .id_salt(id),
+        );
+        if r.changed()
+            && let Ok(p) = parse_limit::<T>(&text)
+        {
+            *v = p;
+        }
+    });
+    let bad = parse_limit::<T>(&text).is_err();
+    ui.ctx().data_mut(|d| d.insert_temp(id, text));
+    let err = ui.visuals().error_fg_color;
+    if bad {
+        ui.colored_label(err, icons::label(icons::WARNING, "Not a number"));
+    } else if let Some(m) = limit_issue(issues, key) {
+        ui.colored_label(err, icons::label(icons::WARNING, m));
+    }
+}
+
+/// Crews a step may start: workforce crews first, then the builtins.
+fn crew_options(defined: &[kls_store::vault::Crew]) -> Vec<&str> {
+    let mut out: Vec<&str> = defined.iter().map(|c| c.name.as_str()).collect();
+    for c in g::crews() {
+        if !out.contains(&c) {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// The agents a crew step may give a model, each with the crew's own model
+/// for it: the crew's members as dispatch resolves them
+/// (`kls_engine::catalogue::crew_members`: a workforce crew, else the
+/// builtin), then any agent `memberModels` already names.
+fn crew_member_names(
+    defined: &[kls_store::vault::Crew],
+    crew: &str,
+    own: Option<&Map<String, Value>>,
+) -> Vec<(String, String)> {
+    let mut out = kls_engine::catalogue::crew_members(defined, crew);
     for k in own.into_iter().flat_map(|o| o.keys()) {
-        if !out.contains(k) {
-            out.push(k.clone());
+        if !out.iter().any(|(a, _)| a == k) {
+            out.push((k.clone(), String::new()));
         }
     }
     out
@@ -2507,6 +2686,69 @@ fn set_mcp(cfg: &mut Map<String, Value>, rows: &[[String; 3]]) {
     cfg.insert("mcp".into(), Value::Array(v));
 }
 
+/// One member's model override: blank keeps the crew's own model (shown as
+/// the hint), else Settings `models.agents`.
+fn member_model_row(
+    ui: &mut egui::Ui,
+    mm: &mut Map<String, Value>,
+    agent: &str,
+    crew_model: &str,
+    models: &[&str],
+    salt: &str,
+) {
+    kit::field_label(ui, &icons::label(icons::ROBOT, agent));
+    ui.horizontal(|ui| {
+        let w = (ui.available_width() - 48.0).max(80.0);
+        let mut s = mm
+            .get(agent)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let hint = if crew_model.is_empty() {
+            "inherit"
+        } else {
+            crew_model
+        };
+        if ui
+            .add(
+                egui::TextEdit::singleline(&mut s)
+                    .desired_width(w)
+                    .hint_text(hint)
+                    .id_salt((salt, "mm", agent)),
+            )
+            .changed()
+        {
+            set_member_model(mm, agent, &s);
+        }
+        egui::ComboBox::from_id_salt((salt, "mm-pick", agent))
+            .selected_text("…")
+            .width(24.0)
+            .show_ui(ui, |ui| {
+                if ui
+                    .selectable_label(false, icons::label(icons::X, "inherit"))
+                    .clicked()
+                {
+                    set_member_model(mm, agent, "");
+                }
+                for o in models {
+                    if ui.selectable_label(false, *o).clicked() {
+                        set_member_model(mm, agent, o);
+                    }
+                }
+            });
+    });
+}
+
+/// Sets or (blank) clears one `memberModels` entry.
+fn set_member_model(mm: &mut Map<String, Value>, agent: &str, model: &str) {
+    let m = model.trim();
+    if m.is_empty() {
+        mm.remove(agent);
+    } else {
+        mm.insert(agent.to_string(), Value::String(m.to_string()));
+    }
+}
+
 /// Per-member models of a crew step (`memberModels`: `{agent: "provider/model"}`).
 fn member_models_ui(ui: &mut egui::Ui, cfg: &mut Map<String, Value>, models: &[&str], salt: &str) {
     let crew = cfg
@@ -2519,7 +2761,7 @@ fn member_models_ui(ui: &mut egui::Ui, cfg: &mut Map<String, Value>, models: &[&
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
-    let names = crew_member_names(&crew, Some(&mm));
+    let names = crew_member_names(&defined_crews(), &crew, Some(&mm));
     egui::CollapsingHeader::new(icons::label(icons::USERS, "Member models"))
         .id_salt((salt, "memberModels"))
         .default_open(!mm.is_empty())
@@ -2527,8 +2769,8 @@ fn member_models_ui(ui: &mut egui::Ui, cfg: &mut Map<String, Value>, models: &[&
             if names.is_empty() {
                 ui.weak(icons::label(icons::INFO, "Pick a crew"));
             }
-            for a in &names {
-                suggest(ui, &mut mm, a, a, models, &format!("{salt}-mm"));
+            for (a, crew_model) in &names {
+                member_model_row(ui, &mut mm, a, crew_model, models, salt);
             }
         });
     if mm.is_empty() {
@@ -2540,61 +2782,26 @@ fn member_models_ui(ui: &mut egui::Ui, cfg: &mut Map<String, Value>, models: &[&
 
 fn workflow_settings_ui(ui: &mut egui::Ui, ed: &mut Editor) {
     inspector_head(ui, "Workflow", &icons::label(icons::SLIDERS, "Settings"));
+    // The engine's own check of `limits` (validate.rs `check_limits`),
+    // shown under the field it names.
+    let issues = validate::validate(&ed.graph, Mode::Publish);
+    let salt = ed.wf_id.clone();
     let l = &mut ed.graph.limits;
-    let opt = |ui: &mut egui::Ui, v: &mut Option<i64>, label: &str, lo: i64, hi: i64, def: i64| {
-        ui.horizontal(|ui| {
-            let mut set = v.is_some();
-            if ui.checkbox(&mut set, label).changed() {
-                *v = set.then_some(def);
-            }
-            if let Some(x) = v.as_mut() {
-                ui.add(egui::DragValue::new(x).range(lo..=hi));
-            }
-        });
-    };
-    opt(
-        ui,
-        &mut l.run_budget_tokens,
-        "Run budget (tokens)",
-        0,
-        100_000_000,
-        400_000,
-    );
-    opt(
-        ui,
-        &mut l.month_budget_tokens,
-        "Month budget (tokens)",
-        0,
-        10_000_000_000,
-        6_000_000,
-    );
-    opt(ui, &mut l.concurrency, "Runs at once", 1, 50, 2);
-    opt(
-        ui,
-        &mut l.stop_the_line_attempts,
-        "Stop the line after",
-        1,
-        10,
-        3,
-    );
+    for (v, label, key) in run_limit_rows(l) {
+        limit_field(ui, &salt, v, &label, key, &issues);
+    }
     ui.add_space(6.0);
     kit::field_label(ui, &icons::label(icons::ROBOT, "Per card"));
-    ui.horizontal(|ui| {
-        let mut set = l.max_cost_usd_per_card.is_some();
-        if ui.checkbox(&mut set, "Cost per card ($)").changed() {
-            l.max_cost_usd_per_card = set.then_some(5.0);
-        }
-        if let Some(x) = l.max_cost_usd_per_card.as_mut() {
-            ui.add(
-                egui::DragValue::new(x)
-                    .range(0.0..=10_000.0)
-                    .speed(0.5)
-                    .fixed_decimals(2),
-            );
-        }
-    });
-    for (v, label, lo, hi, def) in limit_rows(l) {
-        opt(ui, v, label, lo, hi, def);
+    limit_field(
+        ui,
+        &salt,
+        &mut l.max_cost_usd_per_card,
+        &icons::label(icons::CURRENCY_DOLLAR, "Cost"),
+        "maxCostUsdPerCard",
+        &issues,
+    );
+    for (v, label, key) in limit_rows(l) {
+        limit_field(ui, &salt, v, &label, key, &issues);
     }
     ui.add_space(6.0);
     kit::field_label(ui, &icons::label(icons::GIT_BRANCH, "Scope"));
@@ -2793,7 +3000,11 @@ fn node_ui(ui: &mut egui::Ui, ed: &mut Editor, id: &str) {
                 .and_then(Value::as_str)
                 .unwrap_or("worker")
             {
-                "crew" => suggest(ui, cfg, "crew", "Crew", &g::crews(), &salt),
+                "crew" => {
+                    let defined = defined_crews();
+                    let opts = crew_options(&defined);
+                    suggest(ui, cfg, "crew", "Crew", &opts, &salt);
+                }
                 "session" => {}
                 _ if cfg.get("adhoc").is_some_and(|a| !a.is_null()) => {
                     ui.weak(icons::label(icons::SPARKLE, "One-off worker"))
@@ -3761,6 +3972,20 @@ fn set_pickers(models: Vec<String>, nodes: Vec<String>) {
     }
 }
 
+/// Workforce crews (Vault), for the crew picker and the member models.
+static DEFINED_CREWS: std::sync::Mutex<Vec<kls_store::vault::Crew>> =
+    std::sync::Mutex::new(Vec::new());
+
+fn defined_crews() -> Vec<kls_store::vault::Crew> {
+    DEFINED_CREWS.lock().map(|c| c.clone()).unwrap_or_default()
+}
+
+fn set_defined_crews(crews: Vec<kls_store::vault::Crew>) {
+    if let Ok(mut c) = DEFINED_CREWS.lock() {
+        *c = crews;
+    }
+}
+
 /// Why a workflow cannot start for want of a model: a model step names a
 /// provider the factory may not use, or no provider is open to the factory.
 fn model_block(g: &Graph, factory_providers: &[String]) -> Option<String> {
@@ -3778,6 +4003,27 @@ fn model_block(g: &Graph, factory_providers: &[String]) -> Option<String> {
         }
     }
     (any && factory_providers.is_empty()).then(|| "no provider is open to the factory".to_string())
+}
+
+/// The icon of a list trigger summary (`cron 0 3 * * *`, `webhook push +1`).
+fn trigger_icon(summary: &str) -> &'static str {
+    match summary.split(' ').next().unwrap_or("") {
+        "cron" => icons::CLOCK,
+        "kanban" => icons::KANBAN,
+        "manual" => icons::HAND,
+        "webhook" => icons::GITHUB_LOGO,
+        "label" => icons::TAG,
+        _ => icons::LIGHTNING,
+    }
+}
+
+/// The repo count's hover: the scope as written, `*` when it names none.
+fn scope_hover(scope: &[String]) -> String {
+    if scope.is_empty() {
+        "*".into()
+    } else {
+        scope.join(", ")
+    }
 }
 
 /// `12k`, `1.2M`.
@@ -3979,34 +4225,146 @@ mod parity_ui_tests {
     fn crew_member_models_list_the_crew_then_named_agents() {
         let own: Map<String, Value> =
             serde_json::from_value(json!({"belai:builder": "a/b", "extra": "c/d"})).unwrap();
+        let names = |d: &[kls_store::vault::Crew], c: &str, o| -> Vec<String> {
+            crew_member_names(d, c, o)
+                .into_iter()
+                .map(|x| x.0)
+                .collect()
+        };
         assert_eq!(
-            crew_member_names("belai:feature", Some(&own)),
+            names(&[], "belai:feature", Some(&own)),
             ["belai:planner", "belai:builder", "belai:reviewer", "extra"]
         );
-        assert_eq!(crew_member_names("feature", None).len(), 3, "bare name");
-        assert!(crew_member_names("nope", None).is_empty());
+        assert_eq!(names(&[], "feature", None).len(), 3, "bare name");
+        assert!(names(&[], "nope", None).is_empty());
+        // A workforce crew wins, and carries each member's own model.
+        let defined = vec![kls_store::vault::Crew {
+            id: "c1".into(),
+            name: "nope".into(),
+            members: vec![kls_store::vault::CrewMember {
+                agent: "mine".into(),
+                role: String::new(),
+                count: 1,
+                model: "p/m".into(),
+            }],
+            ..Default::default()
+        }];
+        assert_eq!(
+            crew_member_names(&defined, "nope", None),
+            [("mine".to_string(), "p/m".to_string())]
+        );
+        assert_eq!(crew_options(&defined)[0], "nope");
+        assert!(crew_options(&defined).contains(&"belai:feature"));
     }
 
     #[test]
-    fn limit_rows_cover_every_per_card_limit() {
-        let mut l = kls_engine::graph::Limits::default();
-        for (v, _, lo, hi, def) in limit_rows(&mut l) {
-            assert!(lo <= def && def <= hi);
-            *v = Some(def);
+    fn member_model_blank_clears_the_override() {
+        let mut mm = Map::new();
+        set_member_model(&mut mm, "a", " p/m ");
+        assert_eq!(mm["a"], "p/m");
+        set_member_model(&mut mm, "a", "  ");
+        assert!(mm.is_empty());
+    }
+
+    #[test]
+    fn list_helpers_pick_icons_and_scope_text() {
+        assert_eq!(trigger_icon("cron 0 3 * * *"), icons::CLOCK);
+        assert_eq!(trigger_icon("webhook pull_request +1"), icons::GITHUB_LOGO);
+        assert_eq!(trigger_icon("manual"), icons::HAND);
+        assert_eq!(trigger_icon("event run.*"), icons::LIGHTNING);
+        assert_eq!(scope_hover(&[]), "*");
+        assert_eq!(
+            scope_hover(&["acme/api".into(), "acme/*".into()]),
+            "acme/api, acme/*"
+        );
+    }
+
+    #[test]
+    fn limit_rows_cover_every_limit_and_name_the_validator_paths() {
+        let mut g = Graph::starter();
+        for (v, _, _) in run_limit_rows(&mut g.limits) {
+            *v = Some(-1);
         }
+        for (v, _, _) in limit_rows(&mut g.limits) {
+            *v = Some(-1);
+        }
+        g.limits.max_cost_usd_per_card = Some(-1.0);
         assert_eq!(
             (
-                l.finalize_at_pct,
-                l.max_attempts_per_card,
-                l.max_continuations,
-                l.max_passes,
-                l.max_wall_minutes,
-                l.max_iterations
+                g.limits.finalize_at_pct,
+                g.limits.max_attempts_per_card,
+                g.limits.max_continuations,
+                g.limits.max_passes,
+                g.limits.max_wall_minutes,
+                g.limits.max_iterations
             ),
-            (Some(80), Some(3), Some(3), Some(4), Some(60), Some(50))
+            (Some(-1), Some(-1), Some(-1), Some(-1), Some(-1), Some(-1))
         );
-        let labels: Vec<&str> = limit_rows(&mut l).iter().map(|r| r.1).collect();
-        assert!(labels.contains(&"Tool rounds"));
+        let issues = validate::validate(&g, Mode::Publish);
+        let mut keys: Vec<&str> = run_limit_rows(&mut g.limits).iter().map(|r| r.2).collect();
+        keys.extend(limit_rows(&mut g.limits).iter().map(|r| r.2));
+        keys.push("maxCostUsdPerCard");
+        for k in &keys {
+            assert!(limit_issue(&issues, k).is_some(), "{k} has no inline error");
+        }
+        // In range: no inline errors.
+        let mut ok = Graph::starter();
+        ok.limits.finalize_at_pct = Some(80);
+        ok.limits.max_cost_usd_per_card = Some(5.0);
+        let issues = validate::validate(&ok, Mode::Publish);
+        for k in &keys {
+            assert!(limit_issue(&issues, k).is_none(), "{k}");
+        }
+        let labels: Vec<String> = limit_rows(&mut g.limits).into_iter().map(|r| r.1).collect();
+        assert!(labels.iter().any(|l| l.ends_with("Tool rounds")));
+    }
+
+    #[test]
+    fn limit_fields_and_member_models_render_without_changing_anything() {
+        let ctx = egui::Context::default();
+        let mut l = kls_engine::graph::Limits {
+            max_passes: Some(99),
+            max_cost_usd_per_card: Some(2.5),
+            ..Default::default()
+        };
+        let mut cfg = Map::new();
+        cfg.insert("crew".into(), json!("belai:feature"));
+        cfg.insert("memberModels".into(), json!({"belai:builder": "a/b"}));
+        let before = (l.clone(), cfg.clone());
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
+                    let mut g = Graph::starter();
+                    g.limits = l.clone();
+                    let issues = validate::validate(&g, Mode::Publish);
+                    assert!(limit_issue(&issues, "maxPasses").is_some());
+                    for (v, label, key) in limit_rows(&mut l) {
+                        limit_field(ui, "t", v, &label, key, &issues);
+                    }
+                    limit_field(
+                        ui,
+                        "t",
+                        &mut l.max_cost_usd_per_card,
+                        "Cost",
+                        "maxCostUsdPerCard",
+                        &issues,
+                    );
+                    member_models_ui(ui, &mut cfg, &["a/b", "c/d"], "t");
+                });
+            });
+            out.textures_delta.clear();
+        }
+        assert_eq!((l, cfg), before);
+    }
+
+    #[test]
+    fn limit_text_blank_is_unset() {
+        assert_eq!(parse_limit::<i64>(""), Ok(None));
+        assert_eq!(parse_limit::<i64>("  "), Ok(None));
+        assert_eq!(parse_limit::<i64>(" 12 "), Ok(Some(12)));
+        assert_eq!(parse_limit::<i64>("1.5"), Err(()));
+        assert_eq!(parse_limit::<f64>("2.5"), Ok(Some(2.5)));
+        assert_eq!(parse_limit::<f64>("abc"), Err(()));
     }
 
     #[test]

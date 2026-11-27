@@ -173,6 +173,35 @@ async fn manual_run_succeeds() {
 }
 
 #[tokio::test]
+async fn workflow_list_stats_count_triggers_repos_and_runs() {
+    let t = setup().await;
+    let mut g = simple(json!({"id":"b","type":"notify","title":"Say","config":{"message":"hi"}}));
+    g.scope.repos = vec!["acme/*".into()];
+    let wf = published(&t.core, g).await;
+    for full in ["acme/api", "acme/web", "other/x"] {
+        let (o, n) = full.split_once('/').unwrap();
+        t.core
+            .store()
+            .gh_upsert_repo(&kls_store::github::GhRepo {
+                full_name: full.into(),
+                owner: o.into(),
+                name: n.into(),
+                default_branch: "main".into(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+    }
+    start(&t, &wf).await;
+    start(&t, &wf).await;
+    let all = ops::workflow_list_stats(&t.core).await.unwrap();
+    let s = &all[&wf];
+    assert_eq!(s.triggers, "manual");
+    assert_eq!(s.repos, 2);
+    assert_eq!(s.runs_7d, 2);
+}
+
+#[tokio::test]
 async fn refuses_unpublished_and_disabled() {
     let t = setup().await;
     let w = ops::create_workflow(&t.core, NewWorkflow::default())

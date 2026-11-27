@@ -1013,6 +1013,23 @@ impl Store {
         rows.iter().map(run_from_row).collect()
     }
 
+    /// Real (not dry) runs created at or after `since`, per workflow id.
+    pub async fn run_counts_since(
+        &self,
+        since: i64,
+    ) -> Result<std::collections::HashMap<String, i64>> {
+        let rows = sqlx::query(self.sql(
+            "SELECT workflow_id, COUNT(*) AS n FROM runs \
+             WHERE created_at >= ? AND dry_run = 0 GROUP BY workflow_id",
+        ))
+        .bind(since)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|r| Ok((r.try_get("workflow_id")?, r.try_get("n")?)))
+            .collect()
+    }
+
     /// Every run in `statuses`, oldest first.
     pub async fn runs_in(&self, statuses: &[&str]) -> Result<Vec<Run>> {
         let q = format!(
@@ -1857,6 +1874,30 @@ mod tests {
             s.set_workflow_enabled("w1", false).await.unwrap();
             assert!(s.live_schedules().await.unwrap().is_empty());
             assert_eq!(s.next_schedule_fire().await.unwrap(), None);
+        }
+    }
+
+    #[tokio::test]
+    async fn run_counts_since_skip_old_and_dry_runs() {
+        for (s, _d) in stores().await {
+            for (id, slug) in [("w1", "a"), ("w2", "b")] {
+                let (w, v) = wf(id, slug);
+                s.insert_workflow(&w, &v).await.unwrap();
+            }
+            let now = now_ms();
+            s.insert_run(&run("r1", "w1", None)).await.unwrap();
+            s.insert_run(&run("r2", "w1", None)).await.unwrap();
+            s.insert_run(&run("r3", "w2", None)).await.unwrap();
+            let mut old = run("r4", "w2", None);
+            old.created_at = now - 8 * 86_400_000;
+            s.insert_run(&old).await.unwrap();
+            let mut dry = run("r5", "w2", None);
+            dry.dry_run = true;
+            s.insert_run(&dry).await.unwrap();
+            let n = s.run_counts_since(now - 7 * 86_400_000).await.unwrap();
+            assert_eq!(n.get("w1"), Some(&2));
+            assert_eq!(n.get("w2"), Some(&1));
+            assert_eq!(n.len(), 2);
         }
     }
 

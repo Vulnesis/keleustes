@@ -353,6 +353,30 @@ pub fn crew(name: &str) -> Option<&'static CrewSpec> {
     crews().iter().find(|c| c.name == n)
 }
 
+/// The members of crew `name` with each member's own model (empty when it
+/// sets none): a crew from the workforce (`defined`, by name or id) first,
+/// else the builtin crew. Dispatch and the crew inspector both read this.
+pub fn crew_members(defined: &[kls_store::vault::Crew], name: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> =
+        match defined.iter().find(|c| c.name == name || c.id == name) {
+            Some(c) => c
+                .members
+                .iter()
+                .map(|m| (m.agent.clone(), m.model.trim().to_string()))
+                .collect(),
+            None => crew(name)
+                .map(|c| {
+                    c.members
+                        .iter()
+                        .map(|m| (m.profile.clone(), String::new()))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        };
+    out.dedup_by(|a, b| a.0 == b.0);
+    out
+}
+
 pub fn avatar_svg(p: &ProfileSpec) -> Option<&'static str> {
     avatars().get(&p.avatar_id).map(String::as_str)
 }
@@ -466,6 +490,33 @@ pub fn crew_problems(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn crew_members_prefer_the_workforce_crew() {
+        use kls_store::vault::{Crew, CrewMember};
+        let m = |agent: &str, model: &str| CrewMember {
+            agent: agent.into(),
+            role: String::new(),
+            count: 1,
+            model: model.into(),
+        };
+        let defined = vec![Crew {
+            id: "c1".into(),
+            name: "mine".into(),
+            members: vec![m("a", " p/x "), m("a", ""), m("b", "")],
+            ..Default::default()
+        }];
+        let want = vec![
+            ("a".to_string(), "p/x".to_string()),
+            ("b".into(), "".into()),
+        ];
+        assert_eq!(crew_members(&defined, "mine"), want);
+        assert_eq!(crew_members(&defined, "c1"), want);
+        let builtin = crew_members(&defined, "belai:feature");
+        assert_eq!(builtin.len(), 3);
+        assert!(builtin.iter().all(|(_, m)| m.is_empty()));
+        assert!(crew_members(&[], "nope").is_empty());
+    }
 
     #[test]
     fn catalogue_matches_belai() {

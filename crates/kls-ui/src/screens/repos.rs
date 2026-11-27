@@ -1068,7 +1068,7 @@ impl Screen {
             .map(|d| d.workflows)
             .unwrap_or_default()
             .into_iter()
-            .filter(|w| w.scope.is_empty() || kls_engine::ops::repo_in_scope(&w.scope, &open))
+            .filter(|w| kls_engine::ops::attached_to(&w.scope, &open))
             .collect();
         ui.label(kit::caps(
             &icons::label(icons::FLOW_ARROW, &format!("Workflows {}", attached.len())),
@@ -1161,10 +1161,8 @@ async fn attached_workflows(core: &kls_core::Core) -> anyhow::Result<Vec<Attache
     let s = core.store();
     let mut out = Vec::new();
     for w in s.workflows(false).await? {
-        let v = match (w.published_version, w.draft_version) {
-            (0, 0) => continue,
-            (0, d) => d,
-            (p, _) => p,
+        let Some(v) = kls_engine::ops::live_version(&w) else {
+            continue;
         };
         let Some(ver) = s.workflow_version(&w.id, v).await? else {
             continue;
