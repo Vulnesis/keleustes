@@ -884,8 +884,8 @@ keleustes root, `belai/` prefix for belai.
 | §8.2 live Gitea/Forgejo | P2 | partial | crates/kls-github/tests/live_forge.rs:17; live/forge-live.sh; justfile:33 | opt-in only; not in nightly CI |
 | §8.2 tea OAuth headless browser | P2 | missing | — | Playwright job against a live Forgejo; needs CI with a browser and an instance, not buildable in-tree |
 | §8.2 GitLab and github.com live | P2 | missing | — | gated suites (`KLS_LIVE_GITLAB_*`, `KLS_LIVE_GITHUB_TOKEN`); need real accounts and tokens |
-| §8.4.1 glab `--device` wording fixture | P1 | missing | crates/kls-github/src/login.rs:661 (synthetic) | record real output from a glab release (no network/glab here) |
-| §8.4.2 `glab auth status -F json` | P2 | missing | — | code avoids it (exit code + `api user`) |
+| §8.4.1 glab `--device` wording fixture | P1 | done | crates/kls-github/src/forge/auth.rs `glab_device_flow_recorded_wording` (glab 1.130.0 against gitlab.com, 2026-11-28: "First copy your one-time code: 4OWWB4CH" / "Then open this URL on any device to authorize: https://gitlab.com/oauth/device"; the code has no dash) | - (`--device` needs GitLab 17.9 or later, per glab's help) |
+| §8.4.2 `glab auth status -F json` | P2 | done | glab 1.130.0 has `-F/--output json`. Recorded: `glab auth status` exits 0 even when its API call fails with 401, so the exit code never proves a sign-in; the probe's `glab api user` check is what decides | - (json not needed: the `api user` result decides) |
 | §8.4.3 GHES device flow default | P2 | missing | — | verify on an instance |
 | §8.4.4 tea OAuth app on Codeberg / Forgejo | P2 | missing | crates/kls-github/src/forge/auth.rs:850 (redirect-error fallback) | verify by hand |
 | §8.4.5 tea token stdin/env; `tea api` path root | P1 | partial (P2, 2026-11-22) | crates/kls-github/src/client.rs:262-277; login.rs:430 (env probe, fake tea) | verify `GITEA_SERVER_TOKEN` on a real tea release; paths exercised by the live suite |

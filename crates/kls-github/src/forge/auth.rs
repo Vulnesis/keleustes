@@ -1058,6 +1058,26 @@ mod tests {
         );
     }
 
+    /// Recorded from glab 1.130.0, `glab auth login --hostname gitlab.com
+    /// --device` (2026-11-28; the code expired unused). The code has no dash.
+    #[test]
+    fn glab_device_flow_recorded_wording() {
+        let out = "- Signing into gitlab.com\n\nFirst copy your one-time code: 4OWWB4CH\n\
+                   Then open this URL on any device to authorize: https://gitlab.com/oauth/device\n\n\
+                   Waiting for authorization...\n";
+        let got: Vec<Progress> = out.lines().filter_map(|l| GlabAuth.progress(l)).collect();
+        assert_eq!(
+            got,
+            vec![
+                Progress::Code {
+                    code: "4OWWB4CH".into(),
+                    url: String::new()
+                },
+                Progress::OpenUrl("https://gitlab.com/oauth/device".into()),
+            ]
+        );
+    }
+
     #[tokio::test]
     async fn tea_status_from_login_list_and_api() {
         let list = r#"[{"Name":"cb","URL":"https://codeberg.org","User":"ana"}]"#;
