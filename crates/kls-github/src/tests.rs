@@ -1567,6 +1567,7 @@ async fn project_mirror_lands_issues_in_its_list() {
             outbound: true,
             rules: Default::default(),
             escalate_hours: 0,
+            ..Default::default()
         }],
         "owner",
     )
@@ -1596,6 +1597,159 @@ async fn project_mirror_lands_issues_in_its_list() {
                 outbound: true,
                 rules: Default::default(),
                 escalate_hours: 0,
+                ..Default::default()
+            }],
+            "owner",
+        )
+        .await
+        .is_err()
+    );
+}
+
+/// A project card already on the board before its mirror starts.
+async fn project_card(core: &Core, title: &str, labels: &[&str]) -> kls_store::board::Card {
+    core.create_card(
+        kls_core::board::CardDraft {
+            title: title.into(),
+            body: "Steps".into(),
+            status: "todo".into(),
+            labels: labels.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        },
+        "owner",
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn a_new_mirror_opens_issues_for_existing_cards_once() {
+    let (core, _d) = core().await;
+    let gh = FakeGh::new();
+    managed_repo(
+        &core,
+        "acme/api",
+        Mirroring {
+            pulls: false,
+            issues: false,
+            labels: false,
+        },
+    )
+    .await;
+    let a = project_card(&core, "Add export", &["project:web", "ui"]).await;
+    let other = project_card(&core, "Ops chore", &["project:ops"]).await;
+    let row = kls_core::board::sync::MirrorRow {
+        project: "web".into(),
+        repo: "acme/api".into(),
+        backfill: "all".into(),
+        ..Default::default()
+    };
+    core.save_issue_mirrors(std::slice::from_ref(&row), "owner")
+        .await
+        .unwrap();
+    assert_eq!(
+        core.backfill_counts().await.unwrap()["acme/api"],
+        kls_core::board::sync::BackfillCounts { recent: 1, all: 1 }
+    );
+    gh.on("GET", ISSUES, 200, json!([]));
+    gh.on(
+        "POST",
+        "/repos/acme/api/issues",
+        201,
+        json!({"number": 9, "html_url": "https://github.com/acme/api/issues/9"}),
+    );
+    let svc = Service::new(core.clone(), local(&gh, Some(true)));
+    let rep = svc.poll_once().await.unwrap();
+    assert!(rep.errors.is_empty(), "{rep:?}");
+    assert_eq!(rep.cards_backfilled, 1);
+    let posts: Vec<Value> = gh
+        .calls()
+        .into_iter()
+        .filter(|c| c.method == "POST" && c.path == "/repos/acme/api/issues")
+        .map(|c| serde_json::from_str(c.stdin.as_deref().unwrap()).unwrap())
+        .collect();
+    assert_eq!(posts.len(), 1);
+    assert_eq!(posts[0]["title"], "Add export");
+    assert_eq!(
+        posts[0]["labels"],
+        json!(["ui"]),
+        "project label stays on the board"
+    );
+    assert!(
+        posts[0]["body"]
+            .as_str()
+            .unwrap()
+            .ends_with(&format!("Board card {}", a.key))
+    );
+    let a = core.card(&a.id).await.unwrap().unwrap();
+    assert!(kls_core::board::sync::card_linked(&a));
+    assert_eq!(a.repo, "acme/api");
+    assert!(a.labels.contains(&"project:web".to_string()));
+    let other = core.card(&other.id).await.unwrap().unwrap();
+    assert!(!kls_core::board::sync::card_linked(&other));
+    let stored = core.issue_mirror_of("acme/api").await.unwrap().unwrap();
+    assert!(stored.backfilled_at > 0);
+    assert!(
+        core.audit_entries(&kls_store::audit::LedgerQuery::default())
+            .await
+            .unwrap()
+            .iter()
+            .any(|e| e.subject["action"] == "issue_mirror.backfilled")
+    );
+    // Saving the same row again keeps it done; the next pass opens nothing.
+    core.save_issue_mirrors(std::slice::from_ref(&row), "owner")
+        .await
+        .unwrap();
+    project_card(&core, "Later card", &["project:web"]).await;
+    svc.poll_once().await.unwrap();
+    assert_eq!(gh.count("POST", "/repos/acme/api/issues"), 1);
+}
+
+#[tokio::test]
+async fn backfill_is_refused_under_the_kill_switch_and_stays_due() {
+    let (core, _d) = core().await;
+    let gh = FakeGh::new();
+    managed_repo(
+        &core,
+        "acme/api",
+        Mirroring {
+            pulls: false,
+            issues: false,
+            labels: false,
+        },
+    )
+    .await;
+    project_card(&core, "Add export", &["project:web"]).await;
+    core.save_issue_mirrors(
+        &[kls_core::board::sync::MirrorRow {
+            project: "web".into(),
+            repo: "acme/api".into(),
+            backfill: "recent".into(),
+            ..Default::default()
+        }],
+        "owner",
+    )
+    .await
+    .unwrap();
+    gh.on("POST", "/repos/acme/api/issues", 201, json!({"number": 9}));
+    let c = client(&core, &gh);
+    core.set_factory_stopped(true, "drill").await.unwrap();
+    assert!(
+        sync::backfill_cards(&c, "acme/api", "poller")
+            .await
+            .is_err()
+    );
+    assert_eq!(gh.count("POST", "/repos/acme/api/issues"), 0);
+    let row = core.issue_mirror_of("acme/api").await.unwrap().unwrap();
+    assert!(row.backfill_due());
+    // A bad choice is not saved.
+    assert!(
+        core.save_issue_mirrors(
+            &[kls_core::board::sync::MirrorRow {
+                project: "web".into(),
+                repo: "acme/api".into(),
+                backfill: "some".into(),
+                ..Default::default()
             }],
             "owner",
         )

@@ -11,6 +11,7 @@ use crate::loader::Loader;
 use crate::model::{Model, Notice};
 use crate::theme;
 use egui_extras::{Column, TableBuilder};
+use kls_core::board::sync::{BACKFILL, BackfillCounts, FIELDS, MirrorRow};
 use kls_engine::triggers::RepoProfile;
 use kls_github::service::{ConnView, QuotaView};
 use kls_github::sync::PullAction;
@@ -91,6 +92,51 @@ pub struct Screen {
     connect: super::gh_signin::Connect,
     /// AGENTS.md drafts for the open repository (row 54).
     agents_md: super::init_draft::Window,
+    /// Board project <-> repository mirror rows (`github.issue_mirror`).
+    mirrors: Loader<Mirrors>,
+    mirror_draft: Option<MirrorDraft>,
+}
+
+/// The mirror rows, backfill counts per repository and the known projects.
+#[derive(Clone)]
+struct Mirrors {
+    rows: Vec<MirrorRow>,
+    counts: BTreeMap<String, BackfillCounts>,
+    projects: Vec<String>,
+}
+
+/// The unsaved mirror row of the open repository.
+struct MirrorDraft {
+    repo: String,
+    row: MirrorRow,
+    hours: String,
+    /// The stored row the draft started from.
+    base: Option<MirrorRow>,
+}
+
+impl MirrorDraft {
+    fn of(repo: &str, stored: Option<&MirrorRow>) -> Self {
+        let row = stored.cloned().unwrap_or_else(|| MirrorRow {
+            repo: repo.into(),
+            ..Default::default()
+        });
+        Self {
+            repo: repo.into(),
+            hours: row.escalate_hours.to_string(),
+            row,
+            base: stored.cloned(),
+        }
+    }
+
+    fn dirty(&self) -> bool {
+        let base = self.base.clone().unwrap_or_else(|| MirrorRow {
+            repo: self.repo.clone(),
+            ..Default::default()
+        });
+        self.base.is_none()
+            || self.row != base
+            || self.hours.trim() != base.escalate_hours.to_string()
+    }
 }
 
 impl Screen {
@@ -170,6 +216,22 @@ impl Screen {
             signin: Default::default(),
             connect: Default::default(),
             agents_md: super::init_draft::Window::new(model),
+            mirrors: Loader::new(model, &["audit.appended", "card."], |core| async move {
+                let mut projects = BTreeSet::new();
+                for c in core.store().cards(false).await? {
+                    for l in &c.labels {
+                        if let Some(p) = l.strip_prefix(kls_core::board::sync::BOARD_ONLY_PREFIX) {
+                            projects.insert(p.to_string());
+                        }
+                    }
+                }
+                Ok(Mirrors {
+                    rows: core.issue_mirrors().await?,
+                    counts: core.backfill_counts().await?,
+                    projects: projects.into_iter().collect(),
+                })
+            }),
+            mirror_draft: None,
         }
     }
 
@@ -1059,6 +1121,10 @@ impl Screen {
             });
         }
 
+        // The board project mirrored to this repository's issues.
+        ui.add_space(12.0);
+        self.mirror_section(ui, model, &open);
+
         // Attached workflows.
         ui.add_space(12.0);
         let attached: Vec<Attached> = self
@@ -1153,6 +1219,224 @@ impl Screen {
                     );
                 });
         }
+    }
+
+    /// The board project <-> repository mirror row of `open`: project,
+    /// inbound list, outbound, merge rules, escalation and what happens to
+    /// the cards already on the board. Saved as one audited write.
+    fn mirror_section(&mut self, ui: &mut egui::Ui, model: &Model, open: &str) {
+        let p = theme::palette(ui.ctx());
+        ui.label(kit::caps(
+            &icons::label(icons::KANBAN, "Board project"),
+            p.muted,
+        ));
+        let m = match self.mirrors.get() {
+            Some(Ok(m)) => m,
+            Some(Err(e)) => {
+                ui.colored_label(p.red, e);
+                return;
+            }
+            None => {
+                ui.spinner();
+                return;
+            }
+        };
+        let stored = m.rows.iter().find(|r| r.repo == open).cloned();
+        let stale = self.mirror_draft.as_ref().is_none_or(|d| {
+            d.repo != open
+                || (!d.dirty() && d.base != stored)
+                || (d.base.is_none() && stored.is_some())
+        });
+        if stale {
+            self.mirror_draft = Some(MirrorDraft::of(open, stored.as_ref()));
+        }
+        let d = self.mirror_draft.as_mut().unwrap();
+        let counts = m.counts.get(open).copied();
+        egui::Grid::new("repo_mirror")
+            .num_columns(2)
+            .spacing([12.0, 8.0])
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new("Project").color(p.muted));
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut d.row.project)
+                            .hint_text("project")
+                            .desired_width(140.0),
+                    );
+                    if !m.projects.is_empty() {
+                        ui.menu_button(icons::CARET_DOWN, |ui| {
+                            for name in &m.projects {
+                                if ui.button(icons::label(icons::TAG, name)).clicked() {
+                                    d.row.project = name.clone();
+                                    ui.close();
+                                }
+                            }
+                        })
+                        .response
+                        .on_hover_text("Board projects");
+                    }
+                });
+                ui.end_row();
+                ui.label(egui::RichText::new("Inbound").color(p.muted))
+                    .on_hover_text("New issues land in");
+                egui::ComboBox::from_id_salt("mirror_inbound")
+                    .selected_text(inbound_word(&d.row.inbound))
+                    .show_ui(ui, |ui| {
+                        for k in ["triage", "review", "off"] {
+                            ui.selectable_value(&mut d.row.inbound, k.to_string(), inbound_word(k));
+                        }
+                    });
+                ui.end_row();
+                ui.label(egui::RichText::new("Outbound").color(p.muted));
+                ui.checkbox(
+                    &mut d.row.outbound,
+                    icons::label(icons::UPLOAD_SIMPLE, "Push card edits"),
+                );
+                ui.end_row();
+                for f in FIELDS {
+                    ui.label(egui::RichText::new(icons::label(icons::GIT_MERGE, f)).color(p.muted))
+                        .on_hover_text("When both sides changed");
+                    let mut v = d.row.rules.get(f).cloned().unwrap_or_else(|| "ask".into());
+                    egui::ComboBox::from_id_salt(("mirror_rule", f))
+                        .selected_text(rule_word(&v))
+                        .show_ui(ui, |ui| {
+                            for k in ["ask", "board", "github"] {
+                                ui.selectable_value(&mut v, k.to_string(), rule_word(k));
+                            }
+                        });
+                    if v == "ask" {
+                        d.row.rules.remove(f);
+                    } else {
+                        d.row.rules.insert(f.to_string(), v);
+                    }
+                    ui.end_row();
+                }
+                ui.label(egui::RichText::new("Escalate").color(p.muted))
+                    .on_hover_text("Hours before an open conflict goes to owners; 0 never");
+                ui.add(
+                    egui::TextEdit::singleline(&mut d.hours)
+                        .hint_text("hours")
+                        .desired_width(64.0),
+                );
+                ui.end_row();
+            });
+        ui.add_space(4.0);
+        fieldset(ui, "Existing cards", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for b in BACKFILL {
+                    ui.radio_value(&mut d.row.backfill, b.to_string(), backfill_word(b, counts));
+                }
+            });
+            match &stored {
+                Some(s) if s.backfilled_at > 0 && s.backfill == d.row.backfill => {
+                    kit::chip(
+                        ui,
+                        &icons::label(
+                            icons::CHECK,
+                            &format!("Opened · {}", clock(s.backfilled_at)),
+                        ),
+                        p.green,
+                    );
+                }
+                Some(s) if s.backfill_due() && s.backfill == d.row.backfill => {
+                    kit::chip(ui, &icons::label(icons::HOURGLASS, "Next poll"), p.amber)
+                        .on_hover_text("Opens issues for these cards on the next poll");
+                }
+                _ => {}
+            }
+        });
+        let dirty = d.dirty();
+        let ready = dirty && !d.row.project.trim().is_empty();
+        let mut reset = false;
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            let save = ui
+                .add_enabled_ui(ready, |ui| {
+                    theme::primary_button(ui, &icons::label(icons::FLOPPY_DISK, "Save mirror"))
+                })
+                .inner
+                .on_disabled_hover_text(if dirty {
+                    "Name a project"
+                } else {
+                    "No changes"
+                });
+            if save.clicked() {
+                match d.hours.trim().parse::<i64>() {
+                    Ok(h) if h >= 0 => {
+                        let mut row = d.row.clone();
+                        row.project = row.project.trim().to_string();
+                        row.repo = open.to_string();
+                        row.escalate_hours = h;
+                        let rows = rows_with(&m.rows, open, Some(row));
+                        let r = open.to_string();
+                        model.act(move |mm| async move {
+                            mm.core()
+                                .save_issue_mirrors(&rows, kls_core::board::OWNER)
+                                .await?;
+                            Ok(Some(Notice::Info(format!("Mirror saved for {r}"))))
+                        });
+                    }
+                    _ => model.notify(Notice::Error("Escalate takes whole hours".into())),
+                }
+            }
+            if stored.is_some()
+                && kit::ghost_button(ui, &icons::label(icons::STOP, "Stop mirroring")).clicked()
+            {
+                let rows = rows_with(&m.rows, open, None);
+                let r = open.to_string();
+                model.act(move |mm| async move {
+                    mm.core()
+                        .save_issue_mirrors(&rows, kls_core::board::OWNER)
+                        .await?;
+                    Ok(Some(Notice::Info(format!("Stopped mirroring {r}"))))
+                });
+                reset = true;
+            }
+            if dirty
+                && stored.is_some()
+                && kit::ghost_button(ui, &icons::label(icons::ARROW_COUNTER_CLOCKWISE, "Discard"))
+                    .clicked()
+            {
+                reset = true;
+            }
+        });
+        if reset {
+            self.mirror_draft = None;
+        }
+    }
+}
+
+/// `rows` with `repo`'s row replaced by `row` (or dropped for `None`).
+fn rows_with(rows: &[MirrorRow], repo: &str, row: Option<MirrorRow>) -> Vec<MirrorRow> {
+    let mut out: Vec<MirrorRow> = rows.iter().filter(|r| r.repo != repo).cloned().collect();
+    out.extend(row);
+    out
+}
+
+fn inbound_word(k: &str) -> String {
+    match k {
+        "review" => icons::label(icons::EYE, "Review"),
+        "off" => icons::label(icons::PROHIBIT, "Off"),
+        _ => icons::label(icons::TRAY, "Triage"),
+    }
+}
+
+fn rule_word(k: &str) -> &'static str {
+    match k {
+        "board" => "Board wins",
+        "github" => "GitHub wins",
+        _ => "Ask",
+    }
+}
+
+/// The existing-cards choice with its count (web `backfillTitles`).
+fn backfill_word(b: &str, counts: Option<BackfillCounts>) -> String {
+    match (b, counts) {
+        ("recent", Some(c)) => format!("Recent 30 days ({})", c.recent),
+        ("recent", None) => "Recent 30 days".into(),
+        ("all", Some(c)) => format!("All ({})", c.all),
+        ("all", None) => "All".into(),
+        _ => "None".into(),
     }
 }
 
@@ -1985,6 +2269,34 @@ fn connections_strip(ui: &mut egui::Ui, model: &Model, data: &Data) -> Option<St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mirror_rows_replace_one_repository() {
+        let row = |p: &str, r: &str| MirrorRow {
+            project: p.into(),
+            repo: r.into(),
+            ..Default::default()
+        };
+        let rows = vec![row("web", "acme/api"), row("ops", "acme/infra")];
+        let out = rows_with(&rows, "acme/api", Some(row("app", "acme/api")));
+        assert_eq!(out, vec![row("ops", "acme/infra"), row("app", "acme/api")]);
+        assert_eq!(
+            rows_with(&rows, "acme/api", None),
+            vec![row("ops", "acme/infra")]
+        );
+        let c = BackfillCounts { recent: 2, all: 7 };
+        assert_eq!(backfill_word("recent", Some(c)), "Recent 30 days (2)");
+        assert_eq!(backfill_word("all", Some(c)), "All (7)");
+        assert_eq!(backfill_word("none", Some(c)), "None");
+        // A new draft is dirty (nothing stored); a stored one is not until edited.
+        let mut d = MirrorDraft::of("acme/api", None);
+        assert!(d.dirty() && d.row.repo == "acme/api" && d.row.backfill == "none");
+        let stored = row("web", "acme/api");
+        d = MirrorDraft::of("acme/api", Some(&stored));
+        assert!(!d.dirty());
+        d.hours = "4".into();
+        assert!(d.dirty());
+    }
 
     #[test]
     fn slsa_and_protected_branches() {

@@ -166,6 +166,161 @@ pub async fn file_card(core: &Core, data: &Value, origin: &Origin) -> Result<Opt
     Ok(Some(card.id))
 }
 
+// ---- hand-off from the Conflicts screen --------------------------------------
+
+/// The node `belai:conflict-resolver` would run on for `repo`, or why it
+/// cannot start now (the Conflicts screen's disabled reason). Revoked nodes
+/// never qualify.
+pub fn resolver_host(
+    nodes: &[kls_store::Node],
+    online: &[String],
+    stopped: bool,
+    repo: &str,
+) -> std::result::Result<String, String> {
+    if stopped {
+        return Err("Factory stopped".into());
+    }
+    let live: Vec<String> = online
+        .iter()
+        .filter(|id| {
+            nodes
+                .iter()
+                .find(|n| &n.id == *id)
+                .is_none_or(|n| n.revoked_at.is_none())
+        })
+        .cloned()
+        .collect();
+    crate::route::pick_node(nodes, &live, AGENT, "", repo)
+}
+
+/// What [`dispatch_resolver`] did.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Handed {
+    pub card_id: String,
+    pub key: String,
+    /// The card for the pull request was already open.
+    pub existing: bool,
+    pub node: String,
+    /// The dispatch id; `None` when the card is held (fork code).
+    pub dispatch: Option<String>,
+}
+
+/// "Resolve with belai:conflict-resolver": files (or reuses) the pull
+/// request's `merge-conflict` card and starts the builtin worker on a node
+/// that offers it, so it claims the card. Refused, and audited, under the
+/// kill switch or a maintenance window and when no node qualifies; a fork's
+/// card is filed held for a person and nothing is dispatched. Every outcome
+/// is audited (`conflict_resolver.dispatch`) with the surface it came from.
+pub async fn dispatch_resolver(
+    core: &Core,
+    set: &kls_github::conflicts::ConflictSet,
+    url: &str,
+    caller: &str,
+) -> Result<Handed> {
+    let target = format!("{}#{}", set.repo, set.number);
+    let origin =
+        Origin::person(json!({ "surface": "conflicts", "caller": caller, "pull": target }));
+    let note = |outcome: String, data: Value| {
+        let target = target.clone();
+        let origin = &origin;
+        async move {
+            guard::audit(
+                core,
+                "dispatch",
+                "conflict_resolver.dispatch",
+                json!({ "pull": target, "agent": AGENT }),
+                origin,
+                &outcome,
+                data,
+            )
+            .await
+        }
+    };
+    // The kill switch first (audited `factory.refused` by the check).
+    if let Err(e) = kls_core::control::check(core, "dispatch", &target, "conflicts").await {
+        note(
+            format!("refused: {e:#}"),
+            json!({ "reason": "kill_switch" }),
+        )
+        .await?;
+        return Err(e);
+    }
+    if let Some(why) = guard::window(core, "dispatch").await {
+        note(format!("refused: {why}"), json!({ "reason": "window" })).await?;
+        anyhow::bail!("{why}");
+    }
+    let gw = core.gateway()?;
+    let online = gw.online().await;
+    let nodes = core.store().nodes().await?;
+    let node = match resolver_host(&nodes, &online, false, &set.repo) {
+        Ok(n) => n,
+        Err(why) => {
+            note(format!("refused: {why}"), json!({ "reason": "no_node" })).await?;
+            anyhow::bail!("{why}");
+        }
+    };
+    let card = kls_github::conflicts::file_resolver_card(core, set, url, caller).await?;
+    if set.is_fork() {
+        note(
+            "held for fork code".into(),
+            json!({ "card": card.key, "nodeId": node }),
+        )
+        .await?;
+        return Ok(Handed {
+            card_id: card.card_id,
+            key: card.key,
+            existing: card.existing,
+            node,
+            dispatch: None,
+        });
+    }
+    let spec = kls_core::DispatchSpec {
+        kind: "worker".into(),
+        repo: set.repo.clone(),
+        branch: set.head_ref.clone(),
+        prompt: format!(
+            "Resolve the merge conflicts of {target} on card {} (head {}, base {}).",
+            card.key, set.head_ref, set.base_ref
+        ),
+        agent: AGENT.into(),
+        card_id: card.card_id.clone(),
+        mode: "agent".into(),
+        trigger: Some(kls_core::gateway::Trigger {
+            source: "console".into(),
+            card_id: card.card_id.clone(),
+            subject: format!("conflicts:{target}"),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let id = match gw.dispatch(&node, spec).await {
+        Ok(id) => id,
+        Err(e) => {
+            note(
+                format!("failed: {e:#}"),
+                json!({ "card": card.key, "nodeId": node }),
+            )
+            .await?;
+            return Err(e);
+        }
+    };
+    if let Some(c) = core.card(&card.card_id).await? {
+        core.note_card_dispatch(&c, &node, &id).await?;
+    }
+    note(
+        "dispatched".into(),
+        json!({ "card": card.key, "nodeId": node, "dispatchId": id, "existing": card.existing }),
+    )
+    .await?;
+    Ok(Handed {
+        card_id: card.card_id,
+        key: card.key,
+        existing: card.existing,
+        node,
+        dispatch: Some(id),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,5 +376,187 @@ mod tests {
         core.set_factory_stopped(true, "").await.unwrap();
         assert!(on_conflict(&core, &ev(1, false)).await.unwrap().is_none());
         assert!(core.cards().await.unwrap().is_empty());
+    }
+
+    fn node(id: &str, agents: &[&str], revoked: bool) -> kls_store::Node {
+        kls_store::Node {
+            id: id.into(),
+            name: id.into(),
+            host: kls_store::HostInfo {
+                agents: agents.iter().map(|s| s.to_string()).collect(),
+                ..Default::default()
+            },
+            cert_serial: String::new(),
+            created_at: 0,
+            last_seen_at: None,
+            revoked_at: revoked.then_some(1),
+            revoked_reason: None,
+            node_seq: 0,
+            server_acked: 0,
+        }
+    }
+
+    #[test]
+    fn resolver_host_needs_a_live_node_offering_the_worker() {
+        let nodes = vec![
+            node("a", &["belai:builder"], false),
+            node("b", &[AGENT], false),
+            node("c", &[AGENT], true),
+        ];
+        let on = |ids: &[&str]| ids.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            resolver_host(&nodes, &on(&["b"]), true, "acme/api").unwrap_err(),
+            "Factory stopped"
+        );
+        assert_eq!(
+            resolver_host(&nodes, &[], false, "acme/api").unwrap_err(),
+            "no node is online"
+        );
+        assert_eq!(
+            resolver_host(&nodes, &on(&["a"]), false, "acme/api").unwrap_err(),
+            format!("no online node offers {AGENT}")
+        );
+        // A revoked node never qualifies, even while linked.
+        assert!(resolver_host(&nodes, &on(&["a", "c"]), false, "acme/api").is_err());
+        assert_eq!(
+            resolver_host(&nodes, &on(&["a", "b"]), false, "acme/api").unwrap(),
+            "b"
+        );
+    }
+
+    #[derive(Default)]
+    struct Gw {
+        sent: std::sync::Mutex<Vec<(String, kls_core::DispatchSpec)>>,
+    }
+
+    #[async_trait::async_trait]
+    impl kls_core::NodeGateway for Gw {
+        async fn online(&self) -> Vec<String> {
+            vec!["n1".into()]
+        }
+        async fn dispatch(&self, node: &str, spec: kls_core::DispatchSpec) -> Result<String> {
+            self.sent.lock().unwrap().push((node.into(), spec));
+            Ok("d1".into())
+        }
+        async fn job(
+            &self,
+            _: Option<&str>,
+            _: &str,
+            _: &str,
+            _: kls_core::JobNeeds,
+            _: i64,
+        ) -> Result<kls_core::JobOutcome> {
+            anyhow::bail!("no jobs")
+        }
+    }
+
+    fn set(head_repo: &str) -> kls_github::conflicts::ConflictSet {
+        kls_github::conflicts::ConflictSet {
+            repo: "acme/api".into(),
+            number: 12,
+            title: "Feature".into(),
+            head_repo: head_repo.into(),
+            head_ref: "feat".into(),
+            head_sha: "1".repeat(40),
+            base_ref: "main".into(),
+            base_sha: "b".repeat(40),
+            merge_base: "m".repeat(40),
+            files: Vec::new(),
+            base_only: Vec::new(),
+            forge: kls_github::ForgeKind::Github,
+        }
+    }
+
+    async fn add_node(core: &Core, agent: &str) {
+        let host = kls_store::HostInfo {
+            agents: vec![agent.into()],
+            ..Default::default()
+        };
+        core.store()
+            .insert_node("n1", "n1", &host, "s", "")
+            .await
+            .unwrap();
+    }
+
+    async fn with_gateway(core: &Core) -> std::sync::Arc<Gw> {
+        let gw = std::sync::Arc::new(Gw::default());
+        core.set_gateway(gw.clone());
+        gw
+    }
+
+    async fn dispatch_audit(core: &Core) -> Vec<String> {
+        crate::guard::audited(core, "dispatch")
+            .await
+            .into_iter()
+            .filter(|e| e.subject["action"] == "conflict_resolver.dispatch")
+            .map(|e| e.payload["outcome"].as_str().unwrap_or("").to_string())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn resolver_dispatch_files_the_card_and_starts_the_worker() {
+        let (core, _d) = core().await;
+        add_node(&core, AGENT).await;
+        let gw = with_gateway(&core).await;
+        let url = "https://github.com/acme/api/pull/12";
+        let h = dispatch_resolver(&core, &set("acme/api"), url, "user")
+            .await
+            .unwrap();
+        assert_eq!((h.node.as_str(), h.dispatch.as_deref()), ("n1", Some("d1")));
+        let sent = gw.sent.lock().unwrap().clone();
+        assert_eq!(sent.len(), 1);
+        let (n, spec) = &sent[0];
+        assert_eq!(n, "n1");
+        assert_eq!(
+            (
+                spec.kind.as_str(),
+                spec.agent.as_str(),
+                spec.branch.as_str()
+            ),
+            ("worker", AGENT, "feat")
+        );
+        assert_eq!(spec.card_id, h.card_id);
+        assert_eq!(spec.trigger.as_ref().unwrap().source, "console");
+        let c = core.card(&h.card_id).await.unwrap().unwrap();
+        assert_eq!(c.labels, [LABEL]);
+        assert_eq!(dispatch_audit(&core).await, ["dispatched"]);
+    }
+
+    #[tokio::test]
+    async fn resolver_dispatch_is_refused_when_stopped_or_without_a_node() {
+        let (core, _d) = core().await;
+        // Linked, but the node offers only another worker.
+        add_node(&core, "belai:builder").await;
+        let gw = with_gateway(&core).await;
+        let e = dispatch_resolver(&core, &set("acme/api"), "", "user")
+            .await
+            .unwrap_err();
+        assert!(format!("{e:#}").contains("offers"), "{e:#}");
+        assert!(core.cards().await.unwrap().is_empty());
+        kls_core::control::stop(&core, "drill").await.unwrap();
+        let e = dispatch_resolver(&core, &set("acme/api"), "", "user")
+            .await
+            .unwrap_err();
+        assert!(kls_core::control::is_blocked(&e), "{e:#}");
+        assert!(core.cards().await.unwrap().is_empty());
+        assert!(gw.sent.lock().unwrap().is_empty());
+        let a = dispatch_audit(&core).await;
+        assert_eq!(a.len(), 2, "{a:?}");
+        assert!(a.iter().all(|o| o.starts_with("refused")), "{a:?}");
+    }
+
+    #[tokio::test]
+    async fn resolver_dispatch_holds_a_fork() {
+        let (core, _d) = core().await;
+        add_node(&core, AGENT).await;
+        let gw = with_gateway(&core).await;
+        let h = dispatch_resolver(&core, &set("stranger/api"), "", "user")
+            .await
+            .unwrap();
+        assert!(h.dispatch.is_none());
+        assert!(gw.sent.lock().unwrap().is_empty());
+        let c = core.card(&h.card_id).await.unwrap().unwrap();
+        assert!(kls_core::board::cards::is_held(&c));
+        assert_eq!(dispatch_audit(&core).await, ["held for fork code"]);
     }
 }
