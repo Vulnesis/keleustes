@@ -49,17 +49,24 @@ impl Library for Svc {
     ) -> Result<Response<pb::LibraryDoc>, Status> {
         let node = authenticate(&self.hub, &req).await?;
         let r = req.into_inner();
-        if r.dispatch_id.is_empty() {
-            return Err(Status::permission_denied(
-                "a fetch names the dispatch it serves",
-            ));
+        let core = self.hub.core();
+        let (out, doc, files) = match (r.dispatch_id.is_empty(), r.teleport_id.is_empty()) {
+            (false, _) => {
+                core.library_fetch_files(&node, &r.dispatch_id, &ref_of(r.r#ref)?)
+                    .await
+            }
+            // A profile or crew a teleport to this node needs (#17).
+            (true, false) => {
+                core.library_fetch_teleport(&node, &r.teleport_id, &ref_of(r.r#ref)?)
+                    .await
+            }
+            (true, true) => {
+                return Err(Status::permission_denied(
+                    "a fetch names the dispatch or teleport it serves",
+                ));
+            }
         }
-        let (out, doc, files) = self
-            .hub
-            .core()
-            .library_fetch_files(&node, &r.dispatch_id, &ref_of(r.r#ref)?)
-            .await
-            .map_err(refusal)?;
+        .map_err(refusal)?;
         Ok(Response::new(pb::LibraryDoc {
             dispatch_id: r.dispatch_id,
             r#ref: Some(ref_pb(out)),
@@ -126,25 +133,28 @@ impl Library for Svc {
         &self,
         req: Request<pb::LibraryInventory>,
     ) -> Result<Response<pb::LibraryVerdicts>, Status> {
-        let _node = authenticate(&self.hub, &req).await?;
+        let node = authenticate(&self.hub, &req).await?;
         let items: Vec<LibraryRef> = req
             .into_inner()
             .items
             .into_iter()
             .map(|r| ref_of(Some(r)))
             .collect::<Result<_, _>>()?;
+        // The automatic sync (#20): push and install verdicts queue their
+        // backup or install dispatch, named in `dispatch_id`.
         let v = self
             .hub
             .core()
-            .library_reconcile(&items)
+            .library_reconcile_sync(&node, &items)
             .await
             .map_err(internal)?;
         Ok(Response::new(pb::LibraryVerdicts {
             verdicts: v
                 .into_iter()
-                .map(|(r, verdict)| pb::LibraryVerdict {
+                .map(|(r, verdict, dispatch_id)| pb::LibraryVerdict {
                     r#ref: Some(ref_pb(r)),
                     verdict,
+                    dispatch_id,
                 })
                 .collect(),
         }))

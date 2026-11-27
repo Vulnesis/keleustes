@@ -2627,7 +2627,7 @@ impl HostScreen {
         });
         let values: BTreeMap<String, String> = last
             .as_ref()
-            .map(|a| flatten(&serde_json::from_str(&a.result_json).unwrap_or_default()))
+            .map(|a| config_values(&a.result_json))
             .unwrap_or_default();
         egui::Grid::new("host-config")
             .num_columns(4)
@@ -2653,6 +2653,24 @@ impl HostScreen {
                             key: key.to_string(),
                             old: v.clone(),
                             value: v,
+                            path: None,
+                        });
+                    }
+                    ui.end_row();
+                }
+                for name in telemetry_headers(&values) {
+                    ui.label(RichText::new("Telemetry").color(p.muted));
+                    ui.label(kit::mono(
+                        &format!("{TELEMETRY_HEADER}{name}"),
+                        12.0,
+                        p.text,
+                    ));
+                    ui.label(icons::label(icons::LOCK_SIMPLE, "present"));
+                    if self.gated(ui, g, "config_set", icons::PENCIL_SIMPLE, "edit") {
+                        self.edit = Some(ConfigEdit {
+                            key: format!("{TELEMETRY_HEADER}{name}"),
+                            old: String::new(),
+                            value: String::new(),
                             path: None,
                         });
                     }
@@ -2690,6 +2708,14 @@ impl HostScreen {
                     ui.end_row();
                 }
             });
+        if self.gated(ui, g, "config_set", icons::PLUS, "Telemetry header") {
+            self.edit = Some(ConfigEdit {
+                key: TELEMETRY_HEADER.into(),
+                old: String::new(),
+                value: "env:".into(),
+                path: None,
+            });
+        }
     }
 
     fn edit_dialog(&mut self, ctx: &egui::Context, model: &Model, view: &HostView) {
@@ -2713,6 +2739,9 @@ impl HostScreen {
                     if e.old.is_empty() {
                         ui.add(egui::TextEdit::singleline(&mut e.key).hint_text("key"));
                     }
+                } else if e.key.starts_with(TELEMETRY_HEADER) && e.old.is_empty() {
+                    // A new OTLP header: its name, then env:NAME (or empty: remove).
+                    ui.add(egui::TextEdit::singleline(&mut e.key).hint_text("header"));
                 }
                 ui.label(kit::mono(&format!("{} → ", or_dash(&e.old)), 12.0, p.muted));
                 ui.add(
@@ -2726,7 +2755,7 @@ impl HostScreen {
                     ui.label(kit::mono(&format!("if sha {}", short(&sha)), 11.0, p.muted));
                 }
                 ui.horizontal(|ui| {
-                    let ok = !e.key.trim().is_empty();
+                    let ok = !e.key.trim().is_empty() && e.key.trim() != TELEMETRY_HEADER;
                     if ui
                         .add_enabled(ok, egui::Button::new(icons::label(icons::CHECK, "Save")))
                         .clicked()
@@ -2746,6 +2775,22 @@ impl HostScreen {
                         model.act(move |m| async move {
                             hosts::request_action(m.core(), req).await?;
                             Ok(None)
+                        });
+                        keep = false;
+                    }
+                    // The factory-wide collector: the same config_set on every host.
+                    if e.key == "telemetry.otlp_endpoint"
+                        && kit::ghost_button(ui, &icons::label(icons::GLOBE, "All hosts")).clicked()
+                    {
+                        let value = e.value.trim().to_string();
+                        let origin = self.origin();
+                        model.act(move |m| async move {
+                            let res = hosts::telemetry_everywhere(m.core(), &value, origin).await?;
+                            let sent = res.iter().filter(|(_, r)| r.is_ok()).count();
+                            Ok(Some(Notice::Info(format!(
+                                "Telemetry {sent}/{}",
+                                res.len()
+                            ))))
                         });
                         keep = false;
                     }
@@ -3739,7 +3784,44 @@ const REMOTE_KEYS: &[(&str, &str, &str)] = &[
     ("Sync", "sync.remote_prompts", "tighten"),
     ("Sync", "sync.hooks", "tighten"),
     ("A2A", "a2a.enabled", "tighten"),
+    // OpenTelemetry export (row 50): facts only; headers name a host env var.
+    ("Telemetry", "telemetry.otlp_endpoint", "set"),
+    ("Telemetry", "telemetry.traces", "set"),
+    ("Telemetry", "telemetry.metrics", "set"),
 ];
+
+/// The prefix of one OTLP export header key (`telemetry.headers.<Name>`).
+const TELEMETRY_HEADER: &str = "telemetry.headers.";
+
+/// A `config_get` result as key → value: the host's `remote_keys` rows
+/// first (the effective values), then its redacted settings flattened.
+pub fn config_values(result_json: &str) -> BTreeMap<String, String> {
+    let v: serde_json::Value = serde_json::from_str(result_json).unwrap_or_default();
+    let mut out = flatten(v.get("settings").unwrap_or(&serde_json::Value::Null));
+    for k in v
+        .get("remote_keys")
+        .and_then(|k| k.as_array())
+        .into_iter()
+        .flatten()
+    {
+        if let (Some(key), Some(val)) = (k["key"].as_str(), k["value"].as_str()) {
+            out.insert(key.to_string(), val.to_string());
+        }
+    }
+    out
+}
+
+/// The OTLP header names a `config_get` result lists (values stay redacted).
+pub fn telemetry_headers(values: &BTreeMap<String, String>) -> Vec<String> {
+    let mut out: Vec<String> = values
+        .keys()
+        .filter_map(|k| k.strip_prefix(TELEMETRY_HEADER))
+        .map(|rest| rest.split('.').next().unwrap_or(rest).to_string())
+        .filter(|n| !n.is_empty())
+        .collect();
+    out.dedup();
+    out
+}
 
 /// The built-in agents a repo can switch: what the host advertises, then
 /// the bundled catalogue (builtin-agents P1) for a host that lists none.
@@ -4182,6 +4264,27 @@ mod tests {
         let p = parse_params("product=cli, on = npm");
         assert_eq!(p["product"], "cli");
         assert_eq!(p["on"], "npm");
+    }
+
+    #[test]
+    fn config_values_read_remote_keys_and_list_telemetry_headers() {
+        let r = serde_json::json!({
+            "scope": "global",
+            "settings": {"model": "m", "telemetry": {"headers": {"x-api-key": {"present": true}}}},
+            "remote_keys": [
+                {"key": "telemetry.otlp_endpoint", "value": "http://localhost:4318"},
+                {"key": "model", "value": "m2"}
+            ]
+        });
+        let v = config_values(&r.to_string());
+        assert_eq!(v["telemetry.otlp_endpoint"], "http://localhost:4318");
+        assert_eq!(v["model"], "m2");
+        assert_eq!(telemetry_headers(&v), ["x-api-key"]);
+        assert!(
+            REMOTE_KEYS
+                .iter()
+                .any(|(s, k, _)| *s == "Telemetry" && *k == "telemetry.otlp_endpoint")
+        );
     }
 
     #[test]

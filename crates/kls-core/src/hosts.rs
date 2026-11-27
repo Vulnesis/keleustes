@@ -591,7 +591,10 @@ impl Origin {
                 || self.surface.starts_with("fleet/")
                 || self.surface.starts_with("plan:")
                 || self.surface.starts_with("workflow:")
-                || self.surface.starts_with("teleport:"))
+                || self.surface.starts_with("teleport:")
+                // The owner's automatic library sync (#20), on unless
+                // `library.auto_sync` is off.
+                || self.surface == "library.sync")
     }
 
     /// One-line form for refusal events.
@@ -765,6 +768,112 @@ fn clean_origin(mut o: Origin) -> Origin {
         .take(MAX_REASON)
         .collect();
     o
+}
+
+/// The OpenTelemetry keys a console sets on a host with `config_set`
+/// (belai docs/telemetry.md, row 50), besides `telemetry.headers.<Name>`.
+pub const TELEMETRY_KEYS: [&str; 3] = [
+    "telemetry.otlp_endpoint",
+    "telemetry.traces",
+    "telemetry.metrics",
+];
+
+/// Checks a `telemetry.*` `config_set` before it is queued (the host checks
+/// again). The endpoint is an `http(s)://host[:port][/path]` URL with no
+/// credentials, query or fragment, or empty (export off). A header names a
+/// host environment variable (`env:NAME`) or is empty (removed): a secret
+/// value never goes through Keleustes or into the host's settings file.
+/// Keys outside `telemetry.` pass unchanged.
+pub fn telemetry_value(key: &str, value: &str) -> std::result::Result<(), &'static str> {
+    let Some(rest) = key.strip_prefix("telemetry.") else {
+        return Ok(());
+    };
+    if let Some(name) = rest.strip_prefix("headers.") {
+        let name_ok = !name.is_empty()
+            && name.len() <= 64
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
+        if !name_ok {
+            return Err("a telemetry header name takes letters, digits and '-'");
+        }
+        let env_ok = value.is_empty()
+            || value.strip_prefix("env:").is_some_and(|n| {
+                !n.is_empty()
+                    && n.len() <= 64
+                    && !n.starts_with(|c: char| c.is_ascii_digit())
+                    && n.chars()
+                        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+            });
+        if !env_ok {
+            return Err("a telemetry header names a host environment variable (env:NAME)");
+        }
+        return Ok(());
+    }
+    match rest {
+        "traces" | "metrics" => {
+            if matches!(value, "true" | "false") {
+                Ok(())
+            } else {
+                Err("takes true or false")
+            }
+        }
+        "otlp_endpoint" => {
+            if value.is_empty() {
+                return Ok(());
+            }
+            let after = value
+                .strip_prefix("https://")
+                .or_else(|| value.strip_prefix("http://"))
+                .ok_or("the endpoint is an http:// or https:// URL")?;
+            let host = after.split('/').next().unwrap_or("");
+            let ok = value.len() <= 128
+                && !host.is_empty()
+                && !value.contains(['@', '?', '#', ' ', '\\'])
+                && host
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '[' | ']'))
+                && after.chars().all(|c| c.is_ascii_graphic());
+            if ok {
+                Ok(())
+            } else {
+                Err("the endpoint is a collector URL without credentials, query or fragment")
+            }
+        }
+        _ => Err("not a telemetry key Keleustes sets"),
+    }
+}
+
+/// The factory-wide OTLP endpoint (row 50): a `config_set` of
+/// `telemetry.otlp_endpoint` to every node that offers it, each through
+/// [`request_action`] (kill switch, gate, if-match, audit). Returns each
+/// node's queued action id or its refusal.
+pub async fn telemetry_everywhere(
+    core: &Core,
+    endpoint: &str,
+    origin: Origin,
+) -> Result<Vec<(String, std::result::Result<String, String>)>> {
+    telemetry_value("telemetry.otlp_endpoint", endpoint).map_err(|e| anyhow::anyhow!(e))?;
+    let mut out = Vec::new();
+    for n in core.store().nodes().await? {
+        if n.revoked_at.is_some() {
+            continue;
+        }
+        let Some((_, inv)) = inventory(core, &n.id).await? else {
+            continue;
+        };
+        if !inv.offers("config_set") {
+            continue;
+        }
+        let mut req = ActionRequest::new(&n.id, "config_set", origin.clone())
+            .param("key", "telemetry.otlp_endpoint")
+            .param("value", endpoint);
+        req.if_match = inv.settings_sha256.clone();
+        let r = request_action(core, req)
+            .await
+            .map(|row| row.id)
+            .map_err(|e| format!("{e:#}"));
+        out.push((n.id, r));
+    }
+    Ok(out)
 }
 
 /// Whether the action touches what the A2A blackout freezes: A2A settings,
@@ -1080,6 +1189,13 @@ async fn policy(
     }
     if req.kind == "product_auth" && req.params.get("product").map(String::as_str) != Some("cli") {
         return Err(Refusal::Invalid("only the CLI signs in".into()));
+    }
+    if req.kind == "config_set" {
+        let key = req.params.get("key").map(String::as_str).unwrap_or("");
+        let value = req.params.get("value").map(String::as_str).unwrap_or("");
+        if let Err(why) = telemetry_value(key, value) {
+            return Err(Refusal::Invalid(why.into()));
+        }
     }
     if req.kind == "config_set" && !req.dry_run {
         let want = &inv.settings_sha256;
@@ -2376,6 +2492,21 @@ pub async fn library_dispatch(
     code_confirmed: bool,
     origin: Origin,
 ) -> Result<String> {
+    library_dispatch_with(core, node_id, kind, items, code_confirmed, false, origin).await
+}
+
+/// [`library_dispatch`] with `Dispatch.overwrite`: an install replaces the
+/// host's copy (the automatic sync's "install" verdict, where the host
+/// holds an older library version unchanged).
+pub async fn library_dispatch_with(
+    core: &Core,
+    node_id: &str,
+    kind: &str,
+    items: Vec<crate::gateway::LibraryRef>,
+    code_confirmed: bool,
+    overwrite: bool,
+    origin: Origin,
+) -> Result<String> {
     let origin = clean_origin(origin);
     let event = format!("host.{kind}");
     if !LIBRARY_DISPATCHES.contains(&kind) {
@@ -2447,6 +2578,7 @@ pub async fn library_dispatch(
             crate::gateway::DispatchSpec {
                 kind: kind.into(),
                 library: items,
+                overwrite,
                 trigger: Some(crate::gateway::Trigger {
                     source: "console".into(),
                     subject: origin.surface.clone(),
@@ -2464,7 +2596,7 @@ pub async fn library_dispatch(
         &origin,
         "dispatched",
         "",
-        json!({ "dispatchId": id, "items": names }),
+        json!({ "dispatchId": id, "items": names, "overwrite": overwrite }),
     )
     .await?;
     Ok(id)

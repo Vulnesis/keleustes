@@ -61,7 +61,7 @@ pub const MAX_NEEDS: usize = 24;
 /// The settings key a teleport's needs are kept under (the teleport table
 /// has no column for them).
 pub fn needs_key(teleport_id: &str) -> String {
-    format!("teleport.needs.{teleport_id}")
+    kls_core::belai::library::teleport_needs_key(teleport_id)
 }
 
 /// A profile or crew name as belai writes one: letters, digits and
@@ -358,7 +358,10 @@ impl Teleport for Svc {
         req: Request<pb::TeleportRequest>,
     ) -> Result<Response<Self::DownloadStream>, Status> {
         let node = authenticate(&self.hub, &req).await?;
-        let id = req.into_inner().teleport_id;
+        let pb::TeleportRequest {
+            teleport_id: id,
+            fetch_needs,
+        } = req.into_inner();
         let core = self.hub.core().clone();
         let t = core
             .teleport_for_download(&node, &id)
@@ -427,8 +430,12 @@ impl Teleport for Svc {
             if let Err(e) = core.teleport_downloaded(&t.id).await {
                 tracing::warn!(teleport = %t.id, "record download: {e:#}");
             }
-            // Once, on the first whole delivery; a repeat download reinstalls nothing.
-            if first {
+            // Once, on the first whole delivery; a repeat download reinstalls
+            // nothing. A downloader that fetches the needs itself
+            // (Library.Fetch with the teleport id) gets no dispatch.
+            if first && fetch_needs {
+                tracing::info!(teleport = %t.id, needs = needs.len(), "teleport needs left to the target's fetch");
+            } else if first {
                 install_needs(&core, &t, needs).await;
             }
         });

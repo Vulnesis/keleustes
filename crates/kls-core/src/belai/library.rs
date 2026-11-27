@@ -27,6 +27,13 @@ const MAX_DOC: usize = 1024 * 1024;
 /// Kinds the host never gets from Reconcile (an explicit install only).
 pub const INSTALL_ONLY: [&str; 2] = ["hook", "mcp"];
 
+/// Setting that turns the automatic sync's dispatches off (`off`); on when
+/// unset. Reconcile verdicts are answered either way.
+pub const AUTO_SYNC: &str = "library.auto_sync";
+
+/// The automatic sync queues the same set for a node at most this often.
+pub const SYNC_EVERY_MS: i64 = 30 * 60 * 1000;
+
 fn denied(why: &str) -> anyhow::Error {
     anyhow::Error::new(Refusal::NotOwner).context(why.to_string())
 }
@@ -71,6 +78,12 @@ pub fn manifest_hash(entries: &[kls_store::libsearch::BundleEntry]) -> String {
         h.update(b"\n");
     }
     hex::encode(h.finalize())
+}
+
+/// The settings key a teleport's needs (a JSON `Vec<LibraryRef>`) are kept
+/// under; the teleport table has no column for them.
+pub fn teleport_needs_key(teleport_id: &str) -> String {
+    format!("teleport.needs.{teleport_id}")
 }
 
 fn confirm_key(node: &str, item: &str, version: i64) -> String {
@@ -138,6 +151,71 @@ impl Core {
             &format!("host:{node}"),
         )
         .await?;
+        self.library_doc(node, "dispatch", dispatch_id, r).await
+    }
+
+    /// A profile or crew a teleport needs, for `Library.Fetch(teleport_id)`
+    /// (WP-E, requests-governance.md P4): answered only for the node the
+    /// teleport is addressed to while it is `ready` or `delivered` and not
+    /// expired, and only for a need stored with it (kind and name). Refused
+    /// under the kill switch and, like a profile or crew install, under the
+    /// A2A blackout. Audited with `subject.teleport`.
+    pub async fn library_fetch_teleport(
+        &self,
+        node: &str,
+        teleport_id: &str,
+        r: &LibraryRef,
+    ) -> Result<(LibraryRef, Vec<u8>, Vec<BundleFile>)> {
+        if !matches!(r.kind.as_str(), "profile" | "crew") {
+            return Err(denied("a teleport needs profiles and crews only"));
+        }
+        let t = self
+            .teleport_for_download(node, teleport_id)
+            .await
+            .map_err(|e| {
+                denied(&format!(
+                    "the teleport is not this node's to fetch for: {e}"
+                ))
+            })?;
+        let needs: Vec<LibraryRef> = self
+            .store()
+            .setting(&teleport_needs_key(&t.id))
+            .await?
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        let target = format!("{} {}", r.kind, r.name);
+        crate::control::check(self, "library_install", &target, &format!("host:{node}")).await?;
+        if crate::control::state(self).await?.a2a_blackout {
+            // Emits the audited a2a.withheld event.
+            let _ =
+                crate::control::check_a2a(self, "keleustes", node, &format!("host:{node}")).await;
+            return Err(denied("the A2A blackout holds profile and crew installs"));
+        }
+        // Resolve first, so a ref by id is checked by the name it has here.
+        let name = match (!r.id.is_empty()).then_some(&r.id) {
+            Some(id) => self
+                .store()
+                .library_item(id)
+                .await?
+                .map(|i| i.name)
+                .unwrap_or_default(),
+            None => r.name.clone(),
+        };
+        if !needs.iter().any(|n| n.kind == r.kind && n.name == name) {
+            return Err(denied("the teleport does not need that item"));
+        }
+        self.library_doc(node, "teleport", &t.id, r).await
+    }
+
+    /// The document (and files) for `r`, after the caller authorized it;
+    /// `scope` names the dispatch or teleport it serves in the audit.
+    async fn library_doc(
+        &self,
+        node: &str,
+        scope: &str,
+        scope_id: &str,
+        r: &LibraryRef,
+    ) -> Result<(LibraryRef, Vec<u8>, Vec<BundleFile>)> {
         let store = self.store();
         let item = match (!r.id.is_empty()).then_some(&r.id) {
             Some(id) => store.library_item(id).await?,
@@ -187,7 +265,7 @@ impl Core {
                             "hook {} v{} refused: its files were not confirmed",
                             out.name, out.version
                         ),
-                        subject: json!({ "item": out.id, "dispatch": dispatch_id }),
+                        subject: json!({ "item": out.id, scope: scope_id }),
                         payload: json!({ "files": entries.len(), "manifest": manifest, "outcome": "refused" }),
                         origin: format!("host:{node}"),
                         node_id: node.into(),
@@ -236,7 +314,7 @@ impl Core {
                 "{} {} v{} fetched for install",
                 out.kind, out.name, out.version
             ),
-            subject: json!({ "item": out.id, "dispatch": dispatch_id }),
+            subject: json!({ "item": out.id, scope: scope_id }),
             payload: json!({ "kind": out.kind, "version": out.version, "sha256": out.sha256,
                              "files": files.len(), "manifest": manifest }),
             origin: format!("host:{node}"),
@@ -547,6 +625,143 @@ impl Core {
                 },
             };
             out.push((r.clone(), verdict.to_string()));
+        }
+        Ok(out)
+    }
+
+    /// Whether the automatic sync queues dispatches ([`AUTO_SYNC`]).
+    pub async fn library_auto_sync(&self) -> Result<bool> {
+        Ok(self.store().setting(AUTO_SYNC).await?.as_deref() != Some("off"))
+    }
+
+    /// Turns the automatic sync on or off: stored, audited with who and
+    /// where, and announced (`library.auto_sync`). Each dispatch it queues
+    /// is still checked against the kill switch when it is queued.
+    pub async fn set_library_auto_sync(&self, on: bool, actor: &str, origin: &str) -> Result<()> {
+        let word = if on { "on" } else { "off" };
+        self.store().set_setting(AUTO_SYNC, word).await?;
+        self.audit_record(LedgerDraft {
+            kind: "library".into(),
+            actor: actor.into(),
+            actor_kind: "user".into(),
+            msg: format!("library automatic sync {word}"),
+            subject: json!({ "setting": AUTO_SYNC }),
+            payload: json!({ "value": word }),
+            origin: origin.into(),
+            ..Default::default()
+        })
+        .await?;
+        self.emit(
+            "library.auto_sync",
+            AUTO_SYNC,
+            &json!({ "value": word, "origin": origin }),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// `Library.Reconcile` from `node` with the automatic sync (#20): the
+    /// verdicts of [`Core::library_reconcile`], and for each "push" a
+    /// `library_backup` and each "install" a `library_install` (overwrite:
+    /// the host holds an older library version unchanged), queued through
+    /// [`crate::hosts::library_dispatch_with`], which checks the kill switch
+    /// and the A2A blackout and audits every outcome. Hooks and MCP servers
+    /// never move this way. Off with the setting [`AUTO_SYNC`] = `off`. The
+    /// same set is not queued twice within [`SYNC_EVERY_MS`]: the earlier
+    /// dispatch id is answered again. Returns `(ref, verdict, dispatch id)`.
+    pub async fn library_reconcile_sync(
+        &self,
+        node: &str,
+        items: &[LibraryRef],
+    ) -> Result<Vec<(LibraryRef, String, String)>> {
+        let verdicts = self.library_reconcile(items).await?;
+        let mut out: Vec<(LibraryRef, String, String)> = verdicts
+            .into_iter()
+            .map(|(r, v)| (r, v, String::new()))
+            .collect();
+        if !self.library_auto_sync().await? {
+            return Ok(out);
+        }
+        for (verdict, kind, overwrite) in [
+            ("push", "library_backup", false),
+            ("install", "library_install", true),
+        ] {
+            let picked: Vec<usize> = out
+                .iter()
+                .enumerate()
+                .filter(|(_, (r, v, _))| {
+                    v == verdict
+                        && !INSTALL_ONLY.contains(&library_kind(&r.kind))
+                        && !CATALOGUE_KINDS.contains(&r.kind.as_str())
+                })
+                .map(|(i, _)| i)
+                .take(50)
+                .collect();
+            if picked.is_empty() {
+                continue;
+            }
+            let refs: Vec<LibraryRef> = picked
+                .iter()
+                .map(|&i| {
+                    let r = &out[i].0;
+                    // Names only: the host's ids and versions are its own.
+                    LibraryRef {
+                        kind: r.kind.clone(),
+                        name: r.name.clone(),
+                        sha256: r.sha256.clone(),
+                        ..Default::default()
+                    }
+                })
+                .collect();
+            let mut names: Vec<String> = refs
+                .iter()
+                .map(|r| format!("{}/{}/{}", r.kind, r.name, r.sha256))
+                .collect();
+            names.sort();
+            let digest = sha256_hex(names.join("\n").as_bytes());
+            let key = format!("library.sync.{node}.{kind}");
+            let now = kls_store::now_ms();
+            let last: Option<Value> = self
+                .store()
+                .setting(&key)
+                .await?
+                .and_then(|s| serde_json::from_str(&s).ok());
+            let recent = last.as_ref().and_then(|l| {
+                let same = l["digest"].as_str() == Some(digest.as_str());
+                let fresh = now - l["at"].as_i64().unwrap_or(0) < SYNC_EVERY_MS;
+                (same && fresh).then(|| l["id"].as_str().unwrap_or_default().to_string())
+            });
+            let id = match recent {
+                Some(id) => id,
+                None => {
+                    let origin = crate::hosts::Origin {
+                        actor: "owner".into(),
+                        surface: "library.sync".into(),
+                        reason: format!("automatic sync: {verdict}"),
+                        ..Default::default()
+                    };
+                    match crate::hosts::library_dispatch_with(
+                        self, node, kind, refs, false, overwrite, origin,
+                    )
+                    .await
+                    {
+                        Ok(id) => {
+                            let rec = json!({ "at": now, "digest": digest, "id": id });
+                            self.store().set_setting(&key, &rec.to_string()).await?;
+                            id
+                        }
+                        // Refused (kill switch, blackout, not offered):
+                        // audited there; the host asks the owner instead.
+                        Err(e) => {
+                            tracing::info!(node, kind, "library sync not queued: {e:#}");
+                            continue;
+                        }
+                    }
+                }
+            };
+            for i in picked {
+                out[i].2 = id.clone();
+            }
         }
         Ok(out)
     }
