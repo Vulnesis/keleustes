@@ -311,7 +311,10 @@ jobs:
     needs: [release, provenance]
     if: ${{ !cancelled() && needs.release.result == 'success' && needs.provenance.result == 'success' }}
     runs-on: ${{ fromJSON(vars.RELEASE_RUNS_ON || '["self-hosted","Linux","X64","vulnesis-cf"]') }}
-    timeout-minutes: 20
+    # On the vulnesis-cf runners each cosign call idles minutes after its
+    # work is done (v0.1.0-rc.3: attest-blob 8m, verify-blob 7m; belai's
+    # same step 6.5m), and 20 minutes cancelled the first rc.3 publish.
+    timeout-minutes: 45
     # id-token: keyless signing against public Fulcio.
     permissions:
       contents: write
