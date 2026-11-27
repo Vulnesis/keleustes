@@ -112,11 +112,15 @@ service Forge {
 // Library distribution (WP-E). A document is answered only for a delivered
 // dispatch (or teleport) addressed to the calling node that names it.
 service Library {
+  // With teleport_id (no dispatch_id): a profile or crew the teleport's
+  // stored needs name, for the node the teleport is addressed to while it
+  // is ready or delivered and not expired.
   rpc Fetch(LibraryFetch) returns (LibraryDoc);
   // A host's copy, for a library_backup dispatch.
   rpc Backup(LibraryDoc) returns (LibraryReceipt);
   // Automatic sync: the host's hashes in, one verdict per item out.
-  // Never "install" for kind hook or mcp.
+  // Never "install" for kind hook or mcp. Keleustes may queue the backup
+  // or install itself (LibraryVerdict.dispatch_id).
   rpc Reconcile(LibraryInventory) returns (LibraryVerdicts);
   // What a library_scan dispatch found: names, paths and hashes only.
   rpc ScanReport(LibraryScanReport) returns (Ok);
@@ -999,7 +1003,13 @@ message TeleportReceipt {
   int64 size = 2;
 }
 
-message TeleportRequest { string teleport_id = 1; }
+message TeleportRequest {
+  string teleport_id = 1;
+  // The downloader installs the header's needs itself, each through
+  // Library.Fetch(teleport_id); Keleustes then sends the target no
+  // library_install dispatch for them.
+  bool fetch_needs = 2;
+}
 
 // ---- Fleet ---------------------------------------------------------------
 
@@ -1285,6 +1295,10 @@ message LibraryVerdict {
   LibraryRef ref = 1;
   // "push", "current", "diverged", "install".
   string verdict = 2;
+  // The library_backup (push) or library_install (install) dispatch
+  // Keleustes queued for this item (automatic sync); empty when none was
+  // queued, so the host still asks the owner. Never set for hook or mcp.
+  string dispatch_id = 3;
 }
 
 // ---- Forge relay ---------------------------------------------------------

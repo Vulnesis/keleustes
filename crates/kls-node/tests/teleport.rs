@@ -163,6 +163,7 @@ async fn download(n: &TestNode, id: &str) -> Result<(pb::TeleportHeader, Vec<u8>
         .teleport()
         .download(pb::TeleportRequest {
             teleport_id: id.into(),
+            ..Default::default()
         })
         .await?
         .into_inner();

@@ -43,6 +43,8 @@ struct CrossHost {
     schedules: Vec<kls_store::belai::HostSchedule>,
     /// Library items that can go to a node (WP-E).
     library: Vec<kls_store::vault::LibraryItem>,
+    /// The automatic library sync queues backups and installs (#20).
+    auto_sync: bool,
     /// Each node's latest library scan (WP-K).
     scans: Vec<(String, Vec<kls_store::belai::ScanItem>)>,
     /// Each node's provider plan windows (row 48).
@@ -488,6 +490,7 @@ impl Fleet {
                         attention: core.store().attention("open", 50).await?,
                         schedules: core.store().host_schedules(None).await?,
                         library: core.store().library_items("").await?,
+                        auto_sync: core.library_auto_sync().await?,
                         scans: {
                             let mut v = Vec::new();
                             for n in core.store().nodes().await? {
@@ -990,7 +993,22 @@ impl Fleet {
             return;
         }
         ui.add_space(8.0);
-        ui.label(kit::caps(&icons::label(icons::BOOKS, "Library"), p.muted));
+        ui.horizontal(|ui| {
+            ui.label(kit::caps(&icons::label(icons::BOOKS, "Library"), p.muted));
+            let mut on = c.auto_sync;
+            if ui
+                .checkbox(&mut on, icons::label(icons::ARROWS_CLOCKWISE, "Auto sync"))
+                .on_hover_text("Never hooks or MCP")
+                .changed()
+            {
+                model.act(move |m| async move {
+                    m.core()
+                        .set_library_auto_sync(on, "owner", "fleet/library")
+                        .await?;
+                    Ok(None)
+                });
+            }
+        });
         let (node, item) = &mut self.lib_install;
         let chosen_id = node.clone();
         ui.horizontal(|ui| {

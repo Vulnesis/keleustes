@@ -1186,3 +1186,34 @@ fn teleport_surfaces_count_as_the_console() {
     };
     assert!(o.is_console() && !o.is_click());
 }
+
+#[test]
+fn telemetry_values_are_checked_before_they_leave() {
+    let ok = |k: &str, v: &str| telemetry_value(k, v).is_ok();
+    assert!(ok(
+        "telemetry.otlp_endpoint",
+        "https://otel.example.com:4318"
+    ));
+    assert!(ok("telemetry.otlp_endpoint", "http://localhost:4318/otlp"));
+    assert!(ok("telemetry.otlp_endpoint", ""));
+    assert!(!ok("telemetry.otlp_endpoint", "ftp://x"));
+    assert!(!ok("telemetry.otlp_endpoint", "https://u:p@x.example"));
+    assert!(!ok("telemetry.otlp_endpoint", "https://x.example/?k=v"));
+    assert!(!ok("telemetry.otlp_endpoint", "https://x.example/#f"));
+    assert!(ok("telemetry.traces", "false"));
+    assert!(!ok("telemetry.metrics", "off"));
+    assert!(ok("telemetry.headers.x-api-key", "env:OTEL_API_KEY"));
+    assert!(ok("telemetry.headers.x-api-key", ""));
+    // A secret value never goes through Keleustes.
+    assert!(!ok("telemetry.headers.x-api-key", "sk-live-123"));
+    assert!(!ok("telemetry.headers.bad name", "env:A"));
+    assert!(!ok("telemetry.sampler", "x"));
+    // Other keys are the host's to check.
+    assert!(ok("model", "anything"));
+    let sync = Origin {
+        actor: "owner".into(),
+        surface: "library.sync".into(),
+        ..Default::default()
+    };
+    assert!(sync.is_console() && !sync.is_click());
+}

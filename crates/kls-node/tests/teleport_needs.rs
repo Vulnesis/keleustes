@@ -10,6 +10,7 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use kls_core::Core;
 use kls_node::{Hub, hub, pki, run, token};
+use kls_proto::v1::library_client::LibraryClient;
 use kls_proto::v1::node_client::NodeClient;
 use kls_proto::v1::teleport_client::TeleportClient;
 use kls_proto::v1::{self as pb};
@@ -170,6 +171,7 @@ async fn download(n: &TestNode, id: &str) -> Result<(pb::TeleportHeader, Vec<u8>
         .teleport()
         .download(pb::TeleportRequest {
             teleport_id: id.into(),
+            ..Default::default()
         })
         .await?
         .into_inner();
@@ -365,6 +367,220 @@ async fn needs_dispatches_obey_the_kill_switch_and_the_a2a_blackout() {
     let ds = core.store().dispatches(Some(&b.id), 20).await.unwrap();
     assert!(!ds.iter().any(|d| d.kind == "library_install"), "{ds:?}");
     assert!(ledger_has(&core, "library_install").await);
+}
+
+fn library(n: &TestNode) -> LibraryClient<Channel> {
+    LibraryClient::new(n.chan.clone())
+}
+
+async fn fetch_for_teleport(
+    n: &TestNode,
+    teleport_id: &str,
+    kind: &str,
+    name: &str,
+) -> Result<pb::LibraryDoc, tonic::Status> {
+    library(n)
+        .fetch(pb::LibraryFetch {
+            teleport_id: teleport_id.into(),
+            r#ref: Some(pb::LibraryRef {
+                kind: kind.into(),
+                name: name.into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .await
+        .map(|r| r.into_inner())
+}
+
+async fn download_fetching(n: &TestNode, id: &str) {
+    let mut s = n
+        .teleport()
+        .download(pb::TeleportRequest {
+            teleport_id: id.into(),
+            fetch_needs: true,
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    while let Some(p) = s.message().await.unwrap() {
+        if p.last {
+            break;
+        }
+    }
+}
+
+#[tokio::test]
+async fn the_target_fetches_its_needs_by_teleport_id_only() {
+    let h = start().await;
+    let a = join(&h, "a").await;
+    let b = join(&h, "b").await;
+    let c = join(&h, "c").await;
+    let core = h.core().clone();
+    session(&core, "s1", &a.id, "rc", "log").await;
+    kls_core::vault::save_library(&core, "", "agent", "log", "", r#"{"name":"log"}"#, "t")
+        .await
+        .unwrap();
+    kls_core::vault::save_library(&core, "", "agent", "other", "", r#"{"name":"other"}"#, "t")
+        .await
+        .unwrap();
+    let body = b"bundle".to_vec();
+    let id = upload(&a, parts("", header("s1", &b.id, &body, vec![]), &body, 4))
+        .await
+        .unwrap()
+        .teleport_id;
+
+    // Not yet: the teleport must be ready (it is) and addressed to the caller.
+    let e = fetch_for_teleport(&c, &id, "profile", "log")
+        .await
+        .unwrap_err();
+    assert_eq!(e.code(), tonic::Code::PermissionDenied, "{e:?}");
+
+    // The target downloads, saying it fetches the needs itself: no dispatch.
+    download_fetching(&b, &id).await;
+    wait_status(&core, &id, "delivered").await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let ds = core.store().dispatches(Some(&b.id), 20).await.unwrap();
+    assert!(!ds.iter().any(|d| d.kind == "library_install"), "{ds:?}");
+
+    // The need is answered, audited with the teleport.
+    let doc = fetch_for_teleport(&b, &id, "profile", "log").await.unwrap();
+    assert!(String::from_utf8_lossy(&doc.doc).contains("log"));
+    let r = doc.r#ref.unwrap();
+    assert_eq!(r.name, "log");
+    assert_eq!(r.sha256, sha(&doc.doc));
+    assert!(ledger_has(&core, &id).await);
+    // An item the teleport does not need, or of another kind, is refused.
+    let e = fetch_for_teleport(&b, &id, "profile", "other")
+        .await
+        .unwrap_err();
+    assert_eq!(e.code(), tonic::Code::PermissionDenied, "{e:?}");
+    let e = fetch_for_teleport(&b, &id, "hook", "log")
+        .await
+        .unwrap_err();
+    assert_eq!(e.code(), tonic::Code::PermissionDenied, "{e:?}");
+    // A fetch naming neither a dispatch nor a teleport is refused.
+    let e = fetch_for_teleport(&b, "", "profile", "log")
+        .await
+        .unwrap_err();
+    assert_eq!(e.code(), tonic::Code::PermissionDenied, "{e:?}");
+
+    // The kill switch and the A2A blackout refuse it.
+    kls_core::control::stop(&core, "drill").await.unwrap();
+    let e = fetch_for_teleport(&b, &id, "profile", "log")
+        .await
+        .unwrap_err();
+    assert_eq!(e.code(), tonic::Code::FailedPrecondition, "{e:?}");
+    kls_core::control::resume(&core).await.unwrap();
+    kls_core::control::set_a2a_blackout(&core, true, "drill", "owner")
+        .await
+        .unwrap();
+    let e = fetch_for_teleport(&b, &id, "profile", "log")
+        .await
+        .unwrap_err();
+    assert_eq!(e.code(), tonic::Code::PermissionDenied, "{e:?}");
+}
+
+async fn reconcile(n: &TestNode, items: Vec<pb::LibraryRef>) -> Vec<pb::LibraryVerdict> {
+    library(n)
+        .reconcile(pb::LibraryInventory { items })
+        .await
+        .unwrap()
+        .into_inner()
+        .verdicts
+}
+
+fn held(kind: &str, name: &str, sha256: &str) -> pb::LibraryRef {
+    pb::LibraryRef {
+        kind: kind.into(),
+        name: name.into(),
+        sha256: sha256.into(),
+        ..Default::default()
+    }
+}
+
+#[tokio::test]
+async fn reconcile_queues_the_automatic_sync_but_never_for_hooks() {
+    let h = start().await;
+    let a = join(&h, "a").await;
+    let core = h.core().clone();
+    let old = r#"{"name":"log"}"#;
+    kls_core::vault::save_library(&core, "", "agent", "log", "", old, "t")
+        .await
+        .unwrap();
+    kls_core::vault::save_library(
+        &core,
+        "",
+        "agent",
+        "log",
+        "",
+        r#"{"name":"log","prompt":"v2"}"#,
+        "t",
+    )
+    .await
+    .unwrap();
+    let items = vec![
+        held("profile", "fresh", &"a".repeat(64)),
+        held("profile", "log", &sha(old.as_bytes())),
+        held("hook", "pre", &"b".repeat(64)),
+    ];
+    let v = reconcile(&a, items.clone()).await;
+    let by = |n: &str| {
+        v.iter()
+            .find(|x| x.r#ref.as_ref().unwrap().name == n)
+            .unwrap()
+    };
+    assert_eq!(by("fresh").verdict, "push");
+    assert_eq!(by("log").verdict, "install");
+    assert_eq!(by("pre").verdict, "push");
+    assert!(
+        by("pre").dispatch_id.is_empty(),
+        "a hook never moves by sync"
+    );
+    let ds = core.store().dispatches(Some(&a.id), 20).await.unwrap();
+    let backup = ds
+        .iter()
+        .find(|d| d.kind == "library_backup")
+        .expect("backup");
+    let install = ds
+        .iter()
+        .find(|d| d.kind == "library_install")
+        .expect("install");
+    assert_eq!(by("fresh").dispatch_id, backup.id);
+    assert_eq!(by("log").dispatch_id, install.id);
+    let spec: serde_json::Value = serde_json::from_str(&install.spec_json).unwrap();
+    assert_eq!(spec["overwrite"], true, "{spec}");
+    assert!(!backup.spec_json.contains("\"pre\""));
+    assert!(ledger_has(&core, "library.sync").await);
+
+    // The same set again: the same dispatches, nothing new queued.
+    let again = reconcile(&a, items.clone()).await;
+    assert_eq!(again.len(), 3);
+    let n = core
+        .store()
+        .dispatches(Some(&a.id), 20)
+        .await
+        .unwrap()
+        .len();
+    assert_eq!(n, ds.len());
+
+    // Off: verdicts only.
+    core.store()
+        .set_setting(kls_core::belai::library::AUTO_SYNC, "off")
+        .await
+        .unwrap();
+    let off = reconcile(&a, vec![held("profile", "other", &"c".repeat(64))]).await;
+    assert_eq!(off[0].verdict, "push");
+    assert!(off[0].dispatch_id.is_empty());
+    core.store()
+        .set_setting(kls_core::belai::library::AUTO_SYNC, "on")
+        .await
+        .unwrap();
+
+    // Under the kill switch nothing is queued (refused, audited).
+    kls_core::control::stop(&core, "drill").await.unwrap();
+    let stopped = reconcile(&a, vec![held("profile", "third", &"d".repeat(64))]).await;
+    assert!(stopped[0].dispatch_id.is_empty());
 }
 
 #[tokio::test]

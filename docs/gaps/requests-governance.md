@@ -403,6 +403,7 @@ under the kill switch).
 ## Requests (P4, 2026-11-22)
 
 - **Owner of `crates/kls-node/src/library.rs` and `crates/kls-core/src/belai/library.rs` (library):** answer `Library.Fetch` for a `teleport_id` (no `dispatch_id`): allow it when the teleport is addressed to the calling node, is `ready` or `delivered` and not expired, and its stored needs name the ref. The needs are kept under the setting `teleport.needs.<teleport id>` as a JSON `Vec<LibraryRef>`; read them with `kls_node::teleport::stored_needs(core, id)` (or the same key from kls-core). Audit the fetch with `subject.teleport`. Until then the target installs through a `library_install` dispatch that P4 sends after the download (`crates/kls-node/src/teleport.rs` `install_needs`), so nothing is blocked.
+  **Done 2026-11-28:** `Core::library_fetch_teleport` (also refused under the A2A blackout); a downloader that sets `TeleportRequest.fetch_needs` installs the needs itself and gets no dispatch (belai-counterparts.md WP-E row).
 - **Same owner, FYI:** `crates/kls-node/tests/belai.rs` `crew_round_trip_and_hook_files_confirmation` failed once in a full `cargo test -p kls-node` run and passed alone (2026-11-22); looks timing-dependent.
 
 ## Requests (P5, 2026-11-22)
