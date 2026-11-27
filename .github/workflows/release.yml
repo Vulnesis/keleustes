@@ -319,8 +319,9 @@ jobs:
     env:
       VULNETIX_ORG_ID: ${{ secrets.VULNETIX_ORG_ID }}
       VULNETIX_API_KEY: ${{ secrets.VULNETIX_API_KEY }}
-      # Pinned, as in belai's release.
-      CLI_VERSION: v3.126.7
+      # Pinned, as in belai's release: a CLI regression must not stop
+      # releases publishing with no way to roll back short of a CLI release.
+      CLI_VERSION: v4.26.4
     steps:
       - name: Require the Vulnetix credentials
         run: |
