@@ -2235,6 +2235,64 @@ async fn factory_authored_reads_marks_markers_and_identities() {
     assert!(sync::factory_authored(&c, "acme/api", comment, 1, "sf-bot", "").await);
 }
 
+// ---- deployment statuses ------------------------------------------------------
+
+#[tokio::test]
+async fn deployment_statuses_emit_each_new_state_once() {
+    let (core, _d) = core().await;
+    let gh = FakeGh::new();
+    managed_repo(
+        &core,
+        "acme/api",
+        Mirroring {
+            pulls: false,
+            issues: false,
+            labels: false,
+        },
+    )
+    .await;
+    let r = core.store().gh_repo("acme/api").await.unwrap().unwrap();
+    let c = client(&core, &gh);
+    let list = "/repos/acme/api/deployments?per_page=10";
+    let statuses = "/repos/acme/api/deployments/5/statuses?per_page=1";
+    gh.on(
+        "GET",
+        list,
+        200,
+        json!([{"id": 5, "environment": "production", "ref": "main", "sha": "abc",
+                "creator": {"login": "ana"}}]),
+    );
+    gh.on("GET", statuses, 200, json!([{"state": "in_progress"}]));
+    let mut rx = core.subscribe();
+    // The first pass only records what it saw.
+    let rep = crate::events::poll_repo(&c, &r, "poller").await.unwrap();
+    assert_eq!(rep.deployments, 0);
+    gh.on(
+        "GET",
+        statuses,
+        200,
+        json!([{"state": "failure", "log_url": "https://github.com/acme/api/actions/runs/9"}]),
+    );
+    let rep = crate::events::poll_repo(&c, &r, "poller").await.unwrap();
+    assert_eq!(rep.deployments, 1);
+    let ev = data_of(&mut rx, kinds::DEPLOYMENT_STATUS);
+    assert_eq!(ev.len(), 1);
+    assert_eq!(
+        (
+            ev[0]["environment"].as_str(),
+            ev[0]["state"].as_str(),
+            ev[0]["deploymentId"].as_i64(),
+            ev[0]["creator"].as_str()
+        ),
+        (Some("production"), Some("failure"), Some(5), Some("ana"))
+    );
+    assert_eq!(ev[0]["url"], "https://github.com/acme/api/actions/runs/9");
+    // A final state is not read again.
+    gh.on("GET", statuses, 200, json!([{"state": "success"}]));
+    let rep = crate::events::poll_repo(&c, &r, "poller").await.unwrap();
+    assert_eq!(rep.deployments, 0);
+}
+
 // ---- deployment reviews (WP4 request 2) ---------------------------------------
 
 #[tokio::test]

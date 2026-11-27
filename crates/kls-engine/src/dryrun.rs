@@ -74,6 +74,8 @@ pub fn node_calls(n: &Node) -> Range {
             "check_run" | "issue_comment" | "add_label" => r(1, 1),
             // Reads the mirror only; files board cards.
             "conflict_cards" => r(0, 0),
+            // Kept on the step; no forge call.
+            "vex" => r(0, 0),
             _ => r(1, 2),
         },
         "gate" if n.str("check") == "forge" => r(1, 3),
@@ -120,7 +122,9 @@ fn would(n: &Node) -> String {
         "wait" => format!("Would wait {}", n.summary()),
         "human" => "Would wait for your approval".into(),
         "gate" => format!("Would wait at the gate: {}", n.summary()),
+        "card" if n.str("action") == "ensure" => format!("Would keep the card {}", n.str("ref")),
         "card" => format!("Would {} the run's card", n.summary()),
+        "github" if n.str("action") == "vex" => "Would write the OpenVEX document".into(),
         "notify" => format!("Would post: {}", n.str("message")),
         "github" => format!("Would call GitHub: {}", n.str("action")),
         "read" => format!("Would read the {}", n.summary()),

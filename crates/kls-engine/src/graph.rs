@@ -755,11 +755,12 @@ pub const RULE_OPS: [&str; 10] = [
 pub const ON_TIMEOUT: [&str; 2] = ["park_and_renotify", "end_run"];
 pub const GATE_CHECKS: [&str; 2] = ["manual", "forge"];
 pub const GATE_ON_FAIL: [&str; 3] = ["return_to_crew", "end_run", "human_approval"];
-pub const CARD_ACTIONS: [&str; 4] = ["move", "label", "unlabel", "assign"];
+pub const CARD_ACTIONS: [&str; 5] = ["move", "label", "unlabel", "assign", "ensure"];
 pub const SEVERITIES: [&str; 4] = ["info", "notice", "warning", "critical"];
 /// The factory never merges: there is no `merge` output. `conflict_cards`
-/// runs in the engine (`kls_engine::conflicts`), not through the forge.
-pub const GITHUB_ACTIONS: [&str; 8] = [
+/// runs in the engine (`kls_engine::conflicts`), not through the forge;
+/// `vex` keeps an OpenVEX document on the step and calls nothing.
+pub const GITHUB_ACTIONS: [&str; 9] = [
     "draft_pr",
     "issue_comment",
     "pr_review",
@@ -768,6 +769,7 @@ pub const GITHUB_ACTIONS: [&str; 8] = [
     "file_issues",
     "add_label",
     "conflict_cards",
+    "vex",
 ];
 /// Board statuses (M2's lists).
 pub const CARD_STATUSES: [&str; 6] = ["triage", "backlog", "todo", "doing", "review", "done"];

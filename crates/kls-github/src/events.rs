@@ -28,11 +28,14 @@ pub struct EventReport {
     pub risks: usize,
     /// `deployment_review.requested|approved|rejected`.
     pub deploy_reviews: usize,
+    /// `deployment_status.created`: a deployment changed state.
+    pub deployments: usize,
 }
 
 impl EventReport {
     pub fn total(&self) -> usize {
         self.deploy_reviews
+            + self.deployments
             + self.pushes
             + self.ci_runs
             + self.releases
@@ -291,6 +294,7 @@ pub async fn poll_repo(c: &Client, r: &GhRepo, caller: &str) -> Result<EventRepo
     if c.conn().dialect() == Dialect::GitHub {
         rep.packages += packages(c, r, caller).await?;
         rep.deploy_reviews += deployment_reviews(c, r, caller).await?;
+        rep.deployments += deployment_statuses(c, r, caller).await?;
         if risk_on(c).await {
             rep.risks += posture(c, r, caller).await?;
         }
@@ -433,6 +437,86 @@ async fn deployment_reviews(c: &Client, r: &GhRepo, caller: &str) -> Result<usiz
     }
     if open != before {
         set_cursor(c, "deploy", repo, &serde_json::to_string(&open)?).await?;
+    }
+    Ok(n)
+}
+
+/// Deployment states after which a deployment is not read again.
+pub const DEPLOY_TERMINAL: [&str; 4] = ["success", "failure", "error", "inactive"];
+/// Newest deployments read on each pass.
+pub const DEPLOYMENTS_READ: usize = 10;
+
+/// Deployment statuses (the `deployment_status` webhook, polled): the
+/// newest [`DEPLOYMENTS_READ`] deployments (a conditional read), and for
+/// each one not yet in a final state its newest status. A state that
+/// changed is emitted once as `github.deployment.status`. The `deployment`
+/// cursor keeps each deployment's last state; the first pass only fills it.
+async fn deployment_statuses(c: &Client, r: &GhRepo, caller: &str) -> Result<usize> {
+    use std::collections::BTreeMap;
+    let repo = r.full_name.as_str();
+    let forge_repo = c.forge_name(repo);
+    let first = cursor(c, "deployment", repo).await?.is_none();
+    let before: BTreeMap<String, String> = cursor(c, "deployment", repo)
+        .await?
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    let list = match c
+        .get_json(
+            &format!("/repos/{forge_repo}/deployments?per_page={DEPLOYMENTS_READ}"),
+            caller,
+        )
+        .await
+    {
+        Err(e) if absent(&e) => return Ok(0),
+        other => other?,
+    };
+    let mut after = BTreeMap::new();
+    let mut n = 0;
+    for d in list.as_array().into_iter().flatten().take(DEPLOYMENTS_READ) {
+        let id = id_of(d);
+        if id <= 0 {
+            continue;
+        }
+        let key = id.to_string();
+        let seen = before.get(&key).cloned().unwrap_or_default();
+        if DEPLOY_TERMINAL.contains(&seen.as_str()) {
+            after.insert(key, seen);
+            continue;
+        }
+        let statuses = match c
+            .get_json(
+                &format!("/repos/{forge_repo}/deployments/{id}/statuses?per_page=1"),
+                caller,
+            )
+            .await
+        {
+            Err(e) if absent(&e) => continue,
+            other => other?,
+        };
+        let st = statuses.as_array().and_then(|a| a.first());
+        let state = st
+            .and_then(|s| s["state"].as_str())
+            .unwrap_or("")
+            .to_string();
+        after.insert(key, state.clone());
+        if first || state.is_empty() || state == seen {
+            continue;
+        }
+        let env = d["environment"].as_str().unwrap_or("");
+        c.core()
+            .emit(
+                kinds::DEPLOYMENT_STATUS,
+                &format!("{repo}:{id}"),
+                &json!({ "repo": repo, "deploymentId": id, "environment": env,
+                         "state": state, "ref": d["ref"], "sha": d["sha"],
+                         "url": st.and_then(|s| s["log_url"].as_str().or(s["target_url"].as_str())),
+                         "creator": d["creator"]["login"], "connection": c.conn().id }),
+            )
+            .await?;
+        n += 1;
+    }
+    if first || before != after {
+        set_cursor(c, "deployment", repo, &serde_json::to_string(&after)?).await?;
     }
     Ok(n)
 }

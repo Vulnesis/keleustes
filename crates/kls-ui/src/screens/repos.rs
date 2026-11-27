@@ -1027,6 +1027,30 @@ impl Screen {
             &mut draft.settings.watched,
             icons::label(icons::EYE, "Watched"),
         );
+        // Built-in workflows on this repository (`defaults_off` opts out).
+        let off = draft.settings.defaults_off.len();
+        egui::CollapsingHeader::new(icons::label(
+            icons::FLOW_ARROW,
+            &format!("Default workflows ({} off)", off),
+        ))
+        .id_salt("repo_defaults")
+        .show(ui, |ui| {
+            for d in kls_engine::defaults::entries() {
+                let mut on = !draft.settings.defaults_off.iter().any(|k| k == d.key);
+                let label = d.name.strip_prefix("Default: ").unwrap_or(d.name);
+                if ui
+                    .checkbox(&mut on, label)
+                    .on_hover_text(d.description)
+                    .changed()
+                {
+                    if on {
+                        draft.settings.defaults_off.retain(|k| k != d.key);
+                    } else {
+                        draft.settings.defaults_off.push(d.key.to_string());
+                    }
+                }
+            }
+        });
         let dirty = draft.settings != repo.settings
             || draft.cap
                 != repo

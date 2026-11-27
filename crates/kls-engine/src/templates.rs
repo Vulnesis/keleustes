@@ -164,8 +164,9 @@ mod tests {
 
     /// Every GitHub event the poller mirrors, as the webhook names
     /// `forge::webhook_events` gives them (kls-github `poller.rs`/`events.rs`:
-    /// pulls, issues, comments, push, workflow runs, releases, alerts, repos).
-    const EMITTED_WEBHOOKS: [&str; 24] = [
+    /// pulls, issues, comments, push, workflow runs, releases, alerts, repos,
+    /// packages, deployments, reviews and the risk sources).
+    const EMITTED_WEBHOOKS: [&str; 29] = [
         "pull_request.opened",
         "pull_request.closed",
         "pull_request.merged",
@@ -173,6 +174,11 @@ mod tests {
         "pull_request.ready_for_review",
         "pull_request.converted_to_draft",
         "pull_request.labeled",
+        "pull_request_review.submitted",
+        "registry_package.published",
+        "deployment_status.created",
+        "github-risk",
+        "github-posture",
         "check_suite.completed",
         "check_run.completed",
         "issue_comment.created",
@@ -225,6 +231,34 @@ mod tests {
         }
     }
 
+    /// The web's 25 event templates (factory_templates_events.go), less the
+    /// three whose package, AI and egress firewall sources Keleustes has no
+    /// counterpart for.
+    const EVENT_TEMPLATES: [&str; 22] = [
+        "failure-explainer",
+        "flaky-test-quarantine",
+        "default-branch-broke",
+        "build-artifacts-to-tea",
+        "sbom-to-tea",
+        "low-quality-pr-comment",
+        "dependabot-strategy-check",
+        "dependency-scope-fix",
+        "actions-workflow-hardening",
+        "issue-to-ticket",
+        "secret-alert-triage",
+        "dependabot-alert-triage",
+        "code-scanning-triage",
+        "release-steward",
+        "repo-onboarding",
+        "label-fix-tests",
+        "label-repro",
+        "label-review",
+        "github-risk-investigation",
+        "settings-fix-ticket",
+        "deploy-failed-card",
+        "container-published-to-tea",
+    ];
+
     #[test]
     fn the_web_catalogue_is_ported() {
         let ported = [
@@ -237,43 +271,69 @@ mod tests {
             "ui-polish-pass",
             "security-patch-train",
             "release-provenance",
-            "failure-explainer",
-            "flaky-test-quarantine",
-            "default-branch-broke",
-            "build-artifacts-to-tea",
-            "sbom-to-tea",
-            "low-quality-pr-comment",
-            "dependabot-strategy-check",
-            "dependency-scope-fix",
-            "actions-workflow-hardening",
-            "issue-to-ticket",
-            "secret-alert-triage",
-            "dependabot-alert-triage",
-            "code-scanning-triage",
-            "release-steward",
-            "repo-onboarding",
-            "label-fix-tests",
-            "label-repro",
-            "label-review",
         ];
-        for id in ported {
+        for id in ported.iter().chain(EVENT_TEMPLATES.iter()) {
             assert!(template(id).is_some(), "missing template {id}");
         }
-        // Firewall, egress, siem, deployment and registry sources are not
-        // produced by Keleustes, so these stay out.
+        // The package, AI and egress firewalls are Vulnetix SaaS sources
+        // with no Keleustes counterpart, so these stay out.
         for id in [
             "new-package-review",
             "ai-capability-review",
             "egress-decision",
-            "github-risk-investigation",
-            "settings-fix-ticket",
-            "deploy-failed-card",
-            "container-published-to-tea",
         ] {
             assert!(
                 template(id).is_none(),
                 "{id} needs a source Keleustes lacks"
             );
         }
+    }
+
+    #[test]
+    fn event_templates_end_in_the_web_outputs() {
+        let last = |id: &str| -> (String, String) {
+            let g = &template(id).unwrap().graph;
+            let n = g
+                .nodes
+                .iter()
+                .find(|n| g.outgoing(&n.id).next().is_none() && n.kind != "condition")
+                .unwrap();
+            let what = match n.kind.as_str() {
+                "github" => n.str("action").to_string(),
+                "card" => format!("{}:{}", n.str("action"), n.str("ref")),
+                "scan" => n.str("job").to_string(),
+                k => k.to_string(),
+            };
+            (n.kind.clone(), what)
+        };
+        // The web's kanban_card state is a kept card.
+        for (id, r) in [
+            ("flaky-test-quarantine", "flaky-tests"),
+            ("github-risk-investigation", "github-investigate"),
+            ("settings-fix-ticket", "settings-fix"),
+            ("deploy-failed-card", "deploy-failures"),
+        ] {
+            assert_eq!(last(id), ("card".into(), format!("ensure:{r}")), "{id}");
+        }
+        // The web's tea_publish is the CLI's tea-release job (a write job).
+        assert!(crate::catalogue::cli_write_job("tea-release"));
+        for id in [
+            "build-artifacts-to-tea",
+            "sbom-to-tea",
+            "container-published-to-tea",
+        ] {
+            assert_eq!(last(id), ("scan".into(), "tea-release".into()), "{id}");
+        }
+        let event = |id: &str| {
+            let t = template(id).unwrap();
+            t.graph.triggers().next().unwrap().str("event").to_string()
+        };
+        assert_eq!(event("github-risk-investigation"), "github-risk");
+        assert_eq!(event("settings-fix-ticket"), "github-posture");
+        assert_eq!(event("deploy-failed-card"), "deployment_status.created");
+        assert_eq!(
+            event("container-published-to-tea"),
+            "registry_package.published"
+        );
     }
 }

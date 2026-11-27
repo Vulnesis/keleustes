@@ -13,7 +13,7 @@
 //! `forge::guard::refuse`. Each forge kind does what its dialect can and
 //! says `unsupported` otherwise (`forge::api::require`).
 
-mod outputs;
+pub(crate) mod outputs;
 
 use crate::exec::{Forge, GateResult, StepContext, short_id};
 use anyhow::{Context, Result, bail};
@@ -1196,6 +1196,7 @@ pub fn webhook_events(ev: &Event, data: &Value) -> Vec<String> {
         },
         k::REVIEW_SUBMITTED => vec!["pull_request_review.submitted"],
         k::PACKAGE_PUBLISHED => vec!["registry_package.published"],
+        k::DEPLOYMENT_STATUS => vec!["deployment_status.created"],
         k::RISK => match data.get("source").and_then(Value::as_str) {
             Some("github-posture") => vec!["github-posture"],
             _ => vec!["github-risk"],
