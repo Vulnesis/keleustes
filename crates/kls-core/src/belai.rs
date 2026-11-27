@@ -24,6 +24,7 @@ pub mod initdraft;
 pub mod knowledge;
 pub mod library;
 pub mod plan;
+pub mod review;
 pub mod schedules;
 pub mod status;
 

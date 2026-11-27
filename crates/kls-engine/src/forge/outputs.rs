@@ -469,6 +469,32 @@ pub fn parse_verdict(notes: &[String]) -> Option<Verdict> {
     Some(out)
 }
 
+/// A code review job's findings as a verdict (row 47): each finding's
+/// severity and criterion lead its text, a suggested fix follows it. The
+/// review is host data, so every text is cleaned again here.
+pub fn review_verdict(r: &kls_core::belai::review::Review) -> Verdict {
+    let findings = r
+        .findings
+        .iter()
+        .take(MAX_FINDINGS)
+        .map(|f| {
+            let mut text = format!("{} {}: {}", f.severity, f.criterion, f.body);
+            if !f.fix.is_empty() {
+                text.push_str(&format!(" Fix: {}", f.fix));
+            }
+            NoteFinding {
+                path: f.path.clone(),
+                line: f.line,
+                text: clean_text(&text),
+            }
+        })
+        .collect();
+    Verdict {
+        verdict: norm_verdict(&r.verdict).unwrap_or("comment").into(),
+        findings,
+    }
+}
+
 /// New-side line numbers a unified patch shows (added or context).
 pub fn patch_lines(patch: &str) -> BTreeSet<i64> {
     let mut out = BTreeSet::new();

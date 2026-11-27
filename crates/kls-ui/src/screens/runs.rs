@@ -974,11 +974,19 @@ fn step_details(ui: &mut egui::Ui, s: &RunStep) {
                 .on_hover_text("Dispatch · node");
             }
             let v: Value = serde_json::from_str(&s.details_json).unwrap_or(Value::Null);
+            // A code review job, or the pr_review it fed: its findings.
+            let review = review_of(&v);
+            if let Some(r) = review {
+                findings_panel(ui, r);
+            }
             if let Value::Object(m) = &v {
                 egui::Grid::new(("details", &s.id))
                     .num_columns(2)
                     .show(ui, |ui| {
                         for (k, val) in m {
+                            if review.is_some() && matches!(k.as_str(), "output" | "review") {
+                                continue;
+                            }
                             ui.label(kit::caps(k, p.muted));
                             let txt = match val {
                                 Value::String(x) => x.clone(),
@@ -990,6 +998,102 @@ fn step_details(ui: &mut egui::Ui, s: &RunStep) {
                     });
             }
         });
+}
+
+/// The review a step's details carry: a `review` job's output, or the
+/// `review` a `pr_review` posted from.
+fn review_of(d: &Value) -> Option<&Value> {
+    let r = if d["job"] == "review" {
+        &d["output"]
+    } else {
+        &d["review"]
+    };
+    r["findings"].is_array().then_some(r)
+}
+
+/// Severity icon and tone of a review finding.
+fn severity_style(p: &theme::Palette, sev: &str) -> (&'static str, egui::Color32) {
+    match sev {
+        "blocker" => (icons::WARNING_OCTAGON, p.red),
+        "major" => (icons::WARNING, p.amber),
+        "minor" => (icons::INFO, p.blue),
+        _ => (icons::CHAT_TEXT, p.muted),
+    }
+}
+
+/// A code review's findings (row 47): the verdict, then each finding's
+/// severity, place, criterion, text and fix. Host data, shown as text.
+fn findings_panel(ui: &mut egui::Ui, r: &Value) {
+    let p = palette(ui.ctx());
+    let s = |k: &str| r[k].as_str().unwrap_or("").to_string();
+    let n = |k: &str| r[k].as_i64().unwrap_or(0);
+    let findings = r["findings"].as_array().cloned().unwrap_or_default();
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new(icons::label(icons::LIST_CHECKS, "Findings")).strong());
+        let verdict = s("verdict");
+        let tone = match verdict.as_str() {
+            "request_changes" => p.red,
+            "approve" => p.green,
+            _ => p.blue,
+        };
+        kit::chip(ui, &verdict.replace('_', " "), tone).on_hover_text("Advisory");
+        ui.label(RichText::new(format!("{}", findings.len())).monospace());
+        if n("files") > 0 {
+            ui.label(
+                RichText::new(format!("{} {}", icons::FILE_TEXT, n("files")))
+                    .monospace()
+                    .color(p.muted),
+            )
+            .on_hover_text("Files reviewed");
+        }
+        if n("dropped") > 0 {
+            ui.label(
+                RichText::new(format!("{} {}", icons::EYE_SLASH, n("dropped")))
+                    .monospace()
+                    .color(p.muted),
+            )
+            .on_hover_text("Dropped");
+        }
+        if r["truncated"].as_bool() == Some(true) {
+            kit::chip(ui, "truncated", p.amber);
+        }
+        if r["cached"].as_bool() == Some(true) {
+            kit::chip(ui, "cached", p.muted);
+        }
+        let node = match s("nodeName") {
+            x if x.is_empty() => s("nodeId"),
+            x => x,
+        };
+        if !node.is_empty() {
+            ui.label(RichText::new(icons::label(icons::HARD_DRIVES, &node)).color(p.muted));
+        }
+    });
+    for f in &findings {
+        let fs = |k: &str| f[k].as_str().unwrap_or("").to_string();
+        let (icon, tone) = severity_style(&p, &fs("severity"));
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new(icon).color(tone))
+                .on_hover_text(fs("severity"));
+            ui.label(
+                RichText::new(format!(
+                    "{}:{}",
+                    fs("path"),
+                    f["line"].as_i64().unwrap_or(0)
+                ))
+                .monospace(),
+            );
+            kit::chip(ui, &fs("criterion"), p.muted);
+            ui.label(fs("body"));
+        });
+        if !fs("fix").is_empty() {
+            ui.label(
+                RichText::new(icons::label(icons::WRENCH, &fs("fix")))
+                    .size(12.0)
+                    .color(p.muted),
+            );
+        }
+    }
+    ui.add_space(6.0);
 }
 
 /// A SystemOne decision: the question, the pick, confidence against the
@@ -1136,5 +1240,24 @@ mod tests {
         };
         let runs = [r("succeeded", 10), r("failed", 5), r("running", 1)];
         assert_eq!(totals_of(&runs), (3, 1, 1, 16));
+    }
+
+    #[test]
+    fn review_findings_show_on_the_job_and_the_pr_review_step() {
+        let review = serde_json::json!({"verdict": "request_changes", "files": 3, "dropped": 1,
+            "nodeName": "one", "findings": [{"path": "src/a.rs", "line": 12, "severity": "major",
+            "criterion": "correctness", "body": "held across the await", "fix": "drop it"}]});
+        let job = serde_json::json!({"job": "review", "output": review, "reviewId": "r1"});
+        let post =
+            serde_json::json!({"verdict": "request_changes", "source": "review", "review": review});
+        assert_eq!(review_of(&job), Some(&review));
+        assert_eq!(review_of(&post), Some(&review));
+        assert!(review_of(&serde_json::json!({"job": "model", "output": {}})).is_none());
+        assert!(review_of(&serde_json::json!({"source": "note", "review": null})).is_none());
+        let ctx = egui::Context::default();
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| findings_panel(ui, &review));
+        });
+        out.textures_delta.clear();
     }
 }

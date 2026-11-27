@@ -35,9 +35,9 @@ pub const CATALOGUE: [DefaultSpec; 8] = [
     DefaultSpec {
         key: "pr-review",
         name: "Default: pull request review",
-        rev: 1,
+        rev: 2,
         min_autonomy: "suggest",
-        description: "Reviews every pull request that opens, is updated or leaves draft with belai:pr-reviewer and posts the verdict as a review. A fork pull request waits for you first. It never approves.",
+        description: "Reviews every pull request that opens, is updated or leaves draft with belai's rubric code review on a node (belai:pr-reviewer's verdict note where no node runs it yet) and posts the findings as a review. A fork pull request waits for you first. It never approves.",
     },
     DefaultSpec {
         key: "ci-fix",
@@ -130,6 +130,14 @@ fn agent(id: &str, title: &str, agent: &str, attempts: i64, brief: &str, i: usiz
         "position": at(i)})
 }
 
+/// The rubric code review of the run's pull request on a node (job
+/// `review`, row 47); its findings feed the run's `pr_review` output.
+fn review_job(id: &str, title: &str, i: usize) -> Value {
+    json!({"id": id, "type": "job", "title": title, "config": {
+        "job": "review", "payload": {"target": "pr"}, "timeoutSeconds": 600, "maxAttempts": 2 },
+        "position": at(i)})
+}
+
 fn crew(id: &str, title: &str, crew: &str, brief: &str, i: usize) -> Value {
     json!({"id": id, "type": "crew", "title": title, "config": {
         "dispatch": "crew", "crew": crew, "mode": "goal", "await": "session", "maxAttempts": 1, "brief": brief },
@@ -199,21 +207,14 @@ pub fn graph(key: &str, repo: &str) -> Option<Graph> {
                     60,
                 ),
                 human("n3", "Approve reviewing fork code", 1),
-                agent(
-                    "n4",
-                    "Review the pull request",
-                    "belai:pr-reviewer",
-                    2,
-                    "Review the pull request named in the Trigger event line of this card. Write a verdict note.",
-                    2,
-                ),
+                review_job("n4", "Review the pull request", 2),
                 output("n5", "Post the review", "pr_review", json!({}), 3),
             ],
             vec![
                 e("n1", "n4", "pull request"),
                 e("n2", "n3", "fork pull request"),
                 e("n3", "n4", "approved"),
-                e("n4", "n5", "verdict note"),
+                e("n4", "n5", "findings"),
             ],
             150_000,
         ),

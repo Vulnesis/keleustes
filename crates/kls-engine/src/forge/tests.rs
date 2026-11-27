@@ -938,6 +938,103 @@ async fn pr_review_posts_the_verdict_note_with_inline_comments_once() {
     );
 }
 
+#[tokio::test]
+async fn pr_review_posts_the_review_jobs_findings_over_a_verdict_note() {
+    use kls_core::belai::review;
+    let t = setup().await;
+    let f = forge_of(&t);
+    register(&t.gh, 6, false, &["success"]);
+    t.gh.on(
+        "GET",
+        "/repos/acme/api/pulls/6/files?per_page=100",
+        200,
+        json!([{"filename": "src/db.rs", "patch": "@@ -10,2 +10,3 @@\n a\n+b\n c"}]),
+    );
+    t.gh.on(
+        "POST",
+        "/repos/acme/api/pulls/6/reviews",
+        200,
+        json!({"id": 9}),
+    );
+    // A model's verdict note is on the card too; the review job wins.
+    let meta = json!({"belai": {"history": [
+        {"to": "review", "at": 2, "note": "verdict: approve"}
+    ]}});
+    let card = t
+        .core
+        .create_card(
+            CardDraft {
+                title: "Review #6".into(),
+                repo: "acme/api".into(),
+                meta_json: meta.to_string(),
+                ..Default::default()
+            },
+            "t",
+        )
+        .await
+        .unwrap();
+    let node = json!({"id":"b","type":"github","title":"Review","config":{"action":"pr_review"}});
+    let ctx = ctx_for(&t, node, &card.id, json!({"number": 6}), None).await;
+    let host = json!({"verdict": "request_changes", "target": "pr", "pr": 6, "files": 1, "findings": [
+        {"path": "src/db.rs", "line": 11, "severity": "major", "criterion": "security",
+         "body": "unchecked input reaches the query @team", "fix": "bind it"},
+        {"path": "src/db.rs", "line": 90, "severity": "minor", "criterion": "docs", "body": "off the diff"}
+    ]})
+    .to_string();
+    // A review of another pull request in the same run is not this one's.
+    let other = review::Request {
+        repo: "acme/api".into(),
+        target: "pr".into(),
+        reference: "5".into(),
+        run_id: ctx.run.id.clone(),
+        ..Default::default()
+    };
+    review::record(
+        &t.core,
+        &other,
+        "n1",
+        &json!({"verdict": "approve", "target": "pr", "pr": 5, "findings": []}).to_string(),
+        "t",
+    )
+    .await
+    .unwrap();
+    let req = review::Request {
+        reference: "6".into(),
+        ..other
+    };
+    let kept = review::record(&t.core, &req, "n1", &host, "t")
+        .await
+        .unwrap();
+    let out = f.action(&ctx, "pr_review").await.unwrap();
+    assert_eq!(
+        (
+            out["verdict"].as_str(),
+            out["source"].as_str(),
+            out["inline"].as_i64()
+        ),
+        (Some("request_changes"), Some("review"), Some(1)),
+        "{out}"
+    );
+    assert_eq!(out["review"]["id"], kept.id);
+    let rv = posted(&t.gh, "POST", "/repos/acme/api/pulls/6/reviews");
+    assert_eq!(rv.len(), 1);
+    assert_eq!(rv[0]["event"], "REQUEST_CHANGES");
+    let inline = rv[0]["comments"][0]["body"].as_str().unwrap();
+    assert!(
+        inline.starts_with("major security: unchecked input"),
+        "{inline}"
+    );
+    assert!(
+        inline.contains("@\u{200b}team") && inline.ends_with("Fix: bind it"),
+        "{inline}"
+    );
+    let body = rv[0]["body"].as_str().unwrap();
+    assert!(
+        body.contains("`src/db.rs:90`: minor docs: off the diff"),
+        "{body}"
+    );
+}
+
 fn approvable(gh: &FakeGh, checks: &[&str], files: &[&str]) {
     register(gh, 4, false, checks);
     gh.on("GET", "/user", 200, json!({"login": "kel"}));
