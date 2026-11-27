@@ -496,6 +496,85 @@ pub fn start_problems(n: &Node) -> Vec<(String, String)> {
     out
 }
 
+/// A trigger's extra triggers (`also`, docs/factory-validation.md): a list
+/// of trigger configs, none of them nested, each of a kind an extra
+/// trigger may be and, on publish, with its one detail set.
+fn also_check(c: &mut Ctx, n: &Node, p: &str, full: bool) {
+    let list = match n.config.get("also") {
+        None | Some(Value::Null) => return,
+        Some(Value::Array(a)) => a,
+        Some(_) => {
+            return c.err(
+                "invalid_type",
+                format!("{p}.config.also"),
+                Some(n),
+                format!("In \"{}\", the extra triggers must be a list. Add them one by one under Also start on.", name(n)),
+            );
+        }
+    };
+    for (i, v) in list.iter().enumerate() {
+        let at = format!("{p}.config.also[{i}]");
+        let Some(o) = v.as_object() else {
+            c.err(
+                "invalid_type",
+                at,
+                Some(n),
+                format!("In \"{}\", extra trigger {} is not set up correctly. Remove it and add it again.", name(n), i + 1),
+            );
+            continue;
+        };
+        if o.contains_key("also") {
+            c.err(
+                "invalid_type",
+                format!("{at}.also"),
+                Some(n),
+                format!("In \"{}\", an extra trigger cannot have extra triggers of its own. Move them up to the trigger.", name(n)),
+            );
+        }
+        let kind = o.get("kind").and_then(Value::as_str).unwrap_or("manual");
+        if !ALSO_KINDS.contains(&kind) {
+            c.err(
+                "invalid_enum",
+                format!("{at}.kind"),
+                Some(n),
+                format!(
+                    "In \"{}\", extra trigger {} cannot be \"{kind}\". Choose from: {}.",
+                    name(n),
+                    i + 1,
+                    ALSO_KINDS.join(", ")
+                ),
+            );
+            continue;
+        }
+        let key = also_detail_key(kind);
+        let detail = o.get(key).and_then(Value::as_str).unwrap_or("").trim();
+        if full && !key.is_empty() && detail.is_empty() {
+            c.err(
+                "required",
+                format!("{at}.{key}"),
+                Some(n),
+                format!(
+                    "In \"{}\", extra trigger {} needs its {key}.",
+                    name(n),
+                    i + 1
+                ),
+            );
+        }
+        if kind == "kanban" && !detail.is_empty() && !CARD_STATUSES.contains(&detail) {
+            c.err(
+                "invalid_enum",
+                format!("{at}.toList"),
+                Some(n),
+                format!(
+                    "In \"{}\", \"{detail}\" is not accepted for the list the card enters. Choose from: {}.",
+                    name(n),
+                    CARD_STATUSES.join(", ")
+                ),
+            );
+        }
+    }
+}
+
 fn check_node(c: &mut Ctx, n: &Node, p: &str, mode: Mode) {
     let full = mode == Mode::Publish;
     match n.kind.as_str() {
@@ -518,6 +597,7 @@ fn check_node(c: &mut Ctx, n: &Node, p: &str, mode: Mode) {
                 "what happens when a run is already going",
             );
             enum_check(c, n, p, "catchUp", &CATCH_UP, "missed schedules");
+            also_check(c, n, p, full);
             if !full {
                 return;
             }
@@ -871,6 +951,29 @@ fn check_node(c: &mut Ctx, n: &Node, p: &str, mode: Mode) {
                     "assign" => required(c, n, p, "assignee", "who to assign"),
                     _ => {}
                 }
+            }
+        }
+        "read" => {
+            enum_check(c, n, p, "source", &READ_SOURCES, "where it reads from");
+            enum_check(c, n, p, "what", &READ_WHAT, "what it reads");
+            enum_check(
+                c,
+                n,
+                p,
+                "onQuotaLow",
+                &ON_QUOTA_LOW,
+                "what happens when the live read fails",
+            );
+            if read_source(n) == "api" && read_what(n) != "pull" {
+                c.err(
+                    "invalid_enum",
+                    format!("{p}.config.what"),
+                    Some(n),
+                    format!(
+                        "In \"{}\", a live read refreshes the pull request only. Read the repository or issues from the mirror.",
+                        name(n)
+                    ),
+                );
             }
         }
         "notify" => {

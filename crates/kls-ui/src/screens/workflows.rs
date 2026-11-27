@@ -80,6 +80,8 @@ struct Editor {
     show_versions: bool,
     rename: Option<(String, String)>,
     confirm_archive: bool,
+    /// The code window is open, as YAML (true) or JSON.
+    code_view: Option<bool>,
 }
 
 impl Editor {
@@ -110,6 +112,7 @@ impl Editor {
             show_versions: false,
             rename: None,
             confirm_archive: false,
+            code_view: None,
         }
     }
 
@@ -213,14 +216,13 @@ impl Screen {
             |core| async move {
                 let mut rows = Vec::new();
                 let mut list_stats = ops::workflow_list_stats(&core).await?;
-                let providers: Vec<String> = core
-                    .store()
-                    .providers()
-                    .await?
-                    .into_iter()
+                let catalogue = core.store().providers().await?;
+                let open: Vec<String> = catalogue
+                    .iter()
                     .filter(|p| p.factory)
-                    .map(|p| p.id)
+                    .map(|p| p.id.clone())
                     .collect();
+                let known: Vec<String> = catalogue.into_iter().map(|p| p.id).collect();
                 for w in core.store().workflows(false).await? {
                     let g = match core
                         .store()
@@ -230,7 +232,8 @@ impl Screen {
                         Some(v) => Graph::parse(&v.graph_json).unwrap_or_default(),
                         None => Graph::default(),
                     };
-                    let blocked = model_block(&g, &providers);
+                    // The same check start_run refuses a run by.
+                    let blocked = ops::model_block(&g, &open, &known);
                     let last = core
                         .store()
                         .runs(&RunFilter {
@@ -766,6 +769,7 @@ impl Screen {
                 )
                 .show(ui, |ui| canvas_ui(ui, ed, &issues));
             versions_window(ui.ctx(), model, ed, &doc);
+            code_window(ui.ctx(), model, ed, &doc);
             rename_window(ui.ctx(), model, ed);
         }
         if back {
@@ -1125,13 +1129,14 @@ fn header_ui(
             .color(theme::palette(ui.ctx()).muted),
         )
         .on_hover_text("Tokens per run (estimate)");
-        if kit::ghost_button(ui, icons::CODE)
-            .on_hover_text("Copy the workflow as JSON")
+        if kit::ghost_button(ui, &icons::label(icons::CODE, "YAML"))
+            .on_hover_text("View, copy or download the workflow as YAML or JSON")
             .clicked()
         {
-            ui.ctx()
-                .copy_text(serde_json::to_string_pretty(&ed.graph).unwrap_or_default());
-            model.notify(Notice::Info("Workflow JSON copied".into()));
+            ed.code_view = match ed.code_view {
+                Some(_) => None,
+                None => Some(true),
+            };
         }
         ui.add(
             egui::TextEdit::singleline(&mut ed.dry_repo)
@@ -1423,6 +1428,7 @@ fn issues_ui(ui: &mut egui::Ui, ed: &mut Editor, issues: &[Issue]) {
             .and_then(|id| ed.graph.node(id))
             .map(|n| n.title.clone())
             .unwrap_or_default();
+        let mut fix = false;
         let r = egui::Frame::new()
             .stroke(Stroke::new(1.0, color))
             .inner_margin(egui::Margin::symmetric(10, 8))
@@ -1435,9 +1441,15 @@ fn issues_ui(ui: &mut egui::Ui, ed: &mut Editor, issues: &[Issue]) {
                         .size(11.0)
                         .color(p.muted),
                 );
+                if let Some(label) = quick_fix_label(i) {
+                    fix = kit::ghost_button(ui, &icons::label(icons::WRENCH, label)).clicked();
+                }
             })
             .response
             .interact(Sense::click());
+        if fix {
+            quick_fix(&mut ed.graph, i);
+        }
         if r.clicked()
             && let Some(n) = &i.node_id
         {
@@ -1587,6 +1599,72 @@ fn versions_window(ctx: &egui::Context, model: &Model, ed: &mut Editor, doc: &Wo
             }
         });
     ed.show_versions = open;
+}
+
+/// The workflow as YAML or JSON, as the editor holds it now (saved or
+/// not): copy, or download to ~/Downloads.
+fn code_window(ctx: &egui::Context, model: &Model, ed: &mut Editor, doc: &WorkflowDoc) {
+    let Some(mut yaml) = ed.code_view else {
+        return;
+    };
+    let w = &doc.workflow;
+    let v = workflow_doc(&w.name, &w.slug, ed.version, &ed.graph);
+    let (text, ext) = if yaml {
+        (to_yaml(&v), "yaml")
+    } else {
+        (serde_json::to_string_pretty(&v).unwrap_or_default(), "json")
+    };
+    let mut open = true;
+    egui::Window::new(icons::label(icons::CODE, &w.name))
+        .open(&mut open)
+        .default_width(560.0)
+        .default_height(480.0)
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                for (on, label) in [(true, "YAML"), (false, "JSON")] {
+                    if kit::pill(ui, label, yaml == on).clicked() {
+                        yaml = on;
+                    }
+                }
+                if kit::ghost_button(ui, &icons::label(icons::COPY, "Copy")).clicked() {
+                    ui.ctx().copy_text(text.clone());
+                    model.notify(Notice::Info(format!("{} copied", ext.to_uppercase())));
+                }
+                if kit::ghost_button(ui, &icons::label(icons::DOWNLOAD_SIMPLE, "Download"))
+                    .on_hover_text("Save to ~/Downloads")
+                    .clicked()
+                {
+                    let path = download_path(&w.slug, ed.version, ext);
+                    let body = text.clone();
+                    let (id, version, sha) = (w.id.clone(), ed.version, ed.graph.sha256());
+                    model.act(move |m| async move {
+                        if let Some(dir) = path.parent() {
+                            std::fs::create_dir_all(dir)?;
+                        }
+                        std::fs::write(&path, body)?;
+                        // Provenance: which version, which graph, where to.
+                        m.core()
+                            .emit(
+                                "workflow.exported",
+                                &id,
+                                &json!({ "version": version, "format": ext, "graphSha256": sha, "path": path.display().to_string() }),
+                            )
+                            .await?;
+                        Ok(Some(Notice::Info(format!("Saved {}", path.display()))))
+                    });
+                }
+            });
+            ui.add_space(6.0);
+            egui::ScrollArea::both()
+                .id_salt("workflow_code")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.add(
+                        egui::Label::new(RichText::new(&text).monospace().size(12.0)).selectable(true),
+                    );
+                });
+        });
+    ed.code_view = open.then_some(yaml);
 }
 
 fn rename_window(ctx: &egui::Context, model: &Model, ed: &mut Editor) {
@@ -2992,6 +3070,27 @@ fn node_ui(ui: &mut egui::Ui, ed: &mut Editor, id: &str) {
                         .on_hover_text("Starts when you press Run");
                 }
             }
+            also_ui(ui, cfg, &salt);
+        }
+        "read" => {
+            combo(ui, cfg, "source", "Reads from", &g::READ_SOURCES, &salt);
+            combo(ui, cfg, "what", "Reads", &g::READ_WHAT, &salt);
+            if cfg.get("source").and_then(Value::as_str) == Some("api") {
+                combo(
+                    ui,
+                    cfg,
+                    "onQuotaLow",
+                    "If the live read fails",
+                    &g::ON_QUOTA_LOW,
+                    &salt,
+                );
+                needs_github(ui);
+            }
+            text(ui, cfg, "number", "Pull request (empty: the run's)");
+            ui.weak(icons::label(icons::INFO, "Next steps read steps.<id>.data"))
+                .on_hover_text(
+                    "Mirror and webhook reads cost no GitHub call; a live read costs one.",
+                );
         }
         "crew" => {
             combo(ui, cfg, "dispatch", "Start", &g::DISPATCH_KINDS, &salt);
@@ -3402,6 +3501,7 @@ fn type_icon(kind: &str) -> &'static str {
         "card" => icons::KANBAN,
         "notify" => icons::BELL,
         "github" => icons::GITHUB_LOGO,
+        "read" => icons::CLOUD_ARROW_DOWN,
         _ => icons::CIRCLE,
     }
 }
@@ -3420,6 +3520,7 @@ pub(crate) fn type_label(kind: &str) -> &'static str {
         "card" => "Card",
         "notify" => "Notify",
         "github" => "GitHub",
+        "read" => "GitHub read",
         _ => "Step",
     }
 }
@@ -3469,7 +3570,7 @@ fn type_color(ui: &egui::Ui, kind: &str) -> Color32 {
         "crew" | "job" => p.cyan,
         "condition" | "wait" | "decision" => p.blue,
         "human" | "gate" => p.gold,
-        "github" => p.violet,
+        "github" | "read" => p.violet,
         "card" => p.amber,
         _ => p.green,
     }
@@ -3986,25 +4087,6 @@ fn set_defined_crews(crews: Vec<kls_store::vault::Crew>) {
     }
 }
 
-/// Why a workflow cannot start for want of a model: a model step names a
-/// provider the factory may not use, or no provider is open to the factory.
-fn model_block(g: &Graph, factory_providers: &[String]) -> Option<String> {
-    let needs = g
-        .nodes
-        .iter()
-        .filter(|n| matches!(n.kind.as_str(), "crew" | "decision"));
-    let mut any = false;
-    for n in needs {
-        any = true;
-        if let Some((p, _)) = n.str("model").split_once('/')
-            && !factory_providers.iter().any(|x| x == p)
-        {
-            return Some(format!("{p} is not open to the factory"));
-        }
-    }
-    (any && factory_providers.is_empty()).then(|| "no provider is open to the factory".to_string())
-}
-
 /// The icon of a list trigger summary (`cron 0 3 * * *`, `webhook push +1`).
 fn trigger_icon(summary: &str) -> &'static str {
     match summary.split(' ').next().unwrap_or("") {
@@ -4067,6 +4149,232 @@ fn insert_approval_after(g: &mut Graph, id: &str) {
         to: hid,
         ..Default::default()
     });
+}
+
+// ---- extra triggers, quick fixes, YAML ------------------------------------
+
+/// A trigger's extra triggers as (kind, detail) rows.
+fn also_rows(cfg: &Map<String, Value>) -> Vec<(String, String)> {
+    cfg.get("also")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .map(|v| {
+                    let kind = v
+                        .get("kind")
+                        .and_then(Value::as_str)
+                        .filter(|k| !k.is_empty())
+                        .unwrap_or("manual")
+                        .to_string();
+                    let key = g::also_detail_key(&kind);
+                    let detail = v.get(key).and_then(Value::as_str).unwrap_or("").to_string();
+                    (kind, detail)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Writes the rows back as `also` (removed when there are none).
+fn set_also(cfg: &mut Map<String, Value>, rows: &[(String, String)]) {
+    if rows.is_empty() {
+        cfg.remove("also");
+        return;
+    }
+    let list = rows
+        .iter()
+        .map(|(kind, detail)| {
+            let mut o = Map::new();
+            o.insert("kind".into(), json!(kind));
+            let key = g::also_detail_key(kind);
+            if !key.is_empty() {
+                o.insert(key.into(), json!(detail.trim()));
+            }
+            Value::Object(o)
+        })
+        .collect();
+    cfg.insert("also".into(), Value::Array(list));
+}
+
+/// "Also start on": more triggers that start the same steps.
+fn also_ui(ui: &mut egui::Ui, cfg: &mut Map<String, Value>, salt: &str) {
+    let mut rows = also_rows(cfg);
+    let before = rows.clone();
+    let mut remove = None;
+    ui.add_space(4.0);
+    kit::field_label(ui, &icons::label(icons::PLUS_CIRCLE, "Also start on"));
+    for (i, (kind, detail)) in rows.iter_mut().enumerate() {
+        ui.horizontal(|ui| {
+            egui::ComboBox::from_id_salt((salt, "also", i))
+                .width(90.0)
+                .selected_text(kind.as_str())
+                .show_ui(ui, |ui| {
+                    for k in g::ALSO_KINDS {
+                        if ui.selectable_label(kind == k, k).clicked() && kind != k {
+                            *kind = k.to_string();
+                            detail.clear();
+                        }
+                    }
+                });
+            let key = g::also_detail_key(kind);
+            if !key.is_empty() {
+                ui.add(
+                    egui::TextEdit::singleline(detail)
+                        .desired_width(ui.available_width() - 30.0)
+                        .hint_text(key),
+                );
+            }
+            if ui.small_button(icons::X).on_hover_text("Remove").clicked() {
+                remove = Some(i);
+            }
+        });
+    }
+    if let Some(i) = remove {
+        rows.remove(i);
+    }
+    if kit::ghost_button(ui, &icons::label(icons::PLUS, "Trigger")).clicked() {
+        rows.push(("event".into(), String::new()));
+    }
+    if rows != before {
+        set_also(cfg, &rows);
+    }
+}
+
+/// The one-click fix an issue offers, when there is one: an outcome with
+/// no next step ends the run instead.
+fn quick_fix_label(issue: &Issue) -> Option<&'static str> {
+    (issue.code == "outcome_without_route").then_some("End the run here")
+}
+
+/// Applies [`quick_fix_label`]'s fix. True when the graph changed.
+fn quick_fix(graph: &mut Graph, issue: &Issue) -> bool {
+    if issue.code != "outcome_without_route" {
+        return false;
+    }
+    let Some(n) = issue.node_id.as_deref().and_then(|id| graph.node_mut(id)) else {
+        return false;
+    };
+    if issue.path.ends_with(".config.onFail") {
+        n.config.insert("onFail".into(), json!("end_run"));
+        return true;
+    }
+    // `nodes[i].config.outcomes[j]`: j indexes the node's outcomes (the
+    // validator skips a decision's routed below-threshold and unknown).
+    let Some(j) = issue
+        .path
+        .rsplit_once("outcomes[")
+        .and_then(|(_, t)| t.trim_end_matches(']').parse::<usize>().ok())
+    else {
+        return false;
+    };
+    let Some(value) = n.outcomes().get(j).map(|o| o.value.clone()) else {
+        return false;
+    };
+    let Some(o) = n
+        .config
+        .get_mut("outcomes")
+        .and_then(Value::as_array_mut)
+        .and_then(|list| {
+            list.iter_mut()
+                .find(|o| o.get("value").and_then(Value::as_str) == Some(value.as_str()))
+        })
+    else {
+        return false;
+    };
+    o["end"] = json!(true);
+    true
+}
+
+fn yaml_scalar(v: &Value) -> String {
+    match v {
+        Value::String(s) => {
+            let bare = !s.is_empty()
+                && s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                && s.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "_./@$-".contains(c))
+                && !matches!(
+                    s.to_ascii_lowercase().as_str(),
+                    "true" | "false" | "null" | "yes" | "no" | "on" | "off" | "~"
+                );
+            if bare {
+                s.clone()
+            } else {
+                Value::String(s.clone()).to_string()
+            }
+        }
+        other => other.to_string(),
+    }
+}
+
+fn yaml_lines(v: &Value, indent: usize, out: &mut Vec<String>) {
+    let pad = "  ".repeat(indent);
+    let empty = |v: &Value| match v {
+        Value::Array(a) => a.is_empty().then_some("[]"),
+        Value::Object(o) => o.is_empty().then_some("{}"),
+        _ => None,
+    };
+    match v {
+        Value::Array(a) if a.is_empty() => out.push(format!("{pad}[]")),
+        Value::Object(o) if o.is_empty() => out.push(format!("{pad}{{}}")),
+        Value::Array(a) => {
+            for item in a {
+                if let Some(e) = empty(item) {
+                    out.push(format!("{pad}- {e}"));
+                } else if item.is_array() || item.is_object() {
+                    let mut inner = Vec::new();
+                    yaml_lines(item, indent + 1, &mut inner);
+                    // The child's first line shares the dash.
+                    out.push(format!("{pad}- {}", inner[0].trim_start()));
+                    out.extend(inner.into_iter().skip(1));
+                } else {
+                    out.push(format!("{pad}- {}", yaml_scalar(item)));
+                }
+            }
+        }
+        Value::Object(o) => {
+            for (k, child) in o {
+                if let Some(e) = empty(child) {
+                    out.push(format!("{pad}{k}: {e}"));
+                } else if child.is_array() || child.is_object() {
+                    out.push(format!("{pad}{k}:"));
+                    yaml_lines(child, indent + 1, out);
+                } else {
+                    out.push(format!("{pad}{k}: {}", yaml_scalar(child)));
+                }
+            }
+        }
+        other => out.push(format!("{pad}{}", yaml_scalar(other))),
+    }
+}
+
+/// Plain block YAML of a JSON value (the web's "View as YAML"): strings
+/// double-quoted where a bare one would be ambiguous.
+fn to_yaml(v: &Value) -> String {
+    let mut out = Vec::new();
+    yaml_lines(v, 0, &mut out);
+    out.join("\n") + "\n"
+}
+
+/// The workflow document the YAML and JSON views show: name, slug,
+/// version, then the graph as the editor holds it now.
+fn workflow_doc(name: &str, slug: &str, version: i64, graph: &Graph) -> Value {
+    let mut v = json!({ "name": name, "slug": slug });
+    if version > 0 {
+        v["version"] = json!(version);
+    }
+    v["graph"] = serde_json::to_value(graph).unwrap_or(Value::Null);
+    v
+}
+
+/// Where a download is written: `~/Downloads/<slug>-v<n>.<ext>`.
+fn download_path(slug: &str, version: i64, ext: &str) -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    let slug: String = slug
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || "-_".contains(*c))
+        .collect();
+    let slug = if slug.is_empty() { "workflow" } else { &slug };
+    std::path::PathBuf::from(format!("{home}/Downloads/{slug}-v{version}.{ext}"))
 }
 
 #[cfg(test)]
@@ -4398,14 +4706,153 @@ mod parity_ui_tests {
         n.config.insert("model".into(), json!("acme/m1"));
         g.nodes.push(n);
         assert!(
-            model_block(&g, &["anthropic".into()])
-                .unwrap()
-                .contains("acme")
+            ops::model_block(
+                &g,
+                &["anthropic".into()],
+                &["anthropic".into(), "acme".into()]
+            )
+            .unwrap()
+            .contains("acme")
         );
-        assert!(model_block(&g, &["acme".into()]).is_none());
+        assert!(ops::model_block(&g, &["acme".into()], &["acme".into()]).is_none());
         assert!(
-            model_block(&Graph::starter(), &[]).is_none(),
+            ops::model_block(&Graph::starter(), &[], &["acme".into()]).is_none(),
             "no model step, nothing blocks"
         );
+    }
+}
+
+#[cfg(test)]
+mod sf_p2_ui_tests {
+    use super::*;
+
+    #[test]
+    fn extra_trigger_rows_round_trip_and_validate() {
+        let mut cfg = Map::new();
+        assert!(also_rows(&cfg).is_empty());
+        let rows = vec![
+            ("event".to_string(), "session.ended".to_string()),
+            ("label".to_string(), " sf:fix ".to_string()),
+            ("manual".to_string(), String::new()),
+        ];
+        set_also(&mut cfg, &rows);
+        assert_eq!(
+            cfg["also"],
+            json!([{"kind":"event","event":"session.ended"},{"kind":"label","label":"sf:fix"},{"kind":"manual"}])
+        );
+        let back = also_rows(&cfg);
+        assert_eq!(back[1], ("label".to_string(), "sf:fix".to_string()));
+        // What the editor writes is what the validator accepts.
+        let mut g = Graph::starter();
+        g.nodes[0].config.extend(cfg.clone());
+        let mut n = Node::new("n2", "notify", "Say");
+        n.config.insert("message".into(), json!("hi"));
+        g.nodes.push(n);
+        g.edges.push(Edge {
+            from: "n1".into(),
+            to: "n2".into(),
+            ..Default::default()
+        });
+        assert!(!validate::has_errors(&validate::validate(
+            &g,
+            Mode::Publish
+        )));
+        set_also(&mut cfg, &[]);
+        assert!(!cfg.contains_key("also"));
+    }
+
+    fn unrouted(cfg: Value, kind: &str) -> Graph {
+        let mut g = Graph::starter();
+        let mut n = Node::new("n2", kind, "Pick");
+        if let Value::Object(m) = cfg {
+            n.config = m;
+        }
+        g.nodes.push(n);
+        g.edges.push(Edge {
+            from: "n1".into(),
+            to: "n2".into(),
+            ..Default::default()
+        });
+        g
+    }
+
+    /// Fixes one issue at a time, checking again after each (as the
+    /// panel does every frame).
+    fn fix_all(g: &mut Graph) -> usize {
+        let mut n = 0;
+        while let Some(i) = validate::validate(g, Mode::Publish)
+            .into_iter()
+            .find(|i| i.code == "outcome_without_route")
+        {
+            assert_eq!(quick_fix_label(&i), Some("End the run here"));
+            assert!(quick_fix(g, &i), "{}", i.path);
+            n += 1;
+            assert!(n < 10, "the fix does not settle");
+        }
+        n
+    }
+
+    #[test]
+    fn quick_fix_ends_an_unrouted_outcome() {
+        let mut g = unrouted(
+            json!({"outcomes":[{"value":"yes"},{"value":"no"}],"default":"no","rules":[]}),
+            "condition",
+        );
+        assert_eq!(fix_all(&mut g), 2);
+        assert_eq!(fix_all(&mut g), 0, "fixed for good");
+        let mut g = unrouted(
+            json!({"question":"Q?","outcomes":[{"value":"a"},{"value":"b"}],"threshold":0.7,"belowThreshold":"route","onAbstain":"route"}),
+            "decision",
+        );
+        assert_eq!(fix_all(&mut g), 2);
+        assert_eq!(fix_all(&mut g), 0);
+        let mut g = unrouted(json!({"check":"manual","onFail":"return_to_crew"}), "gate");
+        assert_eq!(fix_all(&mut g), 1);
+        assert_eq!(g.node("n2").unwrap().str("onFail"), "end_run");
+        let other = Issue {
+            code: "required".into(),
+            level: Level::Error,
+            message: String::new(),
+            path: String::new(),
+            node_id: None,
+        };
+        assert!(quick_fix_label(&other).is_none() && !quick_fix(&mut g, &other));
+    }
+
+    #[test]
+    fn yaml_view_and_download_path() {
+        let v = json!({"name":"Fix CI","slug":"fix-ci","list":[],"graph":{"nodes":[{"id":"n1","config":{"kind":"manual","on":"yes"}}],"edges":[]}});
+        let y = to_yaml(&v);
+        assert!(y.contains("name: \"Fix CI\"\n"), "{y}");
+        assert!(y.contains("slug: fix-ci\n"));
+        assert!(y.contains("list: []\n"));
+        assert!(y.contains("  nodes:\n    - config:\n"), "{y}");
+        assert!(y.contains("on: \"yes\""), "a reserved word is quoted");
+        assert!(y.contains("edges: []"));
+        assert_eq!(to_yaml(&json!(3)), "3\n");
+        let d = workflow_doc("Fix CI", "fix-ci", 2, &Graph::starter());
+        assert_eq!(d["version"], 2);
+        assert!(d["graph"]["nodes"].is_array());
+        assert!(
+            workflow_doc("x", "x", 0, &Graph::starter())
+                .get("version")
+                .is_none()
+        );
+        let p = download_path("fix/../ci", 3, "yaml");
+        assert!(
+            p.to_string_lossy().ends_with("/Downloads/fixci-v3.yaml"),
+            "{p:?}"
+        );
+        assert!(
+            download_path("", 1, "json")
+                .to_string_lossy()
+                .ends_with("workflow-v1.json")
+        );
+    }
+
+    #[test]
+    fn read_nodes_have_an_icon_and_label() {
+        assert_eq!(type_label("read"), "GitHub read");
+        assert_eq!(type_icon("read"), icons::CLOUD_ARROW_DOWN);
     }
 }

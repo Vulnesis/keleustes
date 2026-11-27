@@ -36,6 +36,11 @@ pub struct Screen {
     /// KPI range in hours (24, 168, 720).
     range_h: Arc<std::sync::atomic::AtomicI64>,
     hud: Loader<Hud>,
+    /// The run graph's show filter and search.
+    graph_show: GraphShow,
+    graph_find: String,
+    /// The repository the eligibility list is for.
+    elig_repo: String,
 }
 
 /// Where a "Needs you" row opens.
@@ -139,10 +144,14 @@ impl Screen {
                     "a2a.",
                     "node.",
                     "approval.",
+                    "session.",
                 ],
                 |core| async move { load_hud(core).await },
             ),
             confirm: None,
+            graph_show: GraphShow::All,
+            graph_find: String::new(),
+            elig_repo: String::new(),
         }
     }
 
@@ -1084,6 +1093,117 @@ pub struct Hud {
     pub workers: Vec<WorkerRow>,
     pub newest_belai: Option<String>,
     pub behind: Vec<String>,
+    /// Open runs, each step in its state and on its node.
+    pub graph: Vec<GraphRow>,
+    /// What the eligibility list judges by: every node, who is online,
+    /// each node's open dispatched sessions, and the managed repositories.
+    pub nodes: Vec<kls_store::Node>,
+    pub online: Vec<String>,
+    pub busy: std::collections::HashMap<String, i64>,
+    pub repos: Vec<String>,
+}
+
+/// One step of the run graph.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GraphNode {
+    pub title: String,
+    pub state: String,
+    /// The node it runs on (by name), when it was placed.
+    pub host: String,
+}
+
+/// One open run of the run graph.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GraphRow {
+    pub run_id: String,
+    pub workflow: String,
+    pub repo: String,
+    pub nodes: Vec<GraphNode>,
+}
+
+/// The run graph's show filter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GraphShow {
+    All,
+    Running,
+    Waiting,
+    Failed,
+}
+
+impl GraphShow {
+    const ALL: [GraphShow; 4] = [
+        GraphShow::All,
+        GraphShow::Running,
+        GraphShow::Waiting,
+        GraphShow::Failed,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            GraphShow::All => "All",
+            GraphShow::Running => "Running",
+            GraphShow::Waiting => "Waiting",
+            GraphShow::Failed => "Failed",
+        }
+    }
+
+    fn keeps(self, state: &str) -> bool {
+        match self {
+            GraphShow::All => true,
+            GraphShow::Running => state == "running",
+            GraphShow::Waiting => matches!(state, "waiting" | "pending"),
+            GraphShow::Failed => state == "failed",
+        }
+    }
+}
+
+/// The run graph after the show filter and the search (workflow, repo,
+/// run, step or node); a run with no step left is dropped.
+pub fn filter_graph(rows: &[GraphRow], show: GraphShow, find: &str) -> Vec<GraphRow> {
+    let q = find.trim().to_lowercase();
+    rows.iter()
+        .filter_map(|r| {
+            let row_hit = [&r.workflow, &r.repo, &r.run_id]
+                .iter()
+                .any(|s| s.to_lowercase().contains(&q));
+            let nodes: Vec<GraphNode> = r
+                .nodes
+                .iter()
+                .filter(|n| show.keeps(&n.state))
+                .filter(|n| {
+                    q.is_empty()
+                        || row_hit
+                        || n.title.to_lowercase().contains(&q)
+                        || n.host.to_lowercase().contains(&q)
+                })
+                .cloned()
+                .collect();
+            (!nodes.is_empty()).then(|| GraphRow { nodes, ..r.clone() })
+        })
+        .collect()
+}
+
+/// A step state's glyph and colour.
+fn step_glyph(p: &theme::Palette, st: &str) -> (&'static str, egui::Color32) {
+    match st {
+        "succeeded" | "skipped" => (icons::CHECK_CIRCLE, p.green),
+        "running" => (icons::CIRCLE_NOTCH, p.cyan),
+        "waiting" => (icons::HOURGLASS, p.gold_text),
+        "failed" => (icons::X_CIRCLE, p.red),
+        "pending" => (icons::DOT_OUTLINE, p.muted),
+        _ => (icons::CIRCLE, p.muted),
+    }
+}
+
+/// An eligibility state's colour (ready and can clone take the run).
+fn eligibility_color(p: &theme::Palette, state: &str) -> egui::Color32 {
+    match state {
+        "ready" | "can_clone" => p.green,
+        "full" => p.gold_text,
+        "no_profile" => p.amber,
+        "offline" => p.red,
+        _ => p.muted,
+    }
 }
 
 async fn load_hud(core: kls_core::Core) -> anyhow::Result<Hud> {
@@ -1143,7 +1263,82 @@ async fn load_hud(core: kls_core::Core) -> anyhow::Result<Hud> {
         .map(|n| (n.name.clone(), n.host.belai_version.clone()))
         .collect();
     let (newest_belai, behind) = version_skew(&versions);
+    let online = match core.gateway() {
+        Ok(gw) => gw.online().await,
+        Err(_) => Vec::new(),
+    };
+    let open = s
+        .sessions(&kls_store::sessions::SessionQuery {
+            open_only: true,
+            limit: 2000,
+            ..Default::default()
+        })
+        .await?;
+    let mut busy: std::collections::HashMap<String, i64> = Default::default();
+    for x in open.iter().filter(|x| !x.dispatch_id.is_empty()) {
+        *busy.entry(x.node_id.clone()).or_default() += 1;
+    }
+    // The run graph: each open run's steps and the node each was placed on.
+    let workflows: std::collections::HashMap<String, String> = s
+        .workflows(false)
+        .await?
+        .into_iter()
+        .map(|w| (w.id, w.name))
+        .collect();
+    let mut graph = Vec::new();
+    for r in s
+        .runs_in(&["running", "waiting_approval", "queued"])
+        .await?
+        .into_iter()
+        .take(30)
+    {
+        let mut nodes = Vec::new();
+        for st in s.run_steps(&r.id).await? {
+            let mut host = String::new();
+            if let Some(d) = st.dispatch_id.as_deref().filter(|d| !d.is_empty())
+                && let Some(d) = s.dispatch(d).await?
+            {
+                host = d.node_id;
+            } else if let Some(sid) = st.session_id.as_deref().filter(|x| !x.is_empty())
+                && let Some(x) = s.session(sid).await?
+            {
+                host = x.node_id;
+            } else if let Ok(v) = serde_json::from_str::<serde_json::Value>(&st.details_json) {
+                host = v["nodeId"].as_str().unwrap_or("").to_string();
+            }
+            nodes.push(GraphNode {
+                title: if st.title.is_empty() {
+                    st.node_id.clone()
+                } else {
+                    st.title.clone()
+                },
+                state: st.status.clone(),
+                host: names.get(&host).cloned().unwrap_or(host),
+            });
+        }
+        graph.push(GraphRow {
+            workflow: workflows
+                .get(&r.workflow_id)
+                .cloned()
+                .unwrap_or_else(|| r.workflow_id.clone()),
+            run_id: r.id,
+            repo: r.repo,
+            nodes,
+        });
+    }
+    let repos = s
+        .gh_managed_repos()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|r| r.full_name)
+        .collect();
     Ok(Hud {
+        graph,
+        nodes,
+        online,
+        busy,
+        repos,
         s1: system_one(&recent),
         heat: runs_heatmap(&starts, now),
         runs_24h: starts.iter().filter(|t| **t >= since).count(),
@@ -1467,7 +1662,127 @@ impl Screen {
                     });
             },
         );
+        ui.add_space(12.0);
+        run_graph(ui, model, &h, &mut self.graph_show, &mut self.graph_find);
+        ui.add_space(12.0);
+        eligibility(ui, &h, &mut self.elig_repo);
     }
+}
+
+/// Workflow runs: one row per open run, each step in its state and on its
+/// node; a run opens in Runs.
+fn run_graph(ui: &mut egui::Ui, model: &Model, h: &Hud, show: &mut GraphShow, find: &mut String) {
+    let p = palette(ui.ctx());
+    let rows = filter_graph(&h.graph, *show, find);
+    kit::section(
+        ui,
+        icons::TREE_STRUCTURE,
+        "Workflow runs",
+        false,
+        |ui| {
+            if kit::link(ui, &icons::label(icons::ARROW_RIGHT, "Runs"), p.cyan).clicked() {
+                model.go(crate::Screen::Runs, None);
+            }
+        },
+        |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(find)
+                        .desired_width(200.0)
+                        .hint_text(icons::label(icons::MAGNIFYING_GLASS, "Find")),
+                );
+                for s in GraphShow::ALL {
+                    if kit::pick_chip(ui, s.label(), *show == s, p.cyan).clicked() {
+                        *show = s;
+                    }
+                }
+            });
+            ui.add_space(6.0);
+            if rows.is_empty() {
+                ui.label(
+                    RichText::new(icons::label(icons::TREE_STRUCTURE, "No open runs"))
+                        .color(p.muted),
+                );
+                return;
+            }
+            for r in &rows {
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .link(RichText::new(&r.workflow).strong())
+                        .on_hover_text(&r.run_id)
+                        .clicked()
+                    {
+                        model.go(crate::Screen::Runs, Some(r.run_id.clone()));
+                    }
+                    if !r.repo.is_empty() {
+                        ui.label(kit::mono(&r.repo, 12.0, p.muted));
+                    }
+                    for (i, n) in r.nodes.iter().enumerate() {
+                        if i > 0 {
+                            ui.label(RichText::new(icons::CARET_RIGHT).color(p.muted));
+                        }
+                        let (g, c) = step_glyph(&p, &n.state);
+                        let text = if n.host.is_empty() {
+                            format!("{g} {}", n.title)
+                        } else {
+                            format!("{g} {} · {}", n.title, n.host)
+                        };
+                        ui.label(RichText::new(text).size(12.0).color(c))
+                            .on_hover_text(&n.state);
+                    }
+                });
+            }
+        },
+    );
+}
+
+/// Who can run a repository: each node's eligibility and why not.
+fn eligibility(ui: &mut egui::Ui, h: &Hud, repo: &mut String) {
+    let p = palette(ui.ctx());
+    let rows = kls_engine::route::host_eligibility(&h.nodes, &h.online, &h.busy, repo, "", "");
+    kit::section(
+        ui,
+        icons::HARD_DRIVES,
+        "Who can run",
+        false,
+        |ui| {
+            egui::ComboBox::from_id_salt("cockpit-elig-repo")
+                .selected_text(icons::label(
+                    icons::GIT_BRANCH,
+                    if repo.is_empty() {
+                        "any repository"
+                    } else {
+                        repo.as_str()
+                    },
+                ))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(repo, String::new(), "any repository");
+                    for r in &h.repos {
+                        ui.selectable_value(repo, r.clone(), r);
+                    }
+                });
+        },
+        |ui| {
+            if rows.is_empty() {
+                ui.label(
+                    RichText::new(icons::label(icons::HARD_DRIVES, "No nodes")).color(p.muted),
+                );
+                return;
+            }
+            egui::Grid::new("cockpit-elig")
+                .num_columns(3)
+                .striped(true)
+                .spacing([14.0, 4.0])
+                .show(ui, |ui| {
+                    for e in &rows {
+                        ui.label(RichText::new(&e.name).strong());
+                        kit::chip(ui, e.state, eligibility_color(&p, e.state));
+                        ui.label(RichText::new(&e.detail).size(12.0).color(p.muted));
+                        ui.end_row();
+                    }
+                });
+        },
+    );
 }
 
 #[cfg(test)]
@@ -1621,6 +1936,52 @@ mod tests {
     fn quota_escalations_open_budget_usage() {
         let c = cp(CheckpointKind::QuotaEscalated);
         assert_eq!(target(&c), (crate::Screen::Budgets, Some("usage".into())));
+    }
+
+    #[test]
+    fn run_graph_filters_by_state_and_search() {
+        let node = |title: &str, state: &str, host: &str| GraphNode {
+            title: title.into(),
+            state: state.into(),
+            host: host.into(),
+        };
+        let rows = vec![
+            GraphRow {
+                run_id: "r1".into(),
+                workflow: "Fix CI".into(),
+                repo: "acme/api".into(),
+                nodes: vec![
+                    node("Go", "succeeded", ""),
+                    node("Build", "running", "box-a"),
+                ],
+            },
+            GraphRow {
+                run_id: "r2".into(),
+                workflow: "Triage".into(),
+                repo: "acme/web".into(),
+                nodes: vec![node("Approve", "waiting", ""), node("Ship", "failed", "")],
+            },
+        ];
+        assert_eq!(filter_graph(&rows, GraphShow::All, ""), rows);
+        let r = filter_graph(&rows, GraphShow::Running, "");
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].nodes, vec![node("Build", "running", "box-a")]);
+        assert_eq!(filter_graph(&rows, GraphShow::Waiting, "")[0].run_id, "r2");
+        assert_eq!(
+            filter_graph(&rows, GraphShow::Failed, "")[0].nodes[0].title,
+            "Ship"
+        );
+        // A host or a step matches its steps; a workflow or repo, the whole run.
+        let r = filter_graph(&rows, GraphShow::All, "BOX-A");
+        assert_eq!((r.len(), r[0].nodes.len()), (1, 1));
+        assert_eq!(
+            filter_graph(&rows, GraphShow::All, "acme/web")[0]
+                .nodes
+                .len(),
+            2
+        );
+        assert!(filter_graph(&rows, GraphShow::All, "nothing").is_empty());
+        assert!(GraphShow::ALL.iter().all(|s| !s.label().is_empty()));
     }
 
     #[test]

@@ -234,6 +234,22 @@ impl Node {
             .unwrap_or(false)
     }
 
+    /// A trigger's extra triggers (`also`), each a trigger config of its
+    /// own, numbered from 1 (its row is `<id>#<n>`). Entries that are not
+    /// objects are skipped.
+    pub fn also(&self) -> Vec<(usize, Map<String, Value>)> {
+        self.config
+            .get("also")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .enumerate()
+                    .filter_map(|(i, v)| v.as_object().map(|o| (i + 1, o.clone())))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// The trigger kind of a trigger node (`manual` when unset).
     pub fn trigger_kind(&self) -> &str {
         match self.str("kind") {
@@ -335,6 +351,7 @@ impl Node {
             }
             "job" => format!("job {}", self.str("job")),
             "scan" => format!("Vulnetix CLI {}", self.str("job")),
+            "read" => format!("{} from the {}", read_what(self), read_source(self)),
             "profile" => "stores the repository profile".into(),
             "provision" => format!("host plan {} on {}", self.str("planId"), self.str("node")),
             "condition" => {
@@ -430,8 +447,9 @@ pub struct PaletteItem {
     pub help: &'static str,
 }
 
-pub const PALETTE_GROUPS: [(&str, &str); 6] = [
+pub const PALETTE_GROUPS: [(&str, &str); 7] = [
     ("triggers", "Triggers"),
+    ("github_reads", "GitHub reads"),
     ("agents", "Agents and jobs"),
     ("logic", "Logic"),
     ("people", "People"),
@@ -529,6 +547,36 @@ pub const PALETTE: &[PaletteItem] = &[
         title: "Session",
         requires: None,
         help: "Starts a plain belai session with the brief as its prompt.",
+    },
+    PaletteItem {
+        id: "read_mirror",
+        group: "github_reads",
+        label: "Read the mirror",
+        node_type: "read",
+        preset: r#"{"source":"mirror","what":"pull"}"#,
+        title: "Read the pull request",
+        requires: None,
+        help: "Reads the run's pull request, repository or issues from the mirror. 0 GitHub calls.",
+    },
+    PaletteItem {
+        id: "read_webhook",
+        group: "github_reads",
+        label: "Read the webhook payload",
+        node_type: "read",
+        preset: r#"{"source":"webhook","what":"pull"}"#,
+        title: "Read the event",
+        requires: None,
+        help: "Reads what the triggering event carried. 0 GitHub calls.",
+    },
+    PaletteItem {
+        id: "read_api",
+        group: "github_reads",
+        label: "Read live from GitHub",
+        node_type: "read",
+        preset: r#"{"source":"api","what":"pull","onQuotaLow":"use_cached"}"#,
+        title: "Read live",
+        requires: Some("github"),
+        help: "Refreshes the pull request from GitHub (1 call); the mirror when the call fails.",
     },
     PaletteItem {
         id: "scan",
@@ -677,8 +725,9 @@ pub fn node_from_palette(g: &Graph, item: &PaletteItem, pos: Pos) -> Node {
 }
 
 /// Every node type the engine knows.
-pub const NODE_TYPES: [&str; 14] = [
+pub const NODE_TYPES: [&str; 15] = [
     "trigger",
+    "read",
     "provision",
     "crew",
     "scan",
@@ -722,6 +771,50 @@ pub const GITHUB_ACTIONS: [&str; 8] = [
 ];
 /// Board statuses (M2's lists).
 pub const CARD_STATUSES: [&str; 6] = ["triage", "backlog", "todo", "doing", "review", "done"];
+
+/// The trigger node an extra trigger's row id (`<id>#<n>`) belongs to.
+pub fn trigger_of(node_id: &str) -> &str {
+    node_id.split('#').next().unwrap_or(node_id)
+}
+
+/// The kinds an extra trigger (`also`) may be: a schedule stays one per
+/// trigger node.
+pub const ALSO_KINDS: [&str; 5] = ["manual", "kanban", "event", "webhook", "label"];
+
+/// The config key an extra trigger's one detail is written under.
+pub fn also_detail_key(kind: &str) -> &'static str {
+    match kind {
+        "webhook" | "event" => "event",
+        "label" => "label",
+        "kanban" => "toList",
+        _ => "",
+    }
+}
+
+/// Where a `read` node reads from: the mirror (0 calls), the trigger's
+/// webhook payload (0 calls) or the live API (1 call, the mirror when the
+/// call fails and `onQuotaLow` is `use_cached`).
+pub const READ_SOURCES: [&str; 3] = ["mirror", "webhook", "api"];
+/// What a `read` node reads: the run's pull request, the repository, or
+/// its open issues.
+pub const READ_WHAT: [&str; 3] = ["pull", "repo", "issues"];
+pub const ON_QUOTA_LOW: [&str; 2] = ["use_cached", "fail"];
+
+/// A `read` node's source (`mirror` when unset).
+pub fn read_source(n: &Node) -> &str {
+    match n.str("source") {
+        "" => "mirror",
+        s => s,
+    }
+}
+
+/// What a `read` node reads (`pull` when unset).
+pub fn read_what(n: &Node) -> &str {
+    match n.str("what") {
+        "" => "pull",
+        s => s,
+    }
+}
 
 /// Builtin belai profiles that run as background agents, not workers: a
 /// step that names one finds no host (`agent_not_dispatchable`). From the
