@@ -8,7 +8,7 @@ Date: 2026-11-21. Every endpoint below was probed that day without credentials, 
 - `kls_core::vault::LIBRARY_KINDS = [prompt, skill, command, process]` (`crates/kls-core/src/vault.rs:65`).
 - Agents live in `agent_profiles` (`crates/kls-store/src/vault.rs:154`).
 - Import reads local `.md` files only (`import_library`, `vault.rs:1485`). Its front matter is `kind, name, description`, with no validation beyond the name rule.
-- There is no `hook` kind, no `mcp` kind and no file bundle. The workspace has no HTTP client: GitHub goes through `gh` (`kls-github`).
+- There is no `hook` kind, no `mcp` kind and no file bundle. The workspace has no HTTP client: GitHub goes through `gh` (`kls-forge`).
 
 **Specs this follows.**
 - `vdb-site/docs/belai-library-items.md`: kinds, limits, canonical form and hash, the Skill, Command, Prompt, Hook and MCP rules, and the scan report's `notes` vocabulary.
@@ -252,11 +252,11 @@ Requests go cheapest first:
    - A token bucket per host: `api.github.com` core at 55/h (5 kept back), search at 9/min; `clawhub.ai` at 600/min.
    - 429 or 403 with `Retry-After` / `x-ratelimit-reset` parks the host. Its source shows a clock chip with the reset time.
    - Background refresh runs at most every 6 h per source (S2 at its ETag cadence), only when the Library is opened, and never on start-up.
-7. **`gh` boost** (optional, WP8). When `kls-github` reports `gh auth status` ok (`select.rs` route detection):
+7. **`gh` boost** (optional, WP8). When `kls-forge` reports `gh auth status` ok (`select.rs` route detection):
    - enable `gh_code` (code search: `filename:SKILL.md`, `path:.claude/agents`, `path:.claude/commands`, `filename:hooks.json`, `filename:.mcp.json`, 10/min);
    - use `git/trees?recursive=1` for huge repos;
    - use `repos/{o}/{r}/license` for an unknown licence.
-   All of it goes through `kls_github::budget` as `CallClass::User` (interactive) or `Deferrable` (refresh). Without `gh` locally, a belai node's `gh` can be used through the existing `github` job route, off by default.
+   All of it goes through `kls_forge::budget` as `CallClass::User` (interactive) or `Deferrable` (refresh). Without `gh` locally, a belai node's `gh` can be used through the existing `github` job route, off by default.
 
 ### 4.3 Generic repo adapter (user taps)
 
@@ -786,7 +786,7 @@ No network in unit tests. Every source is driven through `FakeFetcher` serving `
 | **WP5** Converters + scan + licence | §3 tables as pure functions; `scan`; SPDX fingerprints | WP0 (for hook/mcp output), none for skill/command/prompt/agent | Golden tests per row |
 | **WP6** Core + store | `kls-core::libsearch` (search/preview/import/check_updates/refresh, `guard`), migration `0008`, events, ledger entries (§6a) | WP1, WP5 | Import writes item + provenance + audit; kill switch and actor refusals audited; hooks stored only; rule 1–4 tests green |
 | **WP7** UI | Discover tab, preview tabs, review dialog, Sources panel, Items provenance/update columns, origin chip in editor and Workforce, `⊘ Factory stopped` bar, offline chips | WP6 (build against a fake first) | `READY`, clippy clean |
-| **WP8** gh boost | `gh_code` source, trees for huge repos, licence API through `kls_github::budget` | WP1, kls-github | Toggles on when `gh auth status` is ok; off otherwise |
+| **WP8** gh boost | `gh_code` source, trees for huge repos, licence API through `kls_forge::budget` | WP1, kls-forge | Toggles on when `gh auth status` is ok; off otherwise |
 | **WP9** belai convert job | belai `library` job kind (`convert`) wrapping `agentimport.ImportItem`; proto `Job.kind` comment (coordinator) | belai team | Hermes/Claws/nemoclaw/mini-SWE profiles import with belai's notes |
 
 Order of value: WP0 ∥ WP1 → WP2 + WP3 (skills, agents and commands searchable offline) → WP5 → WP6 → WP7 → WP4 → WP8 → WP9.

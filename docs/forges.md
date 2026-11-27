@@ -73,7 +73,7 @@ helper (belai `internal/forgejob`).
 `just forge-live` starts Forgejo 13 and Gitea 1.22 in podman or docker,
 seeds `e2e/app` with a conflicting pull request, signs a throwaway `tea` in
 (token in `GITEA_SERVER_TOKEN`, never argv) and runs
-`crates/kls-github/tests/live_forge.rs`: the server probe, discovery, pulls
+`crates/kls-forge/tests/live_forge.rs`: the server probe, discovery, pulls
 (full, then by cursor), statuses, labels by id, issues, draft/ready, conflict
 commit pushed through `tea login helper`, stale push refused, and tea's OAuth
 sign-in approved headlessly. Without `tea` on `PATH`, set
@@ -107,9 +107,9 @@ capability matrix, sign-in UX, work packages and test plan) follows; the
 original is kept at `docs/gaps/forges.md`.
 
 
-Status: implemented (WP-1 to WP-12; the crate keeps its name `kls-github`). The Gitea and Forgejo live suites (8.2) run in containers; GitLab and github.com live suites need real accounts.
+Status: implemented (WP-1 to WP-12; the crate keeps its name `kls-forge`). The Gitea and Forgejo live suites (8.2) run in containers; GitLab and github.com live suites need real accounts.
 
-Keleustes reaches GitHub only through `gh` (`crates/kls-github`): on this host
+Keleustes reaches GitHub only through `gh` (`crates/kls-forge`): on this host
 when `gh auth status --hostname github.com` succeeds (`LocalGh`), otherwise on
 a connected belai node that reports `gh_authenticated` (`NodeGh`, a `github`
 job). Keleustes holds no forge token. The web Software Factory
@@ -130,7 +130,7 @@ person pastes one, and forgets it.
 
 | Piece | File | GitHub-only because |
 |---|---|---|
-| `GitHub` trait (`route()`, `gh(args, stdin)`) | `kls-github/src/lib.rs` | names `gh`, one host |
+| `GitHub` trait (`route()`, `gh(args, stdin)`) | `kls-forge/src/lib.rs` | names `gh`, one host |
 | `LocalGh`, `LocalAuth` | `local.rs` | `--hostname github.com` hard-coded via `login::HOST` |
 | `WebLogin`, `login_with_token`, `ALL_SCOPES`, `token_url` | `login.rs` | gh flags, github.com device URL, classic scopes |
 | `Selector` | `select.rs` | one cached route per process; node filter `gh_authenticated` |
@@ -143,7 +143,7 @@ person pastes one, and forgets it.
 | Store | `migrations/*/0006_github.sql` | keys `owner/name`, `login`; quota/ETag keyed by route |
 | Node capability | `proto/keleustes/node/v1/node.proto` `Capabilities.gh_authenticated` | one bool, github.com only (belai `factorylink/host.go` runs `gh auth status --hostname github.com`) |
 | Node job | belai `docs/keleustes.md` "`github`" | runs `gh` only, allowlisted subcommands |
-| UI | `kls-ui/src/screens/repos.rs`, `gh_signin.rs` | one route tile, one sign-in dialog for github.com |
+| UI | `kls-ui/src/screens/repos.rs`, `forge_signin.rs` | one route tile, one sign-in dialog for github.com |
 
 Existing bug found while reading (independent of this gap): the engine's
 `check_run` action (`kls-engine/src/forge.rs`) POSTs
@@ -278,7 +278,7 @@ the token redacted by exact match).
 #### 3.1 Model
 
 ```rust
-// kls-github/src/forge/kind.rs  (crate renamed kls-forge in WP-11)
+// kls-forge/src/forge/kind.rs  (crate renamed from kls-github in WP-11)
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -653,7 +653,7 @@ stay out of scope: a desktop app has no public endpoint, as today.
 Port `forgecap.Catalogue()` as a static Rust table (`forge/cap.rs`) with the
 same ids and notes; pin it to a copy of
 `vdb-site/api/internal/forgecap/testdata/forge-capabilities.json` in
-`kls-github/testdata/` with a test that fails when they differ (same
+`kls-forge/testdata/` with a test that fails when they differ (same
 `FORGECAP_UPDATE` refresh). Desktop column adds the Keleustes mechanism.
 
 | id | github | ghes | gitea | forgejo | gitlab | Keleustes note |
@@ -790,7 +790,7 @@ an alias for `--kind github --host github.com`.
 ### 7. Independent work packages
 
 Ordered by dependency; packages on the same level run in parallel.
-Owners per `docs/WORKSTREAMS.md` (M4 owns kls-github, its store module and
+Owners per `docs/WORKSTREAMS.md` (M4 owns kls-forge, its store module and
 migrations; coordinator owns proto, kls-core lib/gateway, kls-store lib).
 
 | WP | Scope | Depends on | Owner |

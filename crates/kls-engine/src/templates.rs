@@ -163,7 +163,7 @@ mod tests {
     }
 
     /// Every GitHub event the poller mirrors, as the webhook names
-    /// `forge::webhook_events` gives them (kls-github `poller.rs`/`events.rs`:
+    /// `forge::webhook_events` gives them (kls-forge `poller.rs`/`events.rs`:
     /// pulls, issues, comments, push, workflow runs, releases, alerts, repos,
     /// packages, deployments, reviews and the risk sources).
     const EMITTED_WEBHOOKS: [&str; 29] = [

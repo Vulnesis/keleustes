@@ -129,7 +129,7 @@ pub fn tab(ui: &mut egui::Ui, model: &Model, view: &Loader<IssueView>, card: &Ca
         {
             let repo = i.repo.clone();
             model.act(move |m| async move {
-                let n = kls_github::service(m.core()).sync_issues(&repo).await?;
+                let n = kls_forge::service(m.core()).sync_issues(&repo).await?;
                 Ok(Some(Notice::Info(format!("{repo}: {n} changed"))))
             });
         }
@@ -200,10 +200,10 @@ fn no_issue(ui: &mut egui::Ui, model: &Model, card: &Card, mirrored: bool) {
     {
         let card = card.clone();
         model.act(move |m| async move {
-            let gh = kls_github::service(m.core());
+            let gh = kls_forge::service(m.core());
             let c = gh.client_for(&card.repo).await?;
             let (n, _url) =
-                kls_github::sync::open_issue(&c, &card, &issue_body(&card), "user").await?;
+                kls_forge::sync::open_issue(&c, &card, &issue_body(&card), "user").await?;
             Ok(Some(Notice::Info(format!("Opened {}#{n}", card.repo))))
         });
     }

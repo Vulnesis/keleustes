@@ -190,7 +190,7 @@ pub async fn snapshot(hub: &Hub) -> Result<Snap> {
         a2a_blackout: st.a2a_blackout,
         muted: eff.notify_muted,
         theme,
-        route: kls_github::service(core).route().await.route.label(),
+        route: kls_forge::service(core).route().await.route.label(),
     })
 }
 

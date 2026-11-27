@@ -63,7 +63,7 @@ enum Confirm {
 pub struct Screen {
     data: Loader<BudgetsView>,
     /// GitHub calls this hour per caller (people, the poller, each workflow).
-    forge: Loader<Vec<kls_github::budget::CallerCalls>>,
+    forge: Loader<Vec<kls_forge::budget::CallerCalls>>,
     range_days: Arc<AtomicI64>,
     tab: Tab,
     budget_form: Option<BudgetForm>,
@@ -99,7 +99,7 @@ impl Screen {
                 model,
                 &["github.quota", "forge.", "run.finished"],
                 |core| async move {
-                    kls_github::budget::calls_this_hour(core.store(), kls_store::now_ms()).await
+                    kls_forge::budget::calls_this_hour(core.store(), kls_store::now_ms()).await
                 },
             ),
             range_days,

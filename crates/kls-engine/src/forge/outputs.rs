@@ -4,7 +4,7 @@
 //! verdict a reviewer's notes give, and the readiness rules an approval
 //! must pass. No I/O here; `forge.rs` does the forge calls.
 
-use kls_github::forge::api::InlineComment;
+use kls_forge::forge::api::InlineComment;
 use kls_store::engine::RunStep;
 use serde::Serialize;
 use serde_json::{Value, json};

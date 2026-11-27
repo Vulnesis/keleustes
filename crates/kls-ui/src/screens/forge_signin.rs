@@ -8,10 +8,10 @@ use crate::icons;
 use crate::kit;
 use crate::model::{Model, Notice};
 use crate::theme;
-use kls_github::forge::auth::{CliProbe, SignInMethod, auth_for};
-use kls_github::forge::server::ServerInfo;
-use kls_github::login::{WebLogin, WebState};
-use kls_github::{CliKind, Connection, ForgeKind};
+use kls_forge::forge::auth::{CliProbe, SignInMethod, auth_for};
+use kls_forge::forge::server::ServerInfo;
+use kls_forge::login::{WebLogin, WebState};
+use kls_forge::{CliKind, Connection, ForgeKind};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -166,7 +166,7 @@ impl SignIn {
         *slot.lock().unwrap() = Some((Vec::new(), CliProbe::default()));
         let got = fresh.clone();
         model.act(move |m| async move {
-            let svc = kls_github::service(m.core());
+            let svc = kls_forge::service(m.core());
             let conn = match pending {
                 Some(id) => svc.connection(&id).await?,
                 None => conn,
@@ -209,7 +209,7 @@ impl SignIn {
         let mut close = false;
         let conn = self.conn.clone();
         let icon = super::repos::kind_icon(conn.kind, &conn.host);
-        let resp = egui::Modal::new(egui::Id::unique("gh_signin"))
+        let resp = egui::Modal::new(egui::Id::unique("forge_signin"))
             .frame(kit::glow(ui).inner_margin(20.0))
             .show(ui.ctx(), |ui| {
                 ui.set_width(480.0);
@@ -451,7 +451,7 @@ impl SignIn {
         };
         model.act(move |m| async move {
             let ctx = m.egui_ctx();
-            let route = kls_github::service(m.core())
+            let route = kls_forge::service(m.core())
                 .login_web(&login, move || ctx.request_repaint())
                 .await;
             Ok(match login.state() {
@@ -491,7 +491,7 @@ impl SignIn {
                 .clicked()
             {
                 let url = if conn.is_github_com() {
-                    kls_github::login::token_url()
+                    kls_forge::login::token_url()
                 } else {
                     page.url.clone()
                 };
@@ -556,7 +556,7 @@ impl SignIn {
                     *st.lock().unwrap() = TokenState::Busy;
                     let conn = conn.clone();
                     model.act(move |m| async move {
-                        let svc = kls_github::service(m.core());
+                        let svc = kls_forge::service(m.core());
                         let r = if conn.is_github_com() {
                             svc.login_with_token(&token).await
                         } else {
@@ -754,7 +754,7 @@ impl Connect {
                         let slot = self.probe.clone();
                         let host = self.host.clone();
                         model.act(move |m| async move {
-                            let svc = kls_github::service(m.core());
+                            let svc = kls_forge::service(m.core());
                             let conn = Connection::new(kind, &host, "user")
                                 .unwrap_or_else(Connection::github_com);
                             let pr = svc.probe(&conn).await;
@@ -764,7 +764,7 @@ impl Connect {
                         });
                     }
                 });
-                let host_ok = kls_github::forge::normalize_host(&self.host).is_some();
+                let host_ok = kls_forge::forge::normalize_host(&self.host).is_some();
                 if let Some(pr) = self.probe.lock().unwrap().clone() {
                     ui.add_space(6.0);
                     if pr.installed {
@@ -824,7 +824,7 @@ impl Connect {
                         };
                         let made = self.made.clone();
                         model.act(move |m| async move {
-                            let c = kls_github::service(m.core())
+                            let c = kls_forge::service(m.core())
                                 .add_connection(kind, &host, &label, "user")
                                 .await?;
                             *made.lock().unwrap() = Some(c);
@@ -848,7 +848,7 @@ impl Connect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kls_github::forge::server::parse;
+    use kls_forge::forge::server::parse;
     use serde_json::json;
 
     #[test]

@@ -1,7 +1,7 @@
 //! Domain: github. The GitHub plane's event kinds and settings, and the
 //! delivery analytics (outcomes, decisions, people, contributors) read from
 //! the delivery facts in kls-store's `github` module. The client, the
-//! poller and the conflict editor's back end are in the `kls-github` crate.
+//! poller and the conflict editor's back end are in the `kls-forge` crate.
 
 use crate::Core;
 use anyhow::Result;
@@ -1904,7 +1904,7 @@ pub async fn rollup(core: &Core, origin: &str) -> Result<SweepReport> {
             .collect::<Vec<_>>()
     };
     let mut gone = missed(&store.gh_pulls(None, None).await?);
-    // Missed captures are read again through the forge (kls-github hook),
+    // Missed captures are read again through the forge (kls-forge hook),
     // a few per pass, then counted again.
     if !gone.is_empty() {
         gone.truncate(RECAPTURE_PER_PASS);
@@ -1943,8 +1943,8 @@ pub async fn rollup(core: &Core, origin: &str) -> Result<SweepReport> {
 pub const RECAPTURE_PER_PASS: usize = 10;
 
 /// Reads a merged pull again and captures its delivery facts: kls-core
-/// cannot call the forge client (kls-github depends on kls-core), so
-/// kls-github registers this at start ([`register_recapture`]). The hook
+/// cannot call the forge client (kls-forge depends on kls-core), so
+/// kls-forge registers this at start ([`register_recapture`]). The hook
 /// checks the kill switch and audits each pull.
 #[async_trait::async_trait]
 pub trait Recapture: Send + Sync {

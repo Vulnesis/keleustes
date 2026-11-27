@@ -2,7 +2,7 @@
 //! a host that has the repository drafts the file from its harness-computed
 //! repository facts (job `init_draft`; nothing is written there), Keleustes
 //! keeps the draft for a person to review, and accepting it opens a pull
-//! request through the forge plane (`kls_github::forge::propose`).
+//! request through the forge plane (`kls_forge::forge::propose`).
 //!
 //! The draft is model text from a host: it is stored and shown as data, its
 //! hash checked against the host's, and it reaches a repository only after

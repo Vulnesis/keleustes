@@ -198,8 +198,8 @@ impl Window {
                 {
                     let edited = (text != d.markdown).then_some(text);
                     model.act(move |m| async move {
-                        let svc = kls_github::service(m.core());
-                        let d = kls_github::forge::propose::accept_init_draft(
+                        let svc = kls_forge::service(m.core());
+                        let d = kls_forge::forge::propose::accept_init_draft(
                             &svc,
                             m.core(),
                             &id,

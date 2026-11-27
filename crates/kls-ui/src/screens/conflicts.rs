@@ -12,8 +12,8 @@ use crate::kit;
 use crate::loader::Loader;
 use crate::model::{Model, Notice};
 use crate::theme;
-use kls_github::conflicts::{self as backend, ConflictSet, How};
-use kls_github::merge3::{Choice, Chunk, has_markers};
+use kls_forge::conflicts::{self as backend, ConflictSet, How};
+use kls_forge::merge3::{Choice, Chunk, has_markers};
 use kls_store::github::{GhPull, Resolution};
 use similar::{ChangeTag, TextDiff};
 use std::collections::BTreeMap;
@@ -146,7 +146,7 @@ impl Screen {
         let slot = self.set.clone();
         let loading = self.loading.clone();
         model.act(move |m| async move {
-            let r = kls_github::service(m.core())
+            let r = kls_forge::service(m.core())
                 .load_conflicts(&repo, number)
                 .await
                 .map_err(|e| format!("{e:#}"));
@@ -175,7 +175,7 @@ impl Screen {
                     .trim_start_matches('#')
                     .parse::<i64>()
                 {
-                    Ok(n) if kls_github::valid_repo(self.repo_input.trim()) => {
+                    Ok(n) if kls_forge::valid_repo(self.repo_input.trim()) => {
                         pick = Some((self.repo_input.trim().to_string(), n))
                     }
                     _ => model.notify(Notice::Error(
@@ -689,7 +689,7 @@ impl Screen {
         let reload = self.reload.clone();
         *busy.lock().unwrap() = true;
         model.act(move |m| async move {
-            let r = kls_github::service(m.core())
+            let r = kls_forge::service(m.core())
                 .commit_resolution(&set, &resolved, &msg)
                 .await;
             *busy.lock().unwrap() = false;
@@ -765,7 +765,7 @@ fn hand_off_block(set: &ConflictSet, busy: bool, host: Result<String, String>) -
 /// A lockfile is never hand-merged: keep one side whole, then regenerate.
 fn lockfile_sides(
     ui: &mut egui::Ui,
-    f: &kls_github::conflicts::ConflictFile,
+    f: &kls_forge::conflicts::ConflictFile,
     edit: &mut FileEdit,
     ours: &str,
     theirs: &str,
@@ -809,7 +809,7 @@ fn lockfile_sides(
 /// whether a choice changed (the result is then re-rendered).
 fn hunk_list(
     ui: &mut egui::Ui,
-    f: &kls_github::conflicts::ConflictFile,
+    f: &kls_forge::conflicts::ConflictFile,
     edit: &mut FileEdit,
     ours: &str,
     theirs: &str,
@@ -1060,7 +1060,7 @@ fn short(sha: &str) -> &str {
 }
 
 /// How a committed resolution was signed, for the notice.
-fn signing_word(r: &Resolution, forge: kls_github::ForgeKind) -> String {
+fn signing_word(r: &Resolution, forge: kls_forge::ForgeKind) -> String {
     if r.signing == "unsigned_push" {
         return "pushed unsigned".into();
     }
@@ -1193,8 +1193,8 @@ fn outline_button(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kls_github::conflicts::ConflictFile;
-    use kls_github::merge3::Merge3;
+    use kls_forge::conflicts::ConflictFile;
+    use kls_forge::merge3::Merge3;
 
     fn set(conflicting: bool) -> ConflictSet {
         let merge = if conflicting {
@@ -1223,7 +1223,7 @@ mod tests {
                 merge,
             }],
             base_only: Vec::new(),
-            forge: kls_github::ForgeKind::Github,
+            forge: kls_forge::ForgeKind::Github,
         }
     }
 

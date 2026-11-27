@@ -2,7 +2,7 @@
 # Live forge suite (docs/gaps/forges.md 8.2): Gitea and Forgejo in a container
 # (podman or docker), a real `tea`, the whole plane from discovery to a
 # conflict commit pushed through `tea login helper`, then tea's OAuth sign-in
-# approved headlessly (crates/kls-github/tests/live_forge.rs). Opt in:
+# approved headlessly (crates/kls-forge/tests/live_forge.rs). Opt in:
 # `just forge-live`. Skips (exit 0) when no container engine or no tea, so it
 # never blocks the default gate.
 #
@@ -45,7 +45,7 @@ cleanup() {
 trap cleanup EXIT
 
 # The test binary, built on the host once.
-bin=$(cd "$root" && cargo test -p kls-github --test live_forge --no-run --message-format=json 2>/dev/null \
+bin=$(cd "$root" && cargo test -p kls-forge --test live_forge --no-run --message-format=json 2>/dev/null \
   | jq -r 'select(.reason == "compiler-artifact" and .target.name == "live_forge" and .executable != null) | .executable' \
   | tail -n1)
 

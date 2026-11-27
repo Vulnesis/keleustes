@@ -213,7 +213,7 @@ pub struct Handed {
 /// is audited (`conflict_resolver.dispatch`) with the surface it came from.
 pub async fn dispatch_resolver(
     core: &Core,
-    set: &kls_github::conflicts::ConflictSet,
+    set: &kls_forge::conflicts::ConflictSet,
     url: &str,
     caller: &str,
 ) -> Result<Handed> {
@@ -259,7 +259,7 @@ pub async fn dispatch_resolver(
             anyhow::bail!("{why}");
         }
     };
-    let card = kls_github::conflicts::file_resolver_card(core, set, url, caller).await?;
+    let card = kls_forge::conflicts::file_resolver_card(core, set, url, caller).await?;
     if set.is_fork() {
         note(
             "held for fork code".into(),
@@ -450,8 +450,8 @@ mod tests {
         }
     }
 
-    fn set(head_repo: &str) -> kls_github::conflicts::ConflictSet {
-        kls_github::conflicts::ConflictSet {
+    fn set(head_repo: &str) -> kls_forge::conflicts::ConflictSet {
+        kls_forge::conflicts::ConflictSet {
             repo: "acme/api".into(),
             number: 12,
             title: "Feature".into(),
@@ -463,7 +463,7 @@ mod tests {
             merge_base: "m".repeat(40),
             files: Vec::new(),
             base_only: Vec::new(),
-            forge: kls_github::ForgeKind::Github,
+            forge: kls_forge::ForgeKind::Github,
         }
     }
 

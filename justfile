@@ -31,7 +31,7 @@ proto-go:
 # live forge suite: Gitea and Forgejo in podman or docker with a real tea (opt in;
 # skipped when no container engine or tea; not part of `check`)
 forge-live:
-    bash crates/kls-github/live/forge-live.sh
+    bash crates/kls-forge/live/forge-live.sh
 
 # belai against a real headless Keleustes: join, link, board, revoke, then
 # belai rc taking a dispatched session (transcript, prompt, stop)

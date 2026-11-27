@@ -3,7 +3,7 @@
 //! types, languages and signals, worked out from file paths.
 //!
 //! Keleustes keeps no file mirror, so the paths come from one GitHub tree
-//! listing (kls-github `profile::refresh`, through the budgeted, cached
+//! listing (kls-forge `profile::refresh`, through the budgeted, cached
 //! client). The cheap signals come from paths on every refresh; the deep
 //! ones (`crypto`, `ai-sdk`, ...) only from the repo scout, and count for
 //! [`DEEP_SIGNAL_TTL_MS`] after it ran. Everything here is pure.

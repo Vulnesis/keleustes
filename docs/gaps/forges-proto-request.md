@@ -2,7 +2,7 @@
 
 From: M4 (forges). To: coordinator (owns `proto/` and `kls-node`).
 Status: landed in node.proto (Capabilities.forges = 10, Job kind `forge`, JobNeeds.forge); Keleustes routes glab/tea through `NodeCli` (2026-11-21). Original request: Keleustes-side code is in place behind
-`kls_github::node::NodeCli` and compiles against the current proto; until
+`kls_forge::node::NodeCli` and compiles against the current proto; until
 this lands, nodes are used for github.com only (the `github` job and
 `Capabilities.gh_authenticated`), and the route to any other forge is local
 only (the strip says "nodes cannot reach <host> until they advertise forge
@@ -73,7 +73,7 @@ to a node whose `Capabilities.forges` holds `{cli, host, signed_in: true}`.
 
 ## 4. What Keleustes does once it lands (M4, small)
 
-- `Selector::pick_node` (kls-github `select.rs`): accept a node whose
+- `Selector::pick_node` (kls-forge `select.rs`): accept a node whose
   `forges` lists `{cli, host, signed_in}` for the connection; github.com
   still accepts the old `gh_authenticated` bool.
 - `NodeCli` (today an alias of `NodeGh`): send `forge` jobs with
@@ -137,6 +137,6 @@ package doc) and add `"forge_push"` to `Capabilities.job_kinds`.**
 
 `Core::forge_file` stores each worker's request (`forge_requests`, event `forge.request`), and
 `Core::forge_steer(node, request_id, "took_over"|"waiting"|"failed", pr, pr_url, until_ms, reason)` answers it with
-a `steer` dispatch. The forge coordinator (kls-github) can listen for `forge.request`, open the PR or sync the issue
+a `steer` dispatch. The forge coordinator (kls-forge) can listen for `forge.request`, open the PR or sync the issue
 through a gh/glab/tea job on a signed-in node, then call `forge_steer`. Bundles are not uploaded yet: a request with
 kind `push` needs the origin host to push itself or a later bundle path.

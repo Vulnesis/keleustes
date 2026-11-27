@@ -3221,7 +3221,7 @@ dependencies = [
  "hex",
  "kls-core",
  "kls-engine",
- "kls-github",
+ "kls-forge",
  "kls-node",
  "kls-proto",
  "kls-store",
@@ -3276,7 +3276,7 @@ dependencies = [
  "hex",
  "jiff",
  "kls-core",
- "kls-github",
+ "kls-forge",
  "kls-store",
  "serde",
  "serde_json",
@@ -3289,7 +3289,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "kls-github"
+name = "kls-forge"
 version = "0.1.0-rc.4"
 dependencies = [
  "anyhow",
@@ -3307,6 +3307,13 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "kls-github"
+version = "0.1.0-rc.4"
+dependencies = [
+ "kls-forge",
 ]
 
 [[package]]
@@ -3407,7 +3414,7 @@ dependencies = [
  "jiff",
  "kls-core",
  "kls-engine",
- "kls-github",
+ "kls-forge",
  "kls-node",
  "kls-store",
  "png",

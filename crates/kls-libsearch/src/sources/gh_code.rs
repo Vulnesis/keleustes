@@ -1,5 +1,5 @@
 //! WP8: the optional `gh` boost. With a signed-in local `gh` (passed in as
-//! `Ctx::gh`, budgeted by kls-github), GitHub code search finds items in
+//! `Ctx::gh`, budgeted by kls-forge), GitHub code search finds items in
 //! any public repo (`filename:SKILL.md`, `path:.claude/agents`, ...; 10/min),
 //! `git/trees?recursive=1` lists dirs of huge repos, and the licence API
 //! fills an unknown licence. Without `gh` this source is off and the

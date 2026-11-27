@@ -1,4 +1,4 @@
-//! The engine's [`Forge`] on the GitHub plane (`kls-github`): `github`
+//! The engine's [`Forge`] on the GitHub plane (`kls-forge`): `github`
 //! output steps (open a pull request, comment, review, label, mark ready
 //! and merge, check runs, file issues) and `forge` gates (checks, merge
 //! conflicts, reviews), plus the GitHub event names the `webhook` and
@@ -7,7 +7,7 @@
 //! [`crate::start`] installs it with the process's GitHub service; it
 //! reaches GitHub through whatever route that service has (local `gh` or a
 //! node), so no token is held here. Every write goes through
-//! `kls_github::Client::request`, which checks the kill switch for
+//! `kls_forge::Client::request`, which checks the kill switch for
 //! automation and audits the call with its origin (`factory:<workflow>`);
 //! refusals made here (protected branch, readiness) are audited through
 //! `forge::guard::refuse`. Each forge kind does what its dialect can and
@@ -19,10 +19,10 @@ use crate::exec::{Forge, GateResult, StepContext, short_id};
 use anyhow::{Context, Result, bail};
 use kls_core::Core;
 use kls_core::board::CardPatch;
-use kls_github::forge::api::{IssueEdit, PullIn, StatusIn, status_state};
-use kls_github::forge::{attribution, guard};
-use kls_github::sync::{self, PullAction};
-use kls_github::{Client, Service};
+use kls_forge::forge::api::{IssueEdit, PullIn, StatusIn, status_state};
+use kls_forge::forge::{attribution, guard};
+use kls_forge::sync::{self, PullAction};
+use kls_forge::{Client, Service};
 use kls_store::Event;
 use kls_store::board::Card;
 use kls_store::github::GhPull;
@@ -95,7 +95,7 @@ fn as_text(v: Option<&Value>) -> &str {
 /// `https://github.com/acme/api/pull/7` -> 7, and the GitLab
 /// `…/-/merge_requests/N` and Gitea `…/pulls/N` forms.
 fn pull_number_of(url: &str) -> Option<i64> {
-    kls_github::forge::pull_ref_of(url).map(|r| r.number)
+    kls_forge::forge::pull_ref_of(url).map(|r| r.number)
 }
 
 async fn target(core: &Core, ctx: &StepContext) -> Result<Target> {
@@ -148,7 +148,7 @@ pub(crate) async fn pull_of(core: &Core, ctx: &StepContext) -> Result<(String, O
 }
 
 fn need_repo(t: &Target) -> Result<&str> {
-    if !kls_github::valid_key(&t.repo) {
+    if !kls_forge::valid_key(&t.repo) {
         bail!("the run names no repository");
     }
     Ok(&t.repo)
@@ -607,7 +607,7 @@ impl GitHubForge {
                               "terminal": true, "merged": false }),
             );
         }
-        kls_github::forge::api::require(c, "reviews")?;
+        kls_forge::forge::api::require(c, "reviews")?;
         let head = p.head_sha.to_lowercase();
         let body = format!(
             "Approved by the Software Factory: checks green, reviewed, no sensitive paths.\n\nA person decides whether to merge.\n\n<!-- keleustes:approve run={} node={} sha={head} -->",
@@ -793,7 +793,7 @@ impl GitHubForge {
             "" => "sf:profile",
             l => l,
         };
-        let Some((_, desc)) = kls_github::labels::DEFAULT_LABELS
+        let Some((_, desc)) = kls_forge::labels::DEFAULT_LABELS
             .iter()
             .find(|(n, _)| *n == label)
         else {
@@ -869,7 +869,7 @@ impl GitHubForge {
                 ));
             }
         }
-        api.create_label(c, repo, label, kls_github::labels::COLOR, desc, &who)
+        api.create_label(c, repo, label, kls_forge::labels::COLOR, desc, &who)
             .await?;
         let own = own_login(c, &who).await;
         if own.is_empty() {
@@ -937,13 +937,13 @@ impl GitHubForge {
         };
         let mut created = 0;
         for name in PROFILE_LABELS {
-            let desc = kls_github::labels::DEFAULT_LABELS
+            let desc = kls_forge::labels::DEFAULT_LABELS
                 .iter()
                 .find(|(n, _)| *n == name)
                 .map(|(_, d)| *d)
                 .unwrap_or("Software Factory");
             if api
-                .create_label(c, repo, name, kls_github::labels::COLOR, desc, &who)
+                .create_label(c, repo, name, kls_forge::labels::COLOR, desc, &who)
                 .await?
                 .is_some()
             {
@@ -1063,7 +1063,7 @@ impl Forge for GitHubForge {
         let c = self.client(&t.repo).await?;
         let who = caller(ctx);
         if action != "merge" {
-            kls_github::forge::api::require(&c, capability(action))?;
+            kls_forge::forge::api::require(&c, capability(action))?;
         }
         let api = c.api();
         match action {

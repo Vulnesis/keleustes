@@ -1,12 +1,12 @@
 //! Live suite against a real Gitea or Forgejo (forges.md 8.2), driven by
-//! `just forge-live` (crates/kls-github/live/forge-live.sh), which starts
+//! `just forge-live` (crates/kls-forge/live/forge-live.sh), which starts
 //! the container, creates the account and token, seeds `ana/app` with
 //! `main` and `feature` conflicting on `app.txt`, opens the pull request and
 //! signs `tea` in. Skipped unless `KLS_LIVE_FORGE_HOST` is set.
 
 use kls_core::Core;
-use kls_github::forge::{Connection, ForgeKind};
-use kls_github::{Service, sync};
+use kls_forge::forge::{Connection, ForgeKind};
+use kls_forge::{Service, sync};
 use std::collections::BTreeMap;
 
 fn env(k: &str) -> Option<String> {
@@ -25,7 +25,7 @@ async fn live_gitea_family_plane() {
     let user = env("KLS_LIVE_FORGE_USER").unwrap_or_else(|| "ana".into());
     let dir = tempfile::tempdir().unwrap();
     let core = Core::open(dir.path(), None).await.unwrap();
-    let svc = Service::new(core.clone(), kls_github::LocalGh::default());
+    let svc = Service::new(core.clone(), kls_forge::LocalGh::default());
     let mut conn = svc.add_connection(kind, &host, "", "user").await.unwrap();
     conn.cli_name = host.clone();
     core.store()
@@ -86,7 +86,7 @@ async fn live_gitea_family_plane() {
         &c,
         &key,
         &pr.head_sha,
-        &kls_github::forge::api::StatusIn {
+        &kls_forge::forge::api::StatusIn {
             state: "success".into(),
             context: "keleustes/live".into(),
             description: "live suite".into(),
@@ -123,7 +123,7 @@ async fn live_gitea_family_plane() {
         .unwrap();
     assert!(!p.draft);
     // Conflict commit pushed through `tea login helper`, then a stale push refused.
-    let set = kls_github::conflicts::load(&c, &key, pr.number, "user")
+    let set = kls_forge::conflicts::load(&c, &key, pr.number, "user")
         .await
         .unwrap();
     assert!(set.conflicting().count() >= 1, "{set:?}");
@@ -134,12 +134,12 @@ async fn live_gitea_family_plane() {
             Some("resolved by the live suite\n".to_string()),
         );
     }
-    let res = kls_github::conflicts::commit(&c, &set, &resolved, "", "user")
+    let res = kls_forge::conflicts::commit(&c, &set, &resolved, "", "user")
         .await
         .unwrap();
     assert_eq!(res.signing, "unsigned_push");
     assert_eq!(res.parent_shas.len(), 2);
-    let again = kls_github::conflicts::commit(&c, &set, &resolved, "", "user").await;
+    let again = kls_forge::conflicts::commit(&c, &set, &resolved, "", "user").await;
     assert!(
         format!("{:#}", again.unwrap_err()).contains("moved"),
         "a stale push must be refused"
@@ -220,16 +220,16 @@ async fn live_tea_oauth_headless() {
     let mut conn = Connection::new(kind, &host, "user").unwrap();
     conn.cli_name = format!("oauth-{host}");
     let base = conn.web_base();
-    let login = kls_github::login::WebLogin::for_conn(
+    let login = kls_forge::login::WebLogin::for_conn(
         &conn,
-        kls_github::forge::auth::SignInMethod::BrowserLoopback,
+        kls_forge::forge::auth::SignInMethod::BrowserLoopback,
         false,
     );
-    let (l2, tea) = (login.clone(), kls_github::forge::CliKind::Tea.program());
+    let (l2, tea) = (login.clone(), kls_forge::forge::CliKind::Tea.program());
     let run = tokio::spawn(async move { l2.run(&tea, || {}).await });
     let started = std::time::Instant::now();
     let url = loop {
-        if let kls_github::login::WebState::Browser { url, .. } = login.state()
+        if let kls_forge::login::WebState::Browser { url, .. } = login.state()
             && !url.is_empty()
         {
             break url;
@@ -277,7 +277,7 @@ async fn live_tea_oauth_headless() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(login.state(), kls_github::login::WebState::Done);
+    assert_eq!(login.state(), kls_forge::login::WebState::Done);
     eprintln!(
         "tea OAuth approved headlessly in {} ms",
         started.elapsed().as_millis()

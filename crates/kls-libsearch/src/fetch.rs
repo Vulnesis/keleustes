@@ -247,10 +247,10 @@ pub trait Gate: Send + Sync {
     async fn open(&self) -> bool;
 }
 
-/// A signed-in local `gh` (WP8), budgeted by kls-github.
+/// A signed-in local `gh` (WP8), budgeted by kls-forge.
 #[async_trait::async_trait]
 pub trait GhApi: Send + Sync {
-    /// `gh api <path>` as JSON. `class` picks the kls-github call class.
+    /// `gh api <path>` as JSON. `class` picks the kls-forge call class.
     async fn get_json(&self, path: &str, class: Class) -> Result<serde_json::Value>;
     /// `gh ✓ 4980/5000`, when known.
     fn quota(&self) -> Option<(i64, i64)> {
