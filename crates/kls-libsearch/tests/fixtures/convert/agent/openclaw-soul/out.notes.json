@@ -1,0 +1,17 @@
+[
+  {
+    "field": "workspace",
+    "kind": "dropped",
+    "text": "workspace files are not copied"
+  },
+  {
+    "field": "workspace.bootstrapFiles.SOUL.md",
+    "kind": "mapped",
+    "text": "used as the instructions"
+  },
+  {
+    "field": "tools",
+    "kind": "warning",
+    "text": "no tools named: read-only set (Read, Grep, Glob)"
+  }
+]

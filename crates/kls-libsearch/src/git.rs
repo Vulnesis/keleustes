@@ -294,6 +294,98 @@ pub fn extract(gz: &[u8], keep: &globset::GlobSet, lim: Limits) -> Result<Tree> 
     Ok(t)
 }
 
+/// Reads an exported agent profile (`hermes profile export`, a Claws
+/// package): a `tar.gz` of the profile dir, with or without one top folder
+/// (dropped when every entry shares it). Every regular file within `lim`
+/// is kept; links, specials, credential names and over-cap files are
+/// skipped. A `..`, absolute or backslash path is an error: the whole
+/// archive is refused, not just that entry.
+pub fn extract_archive(gz: &[u8], lim: Limits) -> Result<Tree> {
+    let dec = flate2::read::GzDecoder::new(gz);
+    let capped = Capped {
+        inner: dec,
+        left: lim.expanded_bytes,
+    };
+    let mut ar = tar::Archive::new(capped);
+    let mut t = Tree::default();
+    let mut kept = 0u64;
+    let entries = ar
+        .entries()
+        .map_err(|e| anyhow!("not a tar archive: {e}"))?;
+    for e in entries {
+        let mut e = match e {
+            Ok(e) => e,
+            Err(err) if err.to_string().contains("cap reached") => {
+                t.truncated = true;
+                t.skipped.push(("*".into(), "expanded size cap".into()));
+                break;
+            }
+            Err(err) => bail!("bad tar entry: {err}"),
+        };
+        let raw = String::from_utf8_lossy(&e.path_bytes()).into_owned();
+        let kind = e.header().entry_type();
+        if raw.trim_end_matches('/').is_empty() || kind.is_dir() {
+            continue;
+        }
+        let path = clean_path(&raw).map_err(|why| anyhow!("archive entry {raw:?}: {why}"))?;
+        if !kind.is_file() {
+            let why = if kind.is_symlink() || kind.is_hard_link() {
+                "link"
+            } else {
+                "not a regular file"
+            };
+            t.skipped.push((path, why.into()));
+            continue;
+        }
+        let name = path.rsplit('/').next().unwrap_or(&path);
+        if credential_name(name) {
+            t.skipped.push((path, "credential file".into()));
+            continue;
+        }
+        if path.split('/').count() > lim.depth + 1 {
+            t.skipped.push((path, "too deep".into()));
+            continue;
+        }
+        let size = e.header().size().unwrap_or(u64::MAX);
+        if size > lim.file_bytes {
+            t.skipped.push((path, "file over the size cap".into()));
+            continue;
+        }
+        if t.files.len() >= lim.files || kept + size > lim.kept_bytes {
+            t.truncated = true;
+            t.skipped.push((path, "archive cap".into()));
+            break;
+        }
+        let mut buf = Vec::with_capacity(size as usize);
+        if let Err(err) = (&mut e).take(lim.file_bytes + 1).read_to_end(&mut buf) {
+            if err.to_string().contains("cap reached") {
+                t.truncated = true;
+                t.skipped.push((path, "expanded size cap".into()));
+                break;
+            }
+            bail!("read {path}: {err}");
+        }
+        kept += buf.len() as u64;
+        t.files.insert(path, Bytes::from(buf));
+    }
+    // One shared top folder (`researcher/SOUL.md`, ...) is dropped.
+    let tops: std::collections::BTreeSet<String> = t
+        .files
+        .keys()
+        .map(|k| k.split_once('/').map(|(a, _)| a).unwrap_or("").to_string())
+        .collect();
+    if tops.len() == 1
+        && let Some(top) = tops.into_iter().next().filter(|s| !s.is_empty())
+    {
+        let prefix = format!("{top}/");
+        t.files = std::mem::take(&mut t.files)
+            .into_iter()
+            .map(|(k, v)| (k[prefix.len()..].to_string(), v))
+            .collect();
+    }
+    Ok(t)
+}
+
 /// A glob set from patterns (`skills/*/SKILL.md`, `agents/**/*.md`).
 /// `*` does not cross `/`; `**` does.
 pub fn globs(patterns: &[&str]) -> Result<globset::GlobSet> {

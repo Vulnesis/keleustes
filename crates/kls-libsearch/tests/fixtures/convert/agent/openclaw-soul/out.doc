@@ -1,0 +1,9 @@
+---
+name: "tiny"
+description: "Imported OpenClaw agent"
+tools: ["Read","Grep","Glob"]
+mode: "single"
+autonomy: "supervised"
+metadata: {"source.format":"openclaw"}
+---
+Be brief and kind.

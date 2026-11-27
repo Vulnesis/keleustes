@@ -1,0 +1,32 @@
+[
+  {
+    "field": "research.tar.gz",
+    "kind": "mapped",
+    "text": "4 files read"
+  },
+  {
+    "field": "files",
+    "kind": "dropped",
+    "text": "1 file(s) not read: links, special and credential files, files over 1 MiB"
+  },
+  {
+    "field": "SOUL.md",
+    "kind": "mapped",
+    "text": "became the system prompt"
+  },
+  {
+    "field": "config.yaml model",
+    "kind": "metadata",
+    "text": "kept in metadata; routing picks the model"
+  },
+  {
+    "field": "tools",
+    "kind": "warning",
+    "text": "no tools named: read-only set (Read, Grep, Glob)"
+  },
+  {
+    "field": "skills/notes/SKILL.md",
+    "kind": "mapped",
+    "text": "skill notes imported alongside"
+  }
+]

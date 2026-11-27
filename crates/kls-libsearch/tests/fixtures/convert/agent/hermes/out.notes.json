@@ -1,22 +1,57 @@
 [
   {
+    "field": "files",
+    "kind": "dropped",
+    "text": "1 credential file(s) never read"
+  },
+  {
     "field": "peers",
     "kind": "warning",
     "text": "A2A / peer setting dropped: imported agents are single-mode and supervised"
   },
   {
-    "field": "convert",
-    "kind": "warning",
-    "text": "Keleustes fallback: SOUL.md and profile.yaml only (node conversion carries belai's notes)"
+    "field": "SOUL.md",
+    "kind": "mapped",
+    "text": "became the system prompt"
+  },
+  {
+    "field": "distribution.yaml",
+    "kind": "metadata",
+    "text": "kept in metadata as hermes.version"
+  },
+  {
+    "field": "config.yaml model",
+    "kind": "metadata",
+    "text": "kept in metadata; routing picks the model"
   },
   {
     "field": "config.yaml",
     "kind": "dropped",
-    "text": ""
+    "text": "settings with no profile field: terminal, display"
+  },
+  {
+    "field": "mcp.json",
+    "kind": "dropped",
+    "text": "MCP servers are the person's own settings, never taken from a definition"
+  },
+  {
+    "field": "cron/",
+    "kind": "warning",
+    "text": "1 scheduled job file(s) not imported"
+  },
+  {
+    "field": "memories/",
+    "kind": "dropped",
+    "text": "1 memory file(s) are the person's own, not imported"
   },
   {
     "field": "tools",
     "kind": "warning",
     "text": "changes things: Bash"
+  },
+  {
+    "field": "skills/notes/SKILL.md",
+    "kind": "mapped",
+    "text": "skill notes imported alongside"
   }
 ]

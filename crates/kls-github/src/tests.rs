@@ -2395,3 +2395,210 @@ async fn waiting_runs_emit_deployment_reviews_once_then_their_outcome() {
     let rep = crate::events::poll_repo(&c, &r, "poller").await.unwrap();
     assert_eq!(rep.deploy_reviews, 0);
 }
+
+// ---- repository profile from the tree listing -----------------------------------
+
+async fn forge_ledger(core: &Core) -> Vec<kls_store::audit::LedgerEntry> {
+    core.audit_entries(&kls_store::audit::LedgerQuery {
+        kinds: vec!["forge".into()],
+        limit: 500,
+        ..Default::default()
+    })
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn repo_profile_from_the_tree_listing_keeps_the_scouts_deep_signals() {
+    use kls_core::repo_profile::RepoProfile;
+    let (core, _d) = core().await;
+    let gh = FakeGh::new();
+    gh.on(
+        "GET",
+        "/repos/acme/api",
+        200,
+        json!({"full_name": "acme/api", "default_branch": "main", "language": "Go"}),
+    );
+    let tree = |paths: &[&str]| {
+        json!({"truncated": false, "tree": paths.iter().map(|p| json!({"path": p, "type": "blob"}))
+            .chain([json!({"path": "src", "type": "tree"})]).collect::<Vec<_>>()})
+    };
+    let tree_path = "/repos/acme/api/git/trees/main?recursive=1";
+    gh.on(
+        "GET",
+        tree_path,
+        200,
+        tree(&[
+            "go.mod",
+            "Dockerfile",
+            ".github/workflows/ci.yml",
+            "LICENSE",
+        ]),
+    );
+    // The scout reported a deep signal (and a stale cheap one) earlier.
+    let scouted =
+        RepoProfile::from_result(&json!({"signals": ["crypto", "helm"]}), kls_store::now_ms());
+    core.store()
+        .set_setting(
+            &RepoProfile::key("acme/api"),
+            &serde_json::to_string(&scouted).unwrap(),
+        )
+        .await
+        .unwrap();
+    let c = client(&core, &gh);
+    let mut rx = core.subscribe();
+    let p = crate::profile::refresh(&c, "acme/api", "poller")
+        .await
+        .unwrap();
+    assert_eq!(p.package_managers, vec!["go"]);
+    assert_eq!(p.test_runners, vec!["go test"]);
+    assert_eq!(p.ci, vec!["github actions"]);
+    assert_eq!(p.languages, vec!["go"]);
+    assert_eq!(
+        p.signals,
+        vec!["crypto", "dockerfile", "github-workflows", "license-file"],
+        "helm came from no path; crypto is the scout's"
+    );
+    assert_eq!(p.files, 4);
+    assert!(p.refreshed_at > 0 && p.scouted_at == scouted.scouted_at);
+    let stored = crate::profile::stored(&c, "acme/api").await.unwrap();
+    assert_eq!(stored, p);
+    assert!(events(&core, &mut rx).contains(&crate::profile::PROFILED.to_string()));
+    let audited = forge_ledger(&core).await;
+    let row = audited
+        .iter()
+        .find(|e| e.subject["action"] == "repo.profile")
+        .expect("refresh audited");
+    assert_eq!(row.payload["outcome"], "refreshed", "{:?}", row.payload);
+    // Not due again until a push after the refresh, and not within the hour.
+    let repo = GhRepo {
+        full_name: "acme/api".into(),
+        pushed_at: Some(p.refreshed_at - 1),
+        ..Default::default()
+    };
+    assert!(
+        !crate::profile::refresh_if_due(&c, &repo, "poller")
+            .await
+            .unwrap()
+    );
+    assert!(crate::profile::due(None, None, 0));
+    assert!(crate::profile::due(
+        Some(&p),
+        Some(p.refreshed_at + 1),
+        p.refreshed_at + crate::profile::REFRESH_EVERY_MS
+    ));
+    assert!(!crate::profile::due(
+        Some(&p),
+        Some(p.refreshed_at + 1),
+        p.refreshed_at + 10
+    ));
+    // The kill switch holds the automated read.
+    kls_core::control::pause(&core, "drill").await.unwrap();
+    gh.clear_calls();
+    assert!(
+        crate::profile::refresh(&c, "acme/api", "poller")
+            .await
+            .is_err()
+    );
+    assert!(gh.calls().is_empty(), "{:?}", gh.calls());
+}
+
+// ---- roll-up re-capture --------------------------------------------------------
+
+struct TestRecapture(Arc<FakeGh>);
+
+#[async_trait::async_trait]
+impl kls_core::github::Recapture for TestRecapture {
+    async fn recapture(
+        &self,
+        core: &Core,
+        pulls: &[(String, i64)],
+        origin: &str,
+    ) -> anyhow::Result<usize> {
+        let gh = self.0.clone();
+        let core2 = core.clone();
+        crate::delivery::recapture_with(core, pulls, origin, move |_| {
+            let c = client(&core2, &gh);
+            async move { Ok(c) }
+        })
+        .await
+    }
+}
+
+#[tokio::test]
+async fn rollup_recaptures_a_missed_merged_pull_through_the_forge() {
+    let (core, _d) = core().await;
+    let gh = FakeGh::new();
+    // A pull the mirror saw merged but never captured.
+    let mut p = kls_store::github::GhPull {
+        repo: "acme/api".into(),
+        number: 8,
+        title: "PR 8".into(),
+        state: "closed".into(),
+        merged: true,
+        author: "ana".into(),
+        head_sha: "h8".into(),
+        created_at: 1_000,
+        merged_at: Some(2_000),
+        ..Default::default()
+    };
+    core.store().gh_upsert_pull(&p).await.unwrap();
+    let rep = kls_core::github::rollup(&core, "owner").await.unwrap();
+    assert_eq!(
+        (rep.missed, rep.recaptured),
+        (1, 0),
+        "no hook: counted only"
+    );
+
+    let mut merged = pull_json(8, "h8", "2026-10-20T10:00:00Z");
+    merged["state"] = json!("closed");
+    merged["merged"] = json!(true);
+    merged["merged_at"] = json!("2026-10-20T10:00:00Z");
+    merged["closed_at"] = json!("2026-10-20T10:00:00Z");
+    register_pull(&gh, 8, merged);
+    gh.on(
+        "GET",
+        "/repos/acme/api/pulls/8/commits?per_page=100",
+        200,
+        json!([{"sha": "c1", "author": {"login": "ana"},
+                "commit": {"author": {"name": "Ana", "email": "ana@acme.example", "date": "2026-10-20T00:30:00Z"},
+                           "message": "Fix"}}]),
+    );
+    kls_core::github::register_recapture(&core, Arc::new(TestRecapture(gh.clone())));
+    // Under the kill switch the roll-up is refused and nothing is read.
+    kls_core::control::pause(&core, "drill").await.unwrap();
+    let rep = kls_core::github::rollup(&core, "sweep").await.unwrap();
+    assert!(rep.refused.is_some());
+    assert!(gh.calls().is_empty());
+    kls_core::control::resume(&core).await.unwrap();
+
+    let rep = kls_core::github::rollup(&core, "sweep").await.unwrap();
+    assert_eq!((rep.missed, rep.recaptured), (0, 1), "{rep:?}");
+    assert!(
+        core.store()
+            .gh_pull("acme/api", 8)
+            .await
+            .unwrap()
+            .unwrap()
+            .delivery_captured
+    );
+    assert!(
+        core.store()
+            .outcome("pr:acme/api#8")
+            .await
+            .unwrap()
+            .is_some()
+    );
+    let audited = forge_ledger(&core).await;
+    let row = audited
+        .iter()
+        .find(|e| e.subject["action"] == "delivery.recapture")
+        .expect("re-capture audited");
+    assert_eq!(row.payload["outcome"], "captured", "{:?}", row.payload);
+    // Captured: the next pass has nothing to read.
+    gh.clear_calls();
+    p.delivery_captured = true;
+    let rep = kls_core::github::rollup(&core, "sweep").await.unwrap();
+    assert_eq!((rep.missed, rep.recaptured), (0, 0));
+    assert!(gh.calls().is_empty());
+}

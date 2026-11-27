@@ -946,3 +946,95 @@ async fn oversized_ref_advertisement_falls_back_to_one_rest_call() {
     assert_eq!(sha, SHA2);
     assert_eq!(f.requests().len(), 2);
 }
+
+/// A node `gh` that records each argv and answers from a table.
+struct FakeNodeGh(std::sync::Mutex<Vec<Vec<String>>>);
+
+#[async_trait::async_trait]
+impl kls_libsearch::fetch::NodeGh for FakeNodeGh {
+    async fn gh(
+        &self,
+        args: Vec<String>,
+        _url: &str,
+        _class: Class,
+    ) -> anyhow::Result<Option<bytes::Bytes>> {
+        self.0.lock().unwrap().push(args.clone());
+        let end = args.last().unwrap().as_str();
+        Ok(match end {
+            "repos/o/r/contents/SKILL.md?ref=main" => Some("---\nname: x\n---\nBody\n".into()),
+            "repos/o/r" => Some(r#"{"default_branch":"main"}"#.into()),
+            "repos/o/r/git/refs?per_page=100" => {
+                Some(format!(r#"[{{"ref":"refs/heads/main","object":{{"sha":"{SHA}"}}}}]"#).into())
+            }
+            _ => None,
+        })
+    }
+}
+
+#[tokio::test]
+async fn node_gh_fallback_only_without_a_path_and_only_when_set() {
+    use kls_libsearch::fetch::gh_args_for;
+    // The argv: raw → contents API with the raw media type; the endpoint last.
+    assert_eq!(
+        gh_args_for("https://raw.githubusercontent.com/o/r/main/a/SKILL.md").unwrap(),
+        vec![
+            "api",
+            "-H",
+            "Accept: application/vnd.github.raw",
+            "repos/o/r/contents/a/SKILL.md?ref=main"
+        ]
+    );
+    assert_eq!(
+        gh_args_for("https://api.github.com/repos/o/r/license").unwrap(),
+        vec!["api", "repos/o/r/license"]
+    );
+    for bad in [
+        "https://raw.githubusercontent.com/o/r/main/../../x",
+        "https://raw.githubusercontent.com/../r/main/x",
+        "https://api.github.com/repos/o/r/contents/..",
+        "https://api.github.com/a b",
+        "https://codeload.github.com/o/r/tar.gz/main",
+        "https://clawhub.ai/api/v1/search",
+        "http://api.github.com/x",
+    ] {
+        assert!(gh_args_for(bad).is_none(), "{bad}");
+    }
+    let f = FakeFetcher::new(); // no routes: every fetch is offline
+    let url = "https://raw.githubusercontent.com/o/r/main/SKILL.md";
+    // Off (the default): the offline error stands.
+    assert!(cx(&f).get(url, 1 << 20).await.is_err());
+    let node = Arc::new(FakeNodeGh(Default::default()));
+    let mut c = cx(&f);
+    c.node_gh = Some(node.clone());
+    let r = c.get(url, 1 << 20).await.unwrap();
+    assert_eq!(r.header("x-kls-via"), Some("node-gh"));
+    assert!(r.text().unwrap().contains("Body"));
+    // A 404 on the node is a 404, not an error to retry.
+    let r = c
+        .get_req(
+            "https://raw.githubusercontent.com/o/r/main/missing.md",
+            "*/*",
+            1 << 20,
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status, 404);
+    // Refs through the node: HEAD is the default branch.
+    let refs = c.ls_refs("o", "r").await.unwrap();
+    assert_eq!(refs[0], ("HEAD".to_string(), SHA.to_string()));
+    // A path that works never asks the node.
+    f.serve(
+        "https://raw.githubusercontent.com/o/r/main/ok.md",
+        200,
+        "ok",
+    );
+    let n = node.0.lock().unwrap().len();
+    c.get("https://raw.githubusercontent.com/o/r/main/ok.md", 1 << 20)
+        .await
+        .unwrap();
+    assert_eq!(node.0.lock().unwrap().len(), n);
+    // The kill switch holds the node fetch too.
+    c.gate = Some(Arc::new(FixedGate(false)));
+    assert!(is_stopped(&c.get(url, 1 << 20).await.unwrap_err()));
+    assert_eq!(node.0.lock().unwrap().len(), n);
+}

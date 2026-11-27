@@ -216,41 +216,9 @@ impl Facts {
     }
 }
 
-/// What the repo scout found in a repository (`repo_profile` output).
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct RepoProfile {
-    pub signals: Vec<String>,
-    pub package_managers: Vec<String>,
-    pub languages: Vec<String>,
-    pub scouted_at: i64,
-}
-
-impl RepoProfile {
-    /// The settings key a repository's profile is kept under.
-    pub fn key(repo: &str) -> String {
-        format!("repo.profile:{}", repo.to_lowercase())
-    }
-
-    /// Reads a profile out of a scout result (`signals`, `packageManagers`,
-    /// `languages`, or nested under `profile`).
-    pub fn from_result(v: &Value, now: i64) -> RepoProfile {
-        let v = v.get("profile").unwrap_or(v);
-        let list = |k: &str| {
-            let mut out = strs(v.get(k));
-            out.iter_mut().for_each(|s| *s = s.to_lowercase());
-            out.sort();
-            out.dedup();
-            out
-        };
-        RepoProfile {
-            signals: list("signals"),
-            package_managers: list("packageManagers"),
-            languages: list("languages"),
-            scouted_at: now,
-        }
-    }
-}
+/// What a repository is built with: from its file paths (kls-github
+/// `profile::refresh`) and the repo scout's `repo_profile` output.
+pub use kls_core::repo_profile::RepoProfile;
 
 /// A trigger's profile condition: every given list needs one overlap;
 /// `scouted` needs any profile. Fails closed on an unscouted repository.

@@ -82,6 +82,8 @@ pub fn start(core: &Core) -> Arc<Service> {
     s.spawn_poller();
     // The external kanban binding: forge providers and its tick.
     crate::kanban::start(&s);
+    // The roll-up re-captures missed merged pulls through this plane.
+    crate::delivery::start(&s);
     s
 }
 

@@ -1784,6 +1784,8 @@ pub struct SweepReport {
     pub rolled_up: i64,
     /// Merged pulls whose delivery facts were never captured (missed hooks).
     pub missed: i64,
+    /// Missed captures read again through the forge this pass.
+    pub recaptured: i64,
     pub entered: i64,
     pub exited: i64,
     pub refused: Option<String>,
@@ -1894,12 +1896,27 @@ pub async fn rollup(core: &Core, origin: &str) -> Result<SweepReport> {
         rep.rolled_up += 1;
         keys.push(o.outcome_key);
     }
-    rep.missed = store
-        .gh_pulls(None, None)
-        .await?
-        .iter()
-        .filter(|p| p.merged && !p.delivery_captured)
-        .count() as i64;
+    let missed = |pulls: &[kls_store::github::GhPull]| {
+        pulls
+            .iter()
+            .filter(|p| p.merged && !p.delivery_captured)
+            .map(|p| (p.repo.clone(), p.number))
+            .collect::<Vec<_>>()
+    };
+    let mut gone = missed(&store.gh_pulls(None, None).await?);
+    // Missed captures are read again through the forge (kls-github hook),
+    // a few per pass, then counted again.
+    if !gone.is_empty() {
+        gone.truncate(RECAPTURE_PER_PASS);
+        for hook in recapturers(core) {
+            match hook.recapture(core, &gone, origin).await {
+                Ok(n) => rep.recaptured += n as i64,
+                Err(e) => tracing::warn!("delivery re-capture: {e:#}"),
+            }
+        }
+        gone = missed(&store.gh_pulls(None, None).await?);
+    }
+    rep.missed = gone.len() as i64;
     keys.truncate(50);
     sweep_audit(
         core,
@@ -1907,17 +1924,56 @@ pub async fn rollup(core: &Core, origin: &str) -> Result<SweepReport> {
         "delivery",
         origin,
         serde_json::json!({ "linked": rep.linked, "rolledUp": rep.rolled_up,
-                            "missed": rep.missed, "keys": keys }),
+                            "missed": rep.missed, "recaptured": rep.recaptured,
+                            "keys": keys }),
     )
     .await;
     core.emit(
         "delivery.rollup",
         "delivery",
         &serde_json::json!({ "linked": rep.linked, "rolledUp": rep.rolled_up,
-                             "missed": rep.missed, "origin": origin }),
+                             "missed": rep.missed, "recaptured": rep.recaptured,
+                             "origin": origin }),
     )
     .await?;
     Ok(rep)
+}
+
+/// Merged pulls re-captured per roll-up pass at most.
+pub const RECAPTURE_PER_PASS: usize = 10;
+
+/// Reads a merged pull again and captures its delivery facts: kls-core
+/// cannot call the forge client (kls-github depends on kls-core), so
+/// kls-github registers this at start ([`register_recapture`]). The hook
+/// checks the kill switch and audits each pull.
+#[async_trait::async_trait]
+pub trait Recapture: Send + Sync {
+    /// Re-captures `pulls` (`(repo, number)`); how many were captured.
+    async fn recapture(&self, core: &Core, pulls: &[(String, i64)], origin: &str) -> Result<usize>;
+}
+
+type RecaptureRegistry = std::sync::Mutex<Vec<(std::path::PathBuf, std::sync::Arc<dyn Recapture>)>>;
+
+fn recapture_registry() -> &'static RecaptureRegistry {
+    static R: std::sync::OnceLock<RecaptureRegistry> = std::sync::OnceLock::new();
+    R.get_or_init(Default::default)
+}
+
+/// Installs the re-capture hook for this core's data directory (once).
+pub fn register_recapture(core: &Core, hook: std::sync::Arc<dyn Recapture>) {
+    let mut r = recapture_registry().lock().unwrap();
+    r.retain(|(d, _)| d != core.data_dir());
+    r.push((core.data_dir().to_path_buf(), hook));
+}
+
+fn recapturers(core: &Core) -> Vec<std::sync::Arc<dyn Recapture>> {
+    recapture_registry()
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(d, _)| d == core.data_dir())
+        .map(|(_, h)| h.clone())
+        .collect()
 }
 
 /// One episode of the lifecycle ledger: a subject in a stage.
@@ -2091,7 +2147,240 @@ pub async fn lifecycle_sweep(core: &Core, origin: &str) -> Result<SweepReport> {
             }
         }
     }
+    // The pass markers coverage compares up to (web lifecycle markers).
+    let store = core.store();
+    if store.setting(LIFECYCLE_FIRST_PASS).await?.is_none() {
+        store
+            .set_setting(LIFECYCLE_FIRST_PASS, &now.to_string())
+            .await?;
+    }
+    store
+        .set_setting(LIFECYCLE_LAST_PASS, &now.to_string())
+        .await?;
     Ok(rep)
+}
+
+/// When the lifecycle sweep first and last completed a pass (unix ms).
+pub const LIFECYCLE_FIRST_PASS: &str = "delivery.lifecycle.first_pass";
+pub const LIFECYCLE_LAST_PASS: &str = "delivery.lifecycle.last_pass";
+
+/// Entered, exited and open for a window; `None` where the source cannot
+/// count it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Counts {
+    pub entered: Option<i64>,
+    pub exited: Option<i64>,
+    pub open: Option<i64>,
+}
+
+/// One stage of the coverage report (web `GET /lifecycle/coverage`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct CoverageRow {
+    pub stage: String,
+    pub label: String,
+    /// `derive` (from source rows) or `snapshot` (what is open now).
+    pub capture: &'static str,
+    pub ledger: Counts,
+    /// What the source tables say for the same window.
+    pub truth: Option<Counts>,
+    /// `ok`, `gap` or `not_captured`.
+    pub status: &'static str,
+    /// The largest difference.
+    pub gap: i64,
+    pub last_pass_at: Option<i64>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct CoverageReport {
+    pub as_of: i64,
+    pub days: i64,
+    /// The first pass: the ledger holds nothing captured before it.
+    pub capture_from: Option<i64>,
+    pub stages: Vec<CoverageRow>,
+}
+
+/// ok within one or one per cent of the largest truth count; gap beyond;
+/// not_captured when the ledger has nothing where the source has something
+/// (web `flcCoverageStatus`).
+pub fn coverage_status(ledger: Counts, truth: Option<Counts>) -> (&'static str, i64) {
+    let Some(t) = truth else {
+        return ("ok", 0);
+    };
+    let (mut gap, mut scale, mut have, mut any) = (0i64, 0i64, false, false);
+    for (l, t) in [
+        (ledger.entered, t.entered),
+        (ledger.exited, t.exited),
+        (ledger.open, t.open),
+    ] {
+        let Some(t) = t else { continue };
+        let l = l.unwrap_or(0);
+        have |= l != 0;
+        any |= t != 0;
+        gap = gap.max((l - t).abs());
+        scale = scale.max(t);
+    }
+    let tol = ((scale as f64) * 0.01).ceil().max(1.0) as i64;
+    if !have && any {
+        ("not_captured", gap)
+    } else if gap <= tol {
+        ("ok", gap)
+    } else {
+        ("gap", gap)
+    }
+}
+
+fn stage_label(stage: &str) -> String {
+    match stage {
+        "pr.open" => "Pull requests open".into(),
+        "issue.open" => "Issues open".into(),
+        s => match s.strip_prefix("card.") {
+            Some(list) => format!("Cards in {list}"),
+            None => s.to_string(),
+        },
+    }
+}
+
+/// Per stage: `(key, entered at)` → (entry recorded, exit at).
+type StageEpisodes = BTreeMap<(String, i64), (bool, Option<i64>)>;
+
+/// Per stage, the stored ledger against the source rows for the last
+/// `days` up to the last pass (so a change after it is no gap), from the
+/// first pass on. Pull requests and issues compare entered, exited and
+/// open; card lists compare what is open.
+pub async fn lifecycle_coverage(core: &Core, days: i64) -> Result<CoverageReport> {
+    let store = core.store();
+    let now = kls_store::now_ms();
+    let mark = |v: Option<String>| v.and_then(|s| s.trim().parse::<i64>().ok());
+    let first = mark(store.setting(LIFECYCLE_FIRST_PASS).await?);
+    let last = mark(store.setting(LIFECYCLE_LAST_PASS).await?);
+    let to = last.unwrap_or(now);
+    let from = (to - days.max(1) * 86_400_000).max(first.unwrap_or(i64::MIN));
+    let within = |at: i64| at >= from && at < to;
+
+    // The ledger: per (stage, key, entered) its entry and exit times.
+    let rows = core
+        .audit_entries(&kls_store::audit::LedgerQuery {
+            kinds: vec!["lifecycle".into()],
+            limit: 50_000,
+            ..Default::default()
+        })
+        .await?;
+    let mut episodes: BTreeMap<String, StageEpisodes> = BTreeMap::new();
+    for r in &rows {
+        let p = &r.payload;
+        let stage = p["stage"].as_str().unwrap_or("").to_string();
+        let key = p["key"].as_str().unwrap_or("").to_string();
+        let entered = p["enteredAt"].as_i64().unwrap_or(0);
+        let e = episodes
+            .entry(stage)
+            .or_default()
+            .entry((key, entered))
+            .or_insert((false, None));
+        match p["type"].as_str() {
+            Some("entered") => e.0 = true,
+            Some("exited") => e.1 = p["at"].as_i64(),
+            _ => {}
+        }
+    }
+    let ledger_counts = |stage: &str| {
+        let mut c = Counts {
+            entered: Some(0),
+            exited: Some(0),
+            open: Some(0),
+        };
+        for ((_, entered), (has_entry, exit)) in episodes.get(stage).into_iter().flatten() {
+            if *has_entry && within(*entered) {
+                *c.entered.as_mut().unwrap() += 1;
+            }
+            match exit {
+                Some(x) if within(*x) => *c.exited.as_mut().unwrap() += 1,
+                Some(_) => {}
+                None if *has_entry => *c.open.as_mut().unwrap() += 1,
+                None => {}
+            }
+        }
+        c
+    };
+
+    // The source rows.
+    let mut stages: BTreeMap<String, (&'static str, Counts)> = BTreeMap::new();
+    let pulls = store.gh_pulls(None, None).await?;
+    let count = |it: &mut dyn Iterator<Item = bool>| Some(it.filter(|b| *b).count() as i64);
+    stages.insert(
+        "pr.open".into(),
+        (
+            "derive",
+            Counts {
+                entered: count(&mut pulls.iter().map(|p| within(p.created_at))),
+                exited: count(
+                    &mut pulls
+                        .iter()
+                        .map(|p| p.merged_at.or(p.closed_at).is_some_and(within)),
+                ),
+                open: count(&mut pulls.iter().map(|p| p.state == "open")),
+            },
+        ),
+    );
+    let issues = store.gh_issues(None, None).await?;
+    stages.insert(
+        "issue.open".into(),
+        (
+            "derive",
+            Counts {
+                entered: count(&mut issues.iter().map(|i| within(i.created_at))),
+                exited: count(&mut issues.iter().map(|i| i.closed_at.is_some_and(within))),
+                open: count(&mut issues.iter().map(|i| i.state == "open")),
+            },
+        ),
+    );
+    let mut lists: BTreeMap<String, i64> = BTreeMap::new();
+    for c in core.cards().await?.iter().filter(|c| !c.deleted) {
+        *lists.entry(c.status.clone()).or_default() += 1;
+    }
+    // Card lists the ledger knows and the board holds now.
+    for stage in episodes.keys().filter(|s| s.starts_with("card.")) {
+        lists.entry(stage["card.".len()..].to_string()).or_default();
+    }
+    for (list, open) in lists {
+        stages.insert(
+            format!("card.{list}"),
+            (
+                "derive",
+                Counts {
+                    open: Some(open),
+                    ..Default::default()
+                },
+            ),
+        );
+    }
+    let stages = stages
+        .into_iter()
+        .map(|(stage, (capture, truth))| {
+            // Card lists compare what is open only (their truth has no
+            // entered / exited counts, so those are not compared).
+            let ledger = ledger_counts(&stage);
+            let (mut status, gap) = coverage_status(ledger, Some(truth));
+            if last.is_none() {
+                status = "not_captured";
+            }
+            CoverageRow {
+                label: stage_label(&stage),
+                stage,
+                capture,
+                ledger,
+                truth: Some(truth),
+                status,
+                gap,
+                last_pass_at: last,
+            }
+        })
+        .collect();
+    Ok(CoverageReport {
+        as_of: now,
+        days,
+        capture_from: first,
+        stages,
+    })
 }
 
 /// Per-stage flow read from the stored ledger over `[since, now]`.
@@ -2534,6 +2823,103 @@ mod delivery_tests {
         assert_eq!(led.len(), 3);
         assert!(led.iter().all(|e| e.actor == "lifecycle sweep"));
         assert!(core.audit_verify().await.unwrap().ok);
+    }
+
+    #[test]
+    fn coverage_status_matches_the_web_tolerance() {
+        let n = |e, x, o| Counts {
+            entered: Some(e),
+            exited: Some(x),
+            open: Some(o),
+        };
+        assert_eq!(
+            coverage_status(n(120, 118, 2), Some(n(120, 118, 2))),
+            ("ok", 0)
+        );
+        assert_eq!(
+            coverage_status(n(119, 118, 2), Some(n(120, 118, 2))),
+            ("ok", 1)
+        );
+        assert_eq!(
+            coverage_status(n(100, 98, 2), Some(n(120, 118, 2))),
+            ("gap", 20)
+        );
+        // 1% of 500 is 5.
+        assert_eq!(coverage_status(n(495, 0, 0), Some(n(500, 0, 0))), ("ok", 5));
+        assert_eq!(
+            coverage_status(n(0, 0, 0), Some(n(3, 1, 2))),
+            ("not_captured", 3)
+        );
+        assert_eq!(coverage_status(n(0, 0, 0), None), ("ok", 0));
+        let open_only = Counts {
+            open: Some(4),
+            ..Default::default()
+        };
+        assert_eq!(coverage_status(n(9, 9, 4), Some(open_only)), ("ok", 0));
+    }
+
+    #[tokio::test]
+    async fn lifecycle_coverage_compares_the_ledger_with_the_sources() {
+        let (core, _d) = core().await;
+        let c = core
+            .create_card(
+                CardDraft {
+                    title: "Ship".into(),
+                    status: "todo".into(),
+                    ..Default::default()
+                },
+                "t",
+            )
+            .await
+            .unwrap();
+        let now = kls_store::now_ms();
+        let pull = |n: i64, at: i64| kls_store::github::GhPull {
+            repo: "acme/api".into(),
+            number: n,
+            state: "open".into(),
+            created_at: at,
+            ..Default::default()
+        };
+        core.store()
+            .gh_upsert_pull(&pull(1, now - 3_600_000))
+            .await
+            .unwrap();
+        // No pass yet: nothing is captured.
+        let r = lifecycle_coverage(&core, 7).await.unwrap();
+        assert!(r.capture_from.is_none());
+        assert!(r.stages.iter().all(|s| s.status == "not_captured"), "{r:?}");
+        // After a pass the ledger agrees with the sources.
+        lifecycle_sweep(&core, "sweep").await.unwrap();
+        let r = lifecycle_coverage(&core, 7).await.unwrap();
+        assert!(r.capture_from.is_some());
+        let pr = r.stages.iter().find(|s| s.stage == "pr.open").unwrap();
+        assert_eq!(pr.label, "Pull requests open");
+        assert_eq!(pr.ledger.open, Some(1));
+        assert_eq!(pr.truth.unwrap().open, Some(1));
+        let todo = r.stages.iter().find(|s| s.stage == "card.todo").unwrap();
+        assert_eq!((todo.status, todo.ledger.open), ("ok", Some(1)));
+        assert!(
+            todo.truth.unwrap().entered.is_none(),
+            "card lists compare open"
+        );
+        assert!(r.stages.iter().all(|s| s.status == "ok"), "{r:?}");
+        // Rows the sweep never recorded show as a gap.
+        for n in 2..6 {
+            core.store()
+                .gh_upsert_pull(&pull(n, now - 1_800_000))
+                .await
+                .unwrap();
+        }
+        let r = lifecycle_coverage(&core, 7).await.unwrap();
+        let pr = r.stages.iter().find(|s| s.stage == "pr.open").unwrap();
+        assert_eq!((pr.status, pr.gap), ("gap", 4), "{pr:?}");
+        // A card moved after the last pass: one off is within tolerance.
+        core.move_card(&c.id, c.version, "doing", "t")
+            .await
+            .unwrap();
+        let r = lifecycle_coverage(&core, 7).await.unwrap();
+        let todo = r.stages.iter().find(|s| s.stage == "card.todo").unwrap();
+        assert_eq!((todo.status, todo.gap), ("ok", 1));
     }
 
     #[tokio::test]
