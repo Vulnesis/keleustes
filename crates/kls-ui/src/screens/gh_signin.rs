@@ -9,6 +9,7 @@ use crate::kit;
 use crate::model::{Model, Notice};
 use crate::theme;
 use kls_github::forge::auth::{CliProbe, SignInMethod, auth_for};
+use kls_github::forge::server::ServerInfo;
 use kls_github::login::{WebLogin, WebState};
 use kls_github::{CliKind, Connection, ForgeKind};
 use std::sync::{Arc, Mutex};
@@ -77,6 +78,26 @@ impl Default for SignIn {
             pending_id: Arc::default(),
             fresh: None,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Tone {
+    Ok,
+    Warn,
+    Unknown,
+}
+
+/// The Connect dialog's server chip: `✓ GitLab 18.4`; a warning when the
+/// server is another kind than the one picked (Forgejo picked as Gitea);
+/// `? Server` when it did not say.
+fn server_chip(s: &ServerInfo, picked: ForgeKind) -> (String, Tone) {
+    if !s.known() {
+        return (icons::label(icons::QUESTION, "Server"), Tone::Unknown);
+    }
+    match s.kind() {
+        Some(k) if k != picked => (icons::label(icons::WARNING, &s.chip()), Tone::Warn),
+        _ => (icons::label(icons::CHECK, &s.chip()), Tone::Ok),
     }
 }
 
@@ -751,6 +772,15 @@ impl Connect {
                             .unwrap_or_else(Connection::github_com);
                         let methods = auth_for(kind.cli()).methods(&pr, &conn);
                         ui.horizontal_wrapped(|ui| {
+                            if let Some(s) = &pr.server {
+                                let (label, tone) = server_chip(s, kind);
+                                let color = match tone {
+                                    Tone::Ok => p.green,
+                                    Tone::Warn => p.amber,
+                                    Tone::Unknown => p.muted,
+                                };
+                                kit::chip(ui, &label, color);
+                            }
                             kit::chip(
                                 ui,
                                 &icons::label(
@@ -812,5 +842,27 @@ impl Connect {
             self.busy = false;
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kls_github::forge::server::parse;
+    use serde_json::json;
+
+    #[test]
+    fn server_chip_says_what_the_server_is() {
+        let fj = parse(ForgeKind::Gitea, &json!({"version": "13.0.5+gitea-1.22.0"}));
+        // Picked Forgejo: a plain check. Picked Gitea: a warning, same words.
+        assert_eq!(
+            server_chip(&fj, ForgeKind::Forgejo),
+            (icons::label(icons::CHECK, "Forgejo 13.0"), Tone::Ok)
+        );
+        assert_eq!(server_chip(&fj, ForgeKind::Gitea).1, Tone::Warn);
+        assert_eq!(
+            server_chip(&ServerInfo::default(), ForgeKind::Gitlab),
+            (icons::label(icons::QUESTION, "Server"), Tone::Unknown)
+        );
     }
 }

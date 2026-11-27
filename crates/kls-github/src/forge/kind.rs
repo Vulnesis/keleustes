@@ -379,11 +379,25 @@ impl Connection {
     /// `$KELEUSTES_FORGE_HTTP_HOSTS` (comma list) names hosts served over
     /// plain http: only the live test containers use it.
     pub fn clone_url(&self, forge_full_name: &str) -> String {
+        format!("{}/{}.git", self.web_base(), forge_full_name)
+    }
+
+    /// `https://<host>` (`http://` for a host in `$KELEUSTES_FORGE_HTTP_HOSTS`).
+    pub fn web_base(&self) -> String {
         let http = std::env::var("KELEUSTES_FORGE_HTTP_HOSTS")
             .map(|v| v.split(',').any(|h| h.trim() == self.host))
             .unwrap_or(false);
         let scheme = if http { "http" } else { "https" };
-        format!("{scheme}://{}/{}.git", self.host, forge_full_name)
+        format!("{scheme}://{}", self.host)
+    }
+
+    /// [`ForgeKind::api_base`] with this connection's scheme.
+    pub fn api_base(&self) -> String {
+        let https = self.kind.api_base(&self.host);
+        match self.web_base().strip_prefix("http://") {
+            Some(_) => https.replacen("https://", "http://", 1),
+            None => https,
+        }
     }
 
     pub fn from_row(r: &ForgeConnectionRow) -> Option<Self> {

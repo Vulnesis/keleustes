@@ -394,23 +394,72 @@ async fn reviews_submitted(c: &Client, read: &PullRead, seen_before: bool) -> Re
     Ok(n)
 }
 
+/// How often a cursored repository still lists every open pull, so a pull
+/// deleted or hidden without an update is noticed.
+pub const PULLS_FULL_EVERY_MS: i64 = 30 * 60 * 1000;
+
 /// Mirrors the open pulls of a repository. A pull whose list entry changed
 /// (or whose mergeability is still unknown, or checks pending) is read in
 /// full; a pull that left the open list is read once more to learn whether
 /// it merged. Returns how many pulls changed.
+///
+/// GitLab and Gitea poll by cursor (forges.md 4, "Polling"): between full
+/// passes (every [`PULLS_FULL_EVERY_MS`]) only pulls updated since the
+/// newest one seen are listed; a listed pull that is no longer open is read
+/// once to learn whether it merged, and a stored open pull whose
+/// mergeability or checks are still settling is read as before.
 pub async fn sync_pulls(c: &Client, repo: &str, caller: &str) -> Result<usize> {
     let store = c.core().store();
-    let list = c.api().open_pulls(c, repo, caller).await?;
+    let now = now_ms();
+    // GitHub lists in full: its ETag 304s already make an idle poll free.
+    let cursored = c.conn().kind.dialect() != crate::forge::Dialect::GitHub;
+    let read_cursor = async |kind: &str| -> Result<Option<i64>> {
+        if !cursored {
+            return Ok(None);
+        }
+        Ok(crate::events::cursor(c, kind, repo)
+            .await?
+            .and_then(|s| s.parse::<i64>().ok()))
+    };
+    let cursor = read_cursor("pulls").await?;
+    let last_full = read_cursor("pulls_full").await?;
+    let full_due = last_full.is_none_or(|t| now - t >= PULLS_FULL_EVERY_MS);
+    let since_list = match cursor.filter(|_| !full_due) {
+        Some(since) => c.api().pulls_since(c, repo, since, caller).await?,
+        None => None,
+    };
+    let full = since_list.is_none();
+    let list = match since_list {
+        Some(l) => l,
+        None => c.api().open_pulls(c, repo, caller).await?,
+    };
     let stored = store.gh_pulls(Some(repo), Some("open")).await?;
     let mut changed = 0;
     let mut seen = BTreeSet::new();
+    let newest = list
+        .items
+        .iter()
+        .filter_map(|v| parse::ts(&v["updated_at"]))
+        .max();
     for item in &list.items {
         let number = item.get("number").and_then(|v| v.as_i64()).unwrap_or(0);
         if number == 0 {
             continue;
         }
-        seen.insert(number);
         let prev = stored.iter().find(|p| p.number == number);
+        if item["state"].as_str().is_some_and(|s| s != "open") {
+            // Only a cursored list carries closed pulls: read the ones
+            // stored as open once, to learn whether they merged.
+            if prev.is_some() {
+                seen.insert(number);
+                let read = read_pull(c, repo, number, caller).await?;
+                if store_pull(c, &read, caller).await? != Upsert::Unchanged {
+                    changed += 1;
+                }
+            }
+            continue;
+        }
+        seen.insert(number);
         let mut p = parse::pull(repo, item, prev, now_ms());
         fix_head_repo(c, &mut p);
         let stale = match prev {
@@ -428,6 +477,23 @@ pub async fn sync_pulls(c: &Client, repo: &str, caller: &str) -> Result<usize> {
                 changed += 1;
             }
         }
+    }
+    if !full {
+        // Not listed since the cursor: unchanged, unless still settling.
+        for p in stored.iter().filter(|p| {
+            !seen.contains(&p.number) && (p.mergeable == "unknown" || p.checks_state == "pending")
+        }) {
+            let read = read_pull(c, repo, p.number, caller).await?;
+            if store_pull(c, &read, caller).await? != Upsert::Unchanged {
+                changed += 1;
+            }
+        }
+    }
+    if cursored && let Some(t) = newest.filter(|t| cursor.is_none_or(|c| *t > c)) {
+        crate::events::set_cursor(c, "pulls", repo, &t.to_string()).await?;
+    }
+    if !full {
+        return Ok(changed);
     }
     for gone in stored.iter().filter(|p| !seen.contains(&p.number)) {
         match read_pull(c, repo, gone.number, caller).await {
@@ -450,6 +516,9 @@ pub async fn sync_pulls(c: &Client, repo: &str, caller: &str) -> Result<usize> {
             }
             Err(e) => return Err(e),
         }
+    }
+    if cursored {
+        crate::events::set_cursor(c, "pulls_full", repo, &now.to_string()).await?;
     }
     Ok(changed)
 }

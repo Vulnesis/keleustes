@@ -16,6 +16,7 @@ pub mod guard;
 pub mod kind;
 pub mod propose;
 pub mod push;
+pub mod server;
 
 pub use kind::{
     CliKind, Connection, Dialect, ForgeKind, PullRef, RoutePref, normalize_host, pull_ref_of,

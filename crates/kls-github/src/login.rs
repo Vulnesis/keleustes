@@ -78,6 +78,15 @@ pub fn device_url(line: &str) -> Option<String> {
     Some(url.trim_end_matches(['.', ',', ')']).to_string())
 }
 
+/// The authorize URL gh prints when the server refuses device flow and gh
+/// falls back to its loopback web flow (gh 2.102.0 against a GHES whose
+/// `/login/device/code` answers 400 `device_flow_disabled`, recorded
+/// 2026-11-28): "Open this URL to continue in your web browser:
+/// https://<host>/login/oauth/authorize?client_id=…&redirect_uri=http%3A%2F%2Flocalhost%3A<port>%2F…".
+pub fn gh_web_fallback_url(line: &str) -> Option<String> {
+    device_url(line).filter(|u| u.contains("/login/oauth/authorize"))
+}
+
 /// Progress of a browser sign-in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WebState {
@@ -248,7 +257,12 @@ impl WebLogin {
                 l = err.next_line(), if err_open => match l? { Some(l) => l, None => { err_open = false; continue } },
             };
             if code.is_none() {
-                if let Some(u) = device_url(&line) {
+                // Device flow off (a GHES app without it): gh falls back to
+                // its loopback web flow and waits for the browser.
+                if let Some(u) = gh_web_fallback_url(&line) {
+                    let until = kls_store::now_ms() + WEB_TIMEOUT.as_millis() as i64;
+                    self.set(WebState::Browser { url: u, until }, on_change);
+                } else if let Some(u) = device_url(&line) {
                     url = u;
                 }
                 if let Some(c) = device_code(&line) {
@@ -629,6 +643,39 @@ mod tests {
         }));
     }
 
+    /// forges.md 8.4.3: a GHES app without device flow. gh 2.102.0 falls back
+    /// to its loopback web flow and prints only the authorize URL (wording
+    /// recorded against a stub GHES); the window shows it as a browser step
+    /// instead of waiting for a code that never comes.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn ghes_without_device_flow_becomes_a_browser_step() {
+        const RECORDED: &str = "Open this URL to continue in your web browser: https://ghes.acme.dev/login/oauth/authorize?client_id=x&redirect_uri=http%3A%2F%2Flocalhost%3A34493%2F&scope=repo+read%3Aorg+gist+repo&state=s";
+        assert!(gh_web_fallback_url(RECORDED).is_some());
+        assert_eq!(
+            gh_web_fallback_url(
+                "Open this URL to continue in your web browser: https://ghes.acme.dev/login/device"
+            ),
+            None
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let gh = fake_gh(
+            dir.path(),
+            &format!("echo >&2\necho '{RECORDED}' >&2\nsleep 0.3\necho '✓ Logged in as ana' >&2"),
+        );
+        let c = conn(crate::ForgeKind::Ghes, "ghes.acme.dev");
+        let login = WebLogin::for_conn(&c, SignInMethod::DeviceCode, false);
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let (s2, l2) = (seen.clone(), login.clone());
+        login
+            .run(&gh, move || s2.lock().unwrap().push(l2.state()))
+            .await;
+        assert_eq!(login.state(), WebState::Done);
+        assert!(seen.lock().unwrap().iter().any(|s| matches!(s,
+            WebState::Browser { url, until }
+                if url.starts_with("https://ghes.acme.dev/login/oauth/authorize") && *until > 0)));
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn web_login_cancel_kills_gh() {
@@ -693,7 +740,7 @@ mod tests {
         let tea = fake_cli(
             dir.path(),
             "tea-timeout",
-            "echo 'Please authorize the application by visiting this URL in your browser:'\necho 'https://codeberg.org/login/oauth/authorize?client_id=d57cb8c4'\necho 'Error: timed out waiting for the authorization callback' >&2\nexit 1",
+            "echo 'Please authorize the application by visiting this URL in your browser:'\necho 'https://codeberg.org/login/oauth/authorize?client_id=d57cb8c4'\necho 'Error: authorization failed: authentication timed out after 1m0s' >&2\nexit 1",
         );
         let cb = conn(crate::ForgeKind::Forgejo, "codeberg.org");
         let login = WebLogin::for_conn(&cb, SignInMethod::BrowserLoopback, false);

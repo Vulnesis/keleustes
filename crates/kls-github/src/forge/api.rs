@@ -175,6 +175,19 @@ pub trait ForgeApi: Send + Sync {
     /// One repository and whether it was unchanged (304).
     async fn repo(&self, c: &Client, key: &str, caller: &str) -> Result<(Value, bool)>;
     async fn open_pulls(&self, c: &Client, key: &str, caller: &str) -> Result<Paged>;
+    /// Pulls in any state updated at or after `since` (Unix ms), for a
+    /// cursored poll (forges.md 4, "Polling"). `None`: this forge lists its
+    /// open pulls in full every poll (GitHub, where ETag 304s make an idle
+    /// poll free).
+    async fn pulls_since(
+        &self,
+        _c: &Client,
+        _key: &str,
+        _since: i64,
+        _caller: &str,
+    ) -> Result<Option<Paged>> {
+        Ok(None)
+    }
     /// A pull in detail (has `mergeable`).
     async fn pull(&self, c: &Client, key: &str, n: i64, caller: &str) -> Result<Value>;
     /// Check runs and statuses of a commit, as check runs.

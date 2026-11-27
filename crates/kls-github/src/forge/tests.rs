@@ -1364,3 +1364,199 @@ async fn issue_edits_reviews_and_approvals_on_every_forge() {
             .is_err()
     );
 }
+
+/// One HTTP answer on a loopback port; returns the base URL.
+async fn one_answer(status: u16, body: &'static str) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    tokio::spawn(async move {
+        let (mut s, _) = l.accept().await.unwrap();
+        let mut buf = [0u8; 2048];
+        let _ = s.read(&mut buf).await;
+        let r = format!(
+            "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let _ = s.write_all(r.as_bytes()).await;
+    });
+    format!("http://{addr}")
+}
+
+#[tokio::test]
+async fn server_probe_reads_the_version_audits_and_obeys_the_kill_switch() {
+    use crate::forge::server;
+    // The unauthenticated GET: Forgejo told apart by `+gitea-`, a 401 kept unknown.
+    let base = one_answer(200, r#"{"version":"13.0.5+gitea-1.22.0"}"#).await;
+    let (st, body) = server::http_get(&format!("{base}/api/v1/version"))
+        .await
+        .unwrap();
+    let s = server::from_http(ForgeKind::Gitea, st, &body);
+    assert_eq!(
+        (s.kind(), s.chip().as_str()),
+        (Some(ForgeKind::Forgejo), "Forgejo 13.0")
+    );
+    let base = one_answer(401, r#"{"message":"401 Unauthorized"}"#).await;
+    let (st, body) = server::http_get(&format!("{base}/api/v4/version"))
+        .await
+        .unwrap();
+    assert_eq!(
+        server::from_http(ForgeKind::Gitlab, st, &body).device_flow(),
+        None
+    );
+
+    // Through the service: stored on the connection and audited.
+    let (core, _d) = core().await;
+    let conn = add(&core, ForgeKind::Forgejo, "127.0.0.1:1").await;
+    let svc = Service::new(core.clone(), crate::LocalGh::default());
+    let info = svc.server_probe(&conn, "user").await.unwrap();
+    assert!(!info.known() && !info.error.is_empty() && info.at > 0);
+    assert_eq!(svc.server_info(&conn.id).await, Some(info));
+    let acts = audit_actions(&core).await;
+    assert!(
+        acts.iter()
+            .any(|(a, actor, o)| a == "server_probe" && actor == "owner" && o.starts_with("error")),
+        "{acts:?}"
+    );
+    // Automation is refused while the factory is stopped, and audited.
+    core.set_factory_stopped(true, "drill").await.unwrap();
+    let e = svc.server_probe(&conn, "poller").await.unwrap_err();
+    assert!(
+        matches!(e.downcast_ref::<GhError>(), Some(GhError::Stopped(_))),
+        "{e:#}"
+    );
+    assert!(
+        audit_actions(&core)
+            .await
+            .iter()
+            .any(|(a, _, o)| a == "server_probe" && o == "refused")
+    );
+}
+
+/// A Gitea pull as `tea api` returns it.
+fn gitea_pull(n: i64, state: &str, updated: &str) -> Value {
+    json!({"number": n, "title": format!("P{n}"), "state": state, "merged": state == "closed",
+           "user": {"login": "ana"}, "mergeable": true,
+           "head": {"ref": format!("b{n}"), "sha": format!("s{n}"), "repo": {"full_name": "ana/app"}},
+           "base": {"ref": "main", "sha": "m"}, "html_url": "u",
+           "created_at": "2026-11-01T00:00:00Z", "updated_at": updated})
+}
+
+/// forges.md 4 "Polling": GitLab and Gitea list only pulls updated since the
+/// cursor between full passes; a listed pull that closed is read once, an
+/// unlisted one is left alone, and Gitea stops paging at the cursor.
+#[tokio::test]
+async fn pull_polls_are_bounded_by_the_cursor() {
+    // GitLab: `updated_after` with the newest `updated_at` seen.
+    let (core, _d) = core().await;
+    let conn = add(&core, ForgeKind::Gitlab, "gitlab.acme.dev").await;
+    let gl = FakeGh::with_cli(Route::Local, CliKind::Glab);
+    let key = "gitlab.acme.dev/grp/app";
+    let p = "projects/grp%2Fapp";
+    let open = format!("{p}/merge_requests?state=opened&per_page=100");
+    gl.on("GET", &open, 200, json!([mr(3, "h3"), mr(4, "h4")]));
+    for (n, h) in [(3, "h3"), (4, "h4")] {
+        gl.on("GET", &format!("{p}/merge_requests/{n}"), 200, mr(n, h));
+        gl.on(
+            "GET",
+            &format!("{p}/repository/commits/{h}/statuses?per_page=100"),
+            200,
+            json!([]),
+        );
+        gl.on(
+            "GET",
+            &format!("{p}/merge_requests/{n}/approvals"),
+            200,
+            json!({}),
+        );
+    }
+    let c = Client::with_conn(gl.clone(), core.clone(), conn.clone());
+    assert_eq!(sync::sync_pulls(&c, key, "poller").await.unwrap(), 2);
+    // Next poll: only what changed since 2026-10-20T01:00:00Z (the fixture's).
+    let mut merged = mr(4, "h4");
+    merged["state"] = json!("merged");
+    merged["updated_at"] = json!("2026-10-21T00:00:00Z");
+    let since = format!(
+        "{p}/merge_requests?state=all&updated_after=2026-10-20T01:00:00Z&order_by=updated_at&sort=desc&per_page=100"
+    );
+    gl.on("GET", &since, 200, json!([merged.clone(), mr(3, "h3")]));
+    gl.on("GET", &format!("{p}/merge_requests/4"), 200, merged);
+    gl.on(
+        "GET",
+        &format!("{p}/merge_requests/4/commits?per_page=100"),
+        200,
+        json!([]),
+    );
+    gl.clear_calls();
+    assert_eq!(sync::sync_pulls(&c, key, "poller").await.unwrap(), 1);
+    assert_eq!(gl.count("GET", &open), 0, "no full list between passes");
+    assert_eq!(gl.count("GET", &since), 1);
+    assert_eq!(
+        gl.count("GET", &format!("{p}/merge_requests/3")),
+        0,
+        "unchanged"
+    );
+    let m = core.store().gh_pull(key, 4).await.unwrap().unwrap();
+    assert!(m.merged && m.state == "closed", "{m:?}");
+    assert_eq!(
+        core.store().gh_pull(key, 3).await.unwrap().unwrap().state,
+        "open"
+    );
+
+    // Gitea: newest first, paging stops at the first pull older than the cursor.
+    let (core, _d2) = self::core().await;
+    let conn = add(&core, ForgeKind::Forgejo, "codeberg.org").await;
+    let tea = FakeGh::with_cli(Route::Local, CliKind::Tea);
+    let key = "codeberg.org/ana/app";
+    let open = "/repos/ana/app/pulls?state=open&sort=recentupdate&limit=50";
+    tea.on(
+        "GET",
+        open,
+        200,
+        json!([gitea_pull(5, "open", "2026-11-10T00:00:00Z")]),
+    );
+    for n in [5, 9] {
+        let v = gitea_pull(n, "open", "2026-11-10T00:00:00Z");
+        tea.on("GET", &format!("/repos/ana/app/pulls/{n}"), 200, v);
+        tea.on(
+            "GET",
+            &format!("/repos/ana/app/commits/s{n}/status"),
+            200,
+            json!({"statuses": []}),
+        );
+        tea.on(
+            "GET",
+            &format!("/repos/ana/app/pulls/{n}/reviews?limit=50"),
+            200,
+            json!([]),
+        );
+    }
+    let c = Client::with_conn(tea.clone(), core.clone(), conn.clone());
+    assert_eq!(sync::sync_pulls(&c, key, "poller").await.unwrap(), 1);
+    let all = "/repos/ana/app/pulls?state=all&sort=recentupdate&limit=50";
+    tea.on(
+        "GET",
+        all,
+        200,
+        json!([
+            gitea_pull(9, "open", "2026-11-12T00:00:00Z"),
+            gitea_pull(5, "open", "2026-11-10T00:00:00Z"),
+            // Older than the cursor: dropped, and never read.
+            gitea_pull(2, "open", "2026-11-01T00:00:00Z"),
+        ]),
+    );
+    tea.clear_calls();
+    assert_eq!(sync::sync_pulls(&c, key, "poller").await.unwrap(), 1);
+    assert_eq!(tea.count("GET", open), 0);
+    assert_eq!(tea.count("GET", "/repos/ana/app/pulls/2"), 0);
+    assert!(core.store().gh_pull(key, 2).await.unwrap().is_none());
+    assert!(core.store().gh_pull(key, 9).await.unwrap().is_some());
+    // The cursor moved to the newest pull seen.
+    let want = parse::ts(&json!("2026-11-12T00:00:00Z"))
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        crate::events::cursor(&c, "pulls", key).await.unwrap(),
+        Some(want)
+    );
+}

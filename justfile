@@ -28,8 +28,8 @@ proto-go:
       --go-grpc_out={{belai}} --go-grpc_opt=module=github.com/vulnetix/belai \
       keleustes/node/v1/node.proto keleustes/node/v1/host.proto
 
-# live forge suite: Gitea and Forgejo in docker with a real tea (opt in;
-# skipped when docker or tea is missing; not part of `check`)
+# live forge suite: Gitea and Forgejo in podman or docker with a real tea (opt in;
+# skipped when no container engine or tea; not part of `check`)
 forge-live:
     bash crates/kls-github/live/forge-live.sh
 
