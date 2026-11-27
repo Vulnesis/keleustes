@@ -2,9 +2,14 @@
 //! counterpart of the engine's per-run facts (`RunDetail::facts`).
 //!
 //! Kinds: `repo` (owner/name), `pr` (owner/name#N), `card` (key), `agent`,
-//! `model` (provider/model), `node`, `run`, `vuln` (CVE-…, GHSA-…), `file`.
-//! They come from the session row, its transcript (text and tool metadata)
-//! and its host audit lines (`repo.commit`, `repo.publish`, `a2a.*`).
+//! `model` (provider/model), `provider`, `mode`, `effort`, `belai` (the
+//! host's belai version), `node`, `run`, `vuln` (CVE-…, GHSA-…), `file`,
+//! `command` (a shell command's first line), `domain` (a fetched URL's
+//! host), `mcp` (an MCP server), `skill` and `subagent`. They come from the
+//! session row, its dispatch and host, its transcript (text and tool
+//! metadata) and its host audit lines (`repo.commit`, `repo.publish`,
+//! `a2a.*`). Each value keeps when it was first and last seen, so the
+//! "ran on" kinds ([`TIMELINE_KINDS`]) read as a timeline.
 //!
 //! The fold is incremental: a cursor per session remembers the last
 //! transcript entry and audit line read, so [`fold_session`] runs on every
@@ -20,12 +25,25 @@ use std::collections::BTreeSet;
 pub use kls_store::audit::SessionFact as Fact;
 
 /// The fact kinds, in display order.
-pub const KINDS: [&str; 9] = [
-    "repo", "pr", "card", "agent", "model", "node", "run", "vuln", "file",
+pub const KINDS: [&str; 18] = [
+    "repo", "pr", "card", "agent", "model", "provider", "mode", "effort", "belai", "node", "run",
+    "vuln", "file", "command", "domain", "mcp", "skill", "subagent",
+];
+
+/// What a session ran on: one value at a time, so a change is a timeline.
+pub const TIMELINE_KINDS: [&str; 7] = [
+    "model", "provider", "mode", "effort", "agent", "belai", "node",
+];
+
+/// What a session touched or contacted.
+pub const TOUCHED_KINDS: [&str; 10] = [
+    "repo", "pr", "vuln", "card", "domain", "file", "command", "mcp", "skill", "subagent",
 ];
 
 const ENTRY_PAGE: i64 = 500;
+/// Most values of one transcript kind (files, commands, ...) a fold keeps.
 const FILE_MAX: usize = 200;
+const COMMAND_MAX: usize = 160;
 
 /// `owner/name` when `s` looks like one.
 fn repo_slug(s: &str) -> Option<String> {
@@ -86,10 +104,33 @@ pub fn scan_text(text: &str) -> Vec<(&'static str, String)> {
     out
 }
 
-/// Facts a tool entry's metadata names: files it read or wrote.
+/// The host of a URL (`https://api.github.com/x` -> `api.github.com`).
+fn url_host(url: &str) -> Option<String> {
+    let rest = url.split_once("://")?.1;
+    let host = rest.split(['/', '?', '#']).next()?;
+    let host = host
+        .rsplit('@')
+        .next()?
+        .split(':')
+        .next()?
+        .to_ascii_lowercase();
+    (!host.is_empty()
+        && host.len() <= 253
+        && host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-.".contains(c)))
+    .then_some(host)
+}
+
+/// Facts a tool entry's metadata names: files it read or wrote, the shell
+/// command it ran, the host it fetched, the MCP server, skill or subagent
+/// it called.
 fn scan_meta(meta: &Value) -> Vec<(&'static str, String)> {
     let mut out = Vec::new();
     let input = meta.get("input").unwrap_or(meta);
+    fn str_of<'a>(v: &'a Value, k: &str) -> &'a str {
+        v.get(k).and_then(Value::as_str).unwrap_or("").trim()
+    }
     for k in ["file_path", "path", "filePath", "notebook_path"] {
         if let Some(p) = input.get(k).and_then(Value::as_str)
             && !p.is_empty()
@@ -97,6 +138,56 @@ fn scan_meta(meta: &Value) -> Vec<(&'static str, String)> {
         {
             out.push(("file", p.to_string()));
         }
+    }
+    let tool = ["name", "tool", "toolName"]
+        .iter()
+        .map(|k| str_of(meta, k))
+        .find(|t| !t.is_empty())
+        .unwrap_or("");
+    let cmd = str_of(input, "command");
+    if !cmd.is_empty() {
+        let line: String = cmd
+            .lines()
+            .next()
+            .unwrap_or("")
+            .chars()
+            .take(COMMAND_MAX)
+            .collect();
+        // A line that may carry a credential is not indexed.
+        let up = line.to_ascii_uppercase();
+        if !["TOKEN", "SECRET", "PASSWORD", "API_KEY", "AUTHORIZATION"]
+            .iter()
+            .any(|w| up.contains(w))
+        {
+            out.push(("command", line));
+        }
+    }
+    if let Some(h) = url_host(str_of(input, "url")) {
+        out.push(("domain", h));
+    }
+    if let Some(server) = tool
+        .strip_prefix("mcp__")
+        .and_then(|t| t.split("__").next())
+        .filter(|s| !s.is_empty())
+    {
+        out.push(("mcp", server.to_string()));
+    }
+    match tool {
+        "Skill" => {
+            let s = [str_of(input, "skill"), str_of(input, "name")]
+                .into_iter()
+                .find(|s| !s.is_empty());
+            if let Some(s) = s {
+                out.push(("skill", s.to_string()));
+            }
+        }
+        "Task" | "Agent" => {
+            let a = str_of(input, "subagent_type");
+            if !a.is_empty() {
+                out.push(("subagent", a.to_string()));
+            }
+        }
+        _ => {}
     }
     out
 }
@@ -157,6 +248,31 @@ pub async fn fold_session(core: &Core, id: &str) -> Result<usize> {
         add("repo", r, at);
     }
     add("agent", sess.agent.clone(), at);
+    add("provider", sess.provider.clone(), at);
+    add("mode", sess.mode.clone(), at);
+    // The effort the dispatch asked for, else the agent profile's.
+    let mut effort = String::new();
+    if !sess.dispatch_id.is_empty()
+        && let Some(d) = s.dispatch(&sess.dispatch_id).await?
+    {
+        effort = serde_json::from_str::<Value>(&d.spec_json)
+            .ok()
+            .and_then(|v| v.get("effort").and_then(Value::as_str).map(String::from))
+            .unwrap_or_default();
+    }
+    if effort.is_empty()
+        && !sess.agent.is_empty()
+        && let Some(a) = s.agent_profile_by_name(&sess.agent).await?
+    {
+        effort = serde_json::from_str::<Value>(&a.meta_json)
+            .ok()
+            .and_then(|v| v.get("effort").and_then(Value::as_str).map(String::from))
+            .unwrap_or_default();
+    }
+    add("effort", effort, at);
+    if let Some(n) = s.node(&sess.node_id).await? {
+        add("belai", n.host.belai_version, at);
+    }
     add("node", sess.node_id.clone(), at);
     add("card", sess.card_id.clone(), at);
     add("run", sess.run_id.clone(), at);
@@ -169,7 +285,7 @@ pub async fn fold_session(core: &Core, id: &str) -> Result<usize> {
             at,
         );
     }
-    let mut files = BTreeSet::new();
+    let mut seen: BTreeSet<(&str, String)> = BTreeSet::new();
     loop {
         let page = s.entries(id, entry_idx + 1, ENTRY_PAGE).await?;
         for e in &page {
@@ -178,7 +294,9 @@ pub async fn fold_session(core: &Core, id: &str) -> Result<usize> {
             }
             let meta: Value = serde_json::from_str(&e.meta_json).unwrap_or_default();
             for (k, v) in scan_meta(&meta) {
-                if files.len() < FILE_MAX && files.insert(v.clone()) {
+                if seen.iter().filter(|(x, _)| *x == k).count() < FILE_MAX
+                    && seen.insert((k, v.clone()))
+                {
                     add(k, v, e.at);
                 }
             }
@@ -273,6 +391,32 @@ mod tests {
         assert!(scan_text("CVE-24-1 K- plain words").is_empty());
         let m = scan_meta(&serde_json::json!({"input": {"file_path": "src/main.rs"}}));
         assert_eq!(m, vec![("file", "src/main.rs".to_string())]);
+        let m = scan_meta(
+            &serde_json::json!({"tool": "Bash", "input": {"command": "cargo test -p x\nsecond line"}}),
+        );
+        assert_eq!(m, vec![("command", "cargo test -p x".to_string())]);
+        assert!(
+            scan_meta(
+                &serde_json::json!({"tool": "Bash", "input": {"command": "export GH_TOKEN=x"}})
+            )
+            .is_empty(),
+            "a line that may carry a credential is not indexed"
+        );
+        let m = scan_meta(
+            &serde_json::json!({"tool": "WebFetch", "input": {"url": "https://user@Docs.RS:443/x?y"}}),
+        );
+        assert_eq!(m, vec![("domain", "docs.rs".to_string())]);
+        let m = scan_meta(&serde_json::json!({"name": "mcp__github__get_issue", "input": {}}));
+        assert_eq!(m, vec![("mcp", "github".to_string())]);
+        let m = scan_meta(&serde_json::json!({"tool": "Skill", "input": {"skill": "pdf"}}));
+        assert_eq!(m, vec![("skill", "pdf".to_string())]);
+        let m =
+            scan_meta(&serde_json::json!({"tool": "Task", "input": {"subagent_type": "Explore"}}));
+        assert_eq!(m, vec![("subagent", "Explore".to_string())]);
+        assert!(url_host("not a url").is_none());
+        for k in TIMELINE_KINDS.iter().chain(TOUCHED_KINDS.iter()) {
+            assert!(KINDS.contains(k), "{k}");
+        }
         let l = scan_line("repo.publish", r#"{"data":{"repo":"acme/api","pr":7}}"#);
         assert!(l.contains(&("pr", "acme/api#7".into())));
         assert_eq!(
@@ -293,7 +437,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let c = Core::open(dir.path(), None).await.unwrap();
         let s = c.store();
-        s.insert_node("n1", "box", &Default::default(), "serial", "tok")
+        let host = kls_store::HostInfo {
+            belai_version: "1.4.0".into(),
+            ..Default::default()
+        };
+        s.insert_node("n1", "box", &host, "serial", "tok")
             .await
             .unwrap();
         let sess = kls_store::sessions::Session {
@@ -302,6 +450,7 @@ mod tests {
             repo: "acme/api".into(),
             provider: "anthropic".into(),
             model: "sonnet".into(),
+            mode: "plan".into(),
             agent: "builder".into(),
             started_at: 1,
             ..Default::default()
@@ -326,6 +475,20 @@ mod tests {
             has("repo", "acme/api") && has("pr", "acme/api#9") && has("vuln", "CVE-2025-00001")
         );
         assert!(has("model", "anthropic/sonnet") && has("agent", "builder") && has("node", "n1"));
+        assert!(has("provider", "anthropic") && has("mode", "plan") && has("belai", "1.4.0"));
+        // A model change is a second value with its own first and last seen.
+        let mut later = sess.clone();
+        later.model = "opus".into();
+        later.seen_at = 50;
+        s.upsert_session(&later).await.unwrap();
+        fold_session(&c, "s1").await.unwrap();
+        let f = session_facts(&c, "s1").await.unwrap();
+        let models: Vec<&str> = f
+            .iter()
+            .filter(|x| x.kind == "model")
+            .map(|x| x.value.as_str())
+            .collect();
+        assert_eq!(models.len(), 2, "{models:?}");
         // The cursor moved: folding again reads no new entries.
         assert_eq!(s.session_fact_cursor("s1").await.unwrap().0, 0);
         fold_session(&c, "s1").await.unwrap();

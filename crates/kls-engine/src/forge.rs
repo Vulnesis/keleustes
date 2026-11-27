@@ -186,7 +186,7 @@ fn caller(ctx: &StepContext) -> String {
     format!("factory:{}", ctx.run.workflow_id)
 }
 
-fn pull_json(p: &GhPull) -> Value {
+pub(crate) fn pull_json(p: &GhPull) -> Value {
     json!({
         "repo": p.repo, "number": p.number, "url": p.html_url, "state": p.state,
         "draft": p.draft, "merged": p.merged, "mergeable": p.mergeable,
@@ -1067,6 +1067,12 @@ impl Forge for GitHubForge {
         }
         let api = c.api();
         match action {
+            // The read node's live source (`kls_engine::read`): one refresh.
+            "read" => {
+                let repo = need_repo(&t)?;
+                let n = need_number(&t)?;
+                Ok(pull_json(&sync::refresh_pull(&c, repo, n, &who).await?))
+            }
             "draft_pr" => self.draft_pr(&c, ctx, &t).await,
             "approve_ready" => self.approve_ready(&c, ctx, &t).await,
             "pr_review" => self.pr_review(&c, ctx, &t).await,

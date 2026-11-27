@@ -123,6 +123,7 @@ fn would(n: &Node) -> String {
         "card" => format!("Would {} the run's card", n.summary()),
         "notify" => format!("Would post: {}", n.str("message")),
         "github" => format!("Would call GitHub: {}", n.str("action")),
+        "read" => format!("Would read the {}", n.summary()),
         _ => String::new(),
     }
 }

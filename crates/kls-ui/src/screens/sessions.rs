@@ -59,6 +59,8 @@ struct Detail {
     outcome: String,
     /// The agent profile's effort, when known.
     effort: String,
+    /// What it ran on and touched (the session fact index).
+    facts: Vec<kls_core::audit::facts::Fact>,
 }
 
 /// Entries already loaded for the selected session, so a new entry costs
@@ -353,6 +355,8 @@ pub struct Screen {
     teleport_to: String,
     /// The factory context panel is open.
     show_context: bool,
+    /// The facts panel (ran on, touched) is open.
+    show_facts: bool,
 }
 
 impl Screen {
@@ -472,7 +476,11 @@ impl Screen {
                         .and_then(|v| v.get("effort").and_then(|e| e.as_str()).map(String::from))
                         .unwrap_or_default();
                 }
+                let facts = kls_core::audit::facts::session_facts(&core, &id)
+                    .await
+                    .unwrap_or_default();
                 Ok(Detail {
+                    facts,
                     context,
                     outcome,
                     effort,
@@ -575,6 +583,7 @@ impl Screen {
             git_branch: String::new(),
             teleport_to: String::new(),
             show_context: true,
+            show_facts: false,
         }
     }
 
@@ -1113,6 +1122,15 @@ impl Screen {
                     }
                     if self.show_context {
                         context_ui(ui, model, &detail.context);
+                    }
+                }
+                if !detail.facts.is_empty() {
+                    let label = icons::label(icons::FINGERPRINT, "Facts");
+                    if kit::toggle_chip(ui, &label, self.show_facts).clicked() {
+                        self.show_facts = !self.show_facts;
+                    }
+                    if self.show_facts {
+                        facts_ui(ui, model, data, &fact_view(&detail.facts));
                     }
                 }
                 ui.add_space(4.0);
@@ -3130,6 +3148,136 @@ fn context_ui(ui: &mut egui::Ui, model: &Model, c: &kls_core::sessions::context:
     }
 }
 
+/// How many values a Touched kind lists before "+N".
+const TOUCHED_PER_KIND: usize = 5;
+
+/// One "ran on" kind: its values oldest first, (value, first, last).
+type Timeline = (&'static str, Vec<(String, i64, i64)>);
+/// One "touched" kind: its top values and how many more there are.
+type Touched = (&'static str, Vec<String>, usize);
+
+/// A session's facts shaped for the panel: a timeline per "ran on" kind
+/// and the top values per "touched" kind (most hits, then latest).
+#[derive(Debug, Default, PartialEq)]
+struct FactView {
+    timelines: Vec<Timeline>,
+    touched: Vec<Touched>,
+}
+
+fn fact_view(facts: &[kls_core::audit::facts::Fact]) -> FactView {
+    use kls_core::audit::facts::{TIMELINE_KINDS, TOUCHED_KINDS};
+    let mut v = FactView::default();
+    for k in TIMELINE_KINDS {
+        let mut vals: Vec<(String, i64, i64)> = facts
+            .iter()
+            .filter(|f| f.kind == k)
+            .map(|f| (f.value.clone(), f.first_at, f.last_at))
+            .collect();
+        vals.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
+        if !vals.is_empty() {
+            v.timelines.push((k, vals));
+        }
+    }
+    for k in TOUCHED_KINDS {
+        let mut vals: Vec<&kls_core::audit::facts::Fact> =
+            facts.iter().filter(|f| f.kind == k).collect();
+        if vals.is_empty() {
+            continue;
+        }
+        vals.sort_by(|a, b| b.hits.cmp(&a.hits).then(b.last_at.cmp(&a.last_at)));
+        let more = vals.len().saturating_sub(TOUCHED_PER_KIND);
+        let top = vals
+            .iter()
+            .take(TOUCHED_PER_KIND)
+            .map(|f| f.value.clone())
+            .collect();
+        v.touched.push((k, top, more));
+    }
+    v
+}
+
+fn fact_icon(kind: &str) -> &'static str {
+    match kind {
+        "model" => icons::CPU,
+        "provider" => icons::PLUGS_CONNECTED,
+        "mode" => icons::SLIDERS,
+        "effort" => icons::GAUGE,
+        "agent" => icons::ROBOT,
+        "belai" => icons::PACKAGE,
+        "node" => icons::HARD_DRIVES,
+        "repo" => icons::GIT_BRANCH,
+        "pr" => icons::GIT_PULL_REQUEST,
+        "vuln" => icons::SHIELD_WARNING,
+        "card" => icons::KANBAN,
+        "domain" => icons::GLOBE,
+        "file" => icons::FILE_TEXT,
+        "command" => icons::TERMINAL,
+        "mcp" => icons::PLUG,
+        "skill" => icons::SPARKLE,
+        "subagent" => icons::USERS_THREE,
+        _ => icons::TAG,
+    }
+}
+
+/// The facts panel: what the session ran on (a change reads `a → b`) and
+/// what it touched; a touched value opens the sessions that share it.
+fn facts_ui(ui: &mut egui::Ui, model: &Model, data: &ListData, v: &FactView) {
+    let p = palette(ui.ctx());
+    let now = now_ms();
+    egui::Grid::new("session_facts")
+        .num_columns(2)
+        .spacing([10.0, 4.0])
+        .show(ui, |ui| {
+            for (kind, vals) in &v.timelines {
+                ui.label(
+                    RichText::new(icons::label(fact_icon(kind), kind))
+                        .size(12.0)
+                        .color(p.muted),
+                );
+                ui.horizontal_wrapped(|ui| {
+                    for (i, (val, first, last)) in vals.iter().enumerate() {
+                        if i > 0 {
+                            ui.label(RichText::new(icons::ARROW_RIGHT).color(p.amber));
+                        }
+                        let text = if *kind == "node" {
+                            node_name(data, val)
+                        } else {
+                            val.clone()
+                        };
+                        ui.label(kit::mono(&text, 12.0, p.text))
+                            .on_hover_text(format!(
+                                "first {} · last {}",
+                                fmt::ago(now, *first),
+                                fmt::ago(now, *last)
+                            ));
+                    }
+                });
+                ui.end_row();
+            }
+            for (kind, vals, more) in &v.touched {
+                ui.label(
+                    RichText::new(icons::label(fact_icon(kind), kind))
+                        .size(12.0)
+                        .color(p.muted),
+                );
+                ui.horizontal_wrapped(|ui| {
+                    for val in vals {
+                        let short: String = val.chars().take(60).collect();
+                        let r = kit::pick_chip(ui, &short, false, p.muted).on_hover_text(val);
+                        // Filter words split on spaces: a command is not a filter.
+                        if r.clicked() && !val.contains(char::is_whitespace) {
+                            model.go(crate::Screen::Audit, Some(format!("fact:{kind}:{val}")));
+                        }
+                    }
+                    if *more > 0 {
+                        ui.label(kit::mono(&format!("+{more}"), 12.0, p.muted));
+                    }
+                });
+                ui.end_row();
+            }
+        });
+}
+
 /// Sessions grouped by their worker's crew (crews by name, "" last), each
 /// group in list order.
 fn group_by_crew<'a>(
@@ -3372,6 +3520,45 @@ fn one_line(text: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn facts_split_into_a_timeline_and_touched() {
+        let f = |kind: &str, value: &str, first: i64, hits: i64| kls_core::audit::facts::Fact {
+            kind: kind.into(),
+            value: value.into(),
+            first_at: first,
+            last_at: first + 1,
+            hits,
+            ..Default::default()
+        };
+        let mut facts = vec![
+            f("model", "anthropic/opus", 20, 1),
+            f("model", "anthropic/sonnet", 10, 1),
+            f("belai", "1.4.0", 5, 1),
+            f("run", "r1", 1, 1),
+        ];
+        for i in 0..7 {
+            facts.push(f("file", &format!("src/{i}.rs"), i, i));
+        }
+        let v = fact_view(&facts);
+        assert_eq!(v.timelines[0].0, "model");
+        let models: Vec<&str> = v.timelines[0].1.iter().map(|x| x.0.as_str()).collect();
+        assert_eq!(
+            models,
+            ["anthropic/sonnet", "anthropic/opus"],
+            "oldest first"
+        );
+        assert!(v.timelines.iter().any(|(k, _)| *k == "belai"));
+        assert!(
+            v.timelines.iter().all(|(k, _)| *k != "run"),
+            "run is neither"
+        );
+        let (kind, top, more) = &v.touched[0];
+        assert_eq!((*kind, top.len(), *more), ("file", TOUCHED_PER_KIND, 2));
+        assert_eq!(top[0], "src/6.rs", "most hits first");
+        assert_eq!(fact_icon("mcp"), icons::PLUG);
+        assert_eq!(fact_view(&[]), FactView::default());
+    }
 
     #[test]
     fn noise_system_lines_are_hidden_but_text_is_kept() {

@@ -96,9 +96,10 @@ fn edge_taken(src: &Node, step: &RunStep, outcome: &str, is_loop: bool) -> bool 
 }
 
 /// The trigger a run starts at: `trigger_node` when it names a trigger,
-/// else the first trigger.
+/// else the first trigger. An extra trigger (`<id>#<n>`, the trigger's
+/// `also` entries) starts at its trigger.
 pub fn start_node<'a>(g: &'a Graph, trigger_node: &str) -> Option<&'a Node> {
-    g.node(trigger_node)
+    g.node(crate::graph::trigger_of(trigger_node))
         .filter(|n| n.kind == "trigger")
         .or_else(|| g.triggers().next())
 }

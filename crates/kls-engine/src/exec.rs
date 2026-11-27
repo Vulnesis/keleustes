@@ -2505,6 +2505,19 @@ impl Engine {
                 }
                 self.dispatch(run, &n, &st, prior).await
             }
+            "read" => {
+                let sc = StepContext {
+                    run: run.clone(),
+                    node: node.clone(),
+                    step: st.clone(),
+                    context: ctx,
+                };
+                let forge = self.inner.integrations.forge.clone();
+                match crate::read::run(self.core(), forge, &sc).await {
+                    Ok(v) => self.succeed(&st, "", v).await,
+                    Err((code, d)) => self.fail(&st, &code, d).await,
+                }
+            }
             "profile" => self.store_profile(run, &node, &st, steps, ctx).await,
             "provision" => self.run_provision(run, &node, &st, prior).await,
             "job" => self.start_job(run, &node, &st, prior, ctx).await,

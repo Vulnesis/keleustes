@@ -323,6 +323,35 @@ pub fn trigger_specs(g: &Graph, now: i64) -> Vec<ScheduleSpec> {
 /// [`trigger_specs`] with `default_tz` for cron triggers that name no zone.
 /// Such a row keeps `tz` empty, so it follows `schedules.tz` when it fires.
 pub fn trigger_specs_in(g: &Graph, now: i64, default_tz: &str) -> Vec<ScheduleSpec> {
+    let mut out = trigger_rows_in(g, now, default_tz);
+    // Extra triggers (`also`): each its own row `<id>#<n>`; a run they
+    // start begins at their trigger (`walker::start_node`).
+    for t in g.triggers() {
+        for (i, cfg) in t.also() {
+            let kind = cfg
+                .get("kind")
+                .and_then(Value::as_str)
+                .filter(|k| !k.is_empty())
+                .unwrap_or("manual")
+                .to_string();
+            if kind == "manual" || kind == "cron" {
+                continue;
+            }
+            out.push(ScheduleSpec {
+                id: new_id(),
+                node_id: format!("{}#{i}", t.id),
+                kind,
+                cron: String::new(),
+                tz: String::new(),
+                config_json: Value::Object(cfg).to_string(),
+                next_run_at: None,
+            });
+        }
+    }
+    out
+}
+
+fn trigger_rows_in(g: &Graph, now: i64, default_tz: &str) -> Vec<ScheduleSpec> {
     g.triggers()
         .filter(|t| t.trigger_kind() != "manual")
         .map(|t| {
@@ -605,6 +634,18 @@ pub async fn start_run(core: &Core, req: StartRun) -> Result<StartOutcome> {
         .await?
         .context("published version missing")?;
     let g = graph_of(&v);
+    // No model the factory may use: the run is blocked before it starts.
+    if let Some(block) = model_block_now(core, &g).await? {
+        let why = format!("no_model: {block}");
+        crate::guard::refuse(
+            core,
+            "run",
+            &why,
+            json!({ "workflowId": w.id, "trigger": req.trigger.kind, "scheduleId": req.trigger.schedule_id }),
+        )
+        .await?;
+        return Ok(StartOutcome::Skipped(why));
+    }
     // Prerequisites: a model step whose provider no node offers blocks it.
     let missing = prerequisites(core, &g).await?;
     if !missing.is_empty() {
@@ -810,6 +851,44 @@ pub async fn release_held(core: &Core) -> Result<Vec<String>> {
         out.push(r.id);
     }
     Ok(out)
+}
+
+/// Why a workflow cannot start for want of a model, from the vault's
+/// provider catalogue: `open` lists the providers factory work may use,
+/// `known` every provider the vault lists. A model step that names a known
+/// provider the factory may not use blocks it, and so does any model step
+/// (crew or decision) when the vault lists providers and none is open. A
+/// provider the vault does not list is left to [`prerequisites`].
+pub fn model_block(g: &Graph, open: &[String], known: &[String]) -> Option<String> {
+    let has = |list: &[String], p: &str| list.iter().any(|x| x.eq_ignore_ascii_case(p));
+    let mut any = false;
+    for n in g
+        .nodes
+        .iter()
+        .filter(|n| matches!(n.kind.as_str(), "crew" | "decision"))
+    {
+        any = true;
+        if let Some((p, _)) = n.str("model").split_once('/')
+            && has(known, p)
+            && !has(open, p)
+        {
+            return Some(format!("{p} is not open to the factory"));
+        }
+    }
+    (any && !known.is_empty() && open.is_empty())
+        .then(|| "no provider is open to the factory".to_string())
+}
+
+/// [`model_block`] against the vault's providers now.
+pub async fn model_block_now(core: &Core, g: &Graph) -> Result<Option<String>> {
+    let providers = core.store().providers().await?;
+    let open: Vec<String> = providers
+        .iter()
+        .filter(|p| p.factory)
+        .map(|p| p.id.clone())
+        .collect();
+    let known: Vec<String> = providers.into_iter().map(|p| p.id).collect();
+    Ok(model_block(g, &open, &known))
 }
 
 /// What a workflow needs that nothing offers: each model step's provider
@@ -1583,6 +1662,22 @@ pub async fn delete_schedule(core: &Core, schedule_id: &str) -> Result<Published
         &sch.workflow_id,
         &format!("trigger {} removed", sch.node_id),
         move |g| {
+            // An extra trigger's row (`<id>#<n>`) drops that `also` entry.
+            if let Some((tid, n)) = node_id.split_once('#') {
+                let n: usize = n.parse().map_err(|_| EngineError::NotFound("trigger"))?;
+                let t = g.node_mut(tid).ok_or(EngineError::NotFound("trigger"))?;
+                let list = t
+                    .config
+                    .get_mut("also")
+                    .and_then(Value::as_array_mut)
+                    .filter(|a| (1..=a.len()).contains(&n))
+                    .ok_or(EngineError::NotFound("trigger"))?;
+                list.remove(n - 1);
+                if list.is_empty() {
+                    t.config.remove("also");
+                }
+                return Ok(());
+            }
             if g.triggers().count() <= 1 {
                 bail!("a workflow keeps at least one trigger");
             }
