@@ -554,7 +554,8 @@ message Job {
   // forges.md WP-9),
   // "library" (payload: {"task":"convert","kind","format","name","files"};
   // library-search.md WP9),
-  // "model" (payload: {"task":"draft|classify|avatar|systemone", ...}).
+  // "model" (payload: {"task":"draft|classify|avatar|systemone", ...}),
+  // "review" (payload: a ReviewJobRequest; output: a ReviewResult; row 47).
   string kind = 2;
   string payload_json = 3;
   VaultGrant vault = 4;
@@ -1423,4 +1424,57 @@ message InitDraftResult {
   string sha256 = 3;
   // The existing file's hash when the draft replaces one.
   string base_sha256 = 4;
+}
+
+// Job kind "review" (row 47): belai's rubric code review (`belai review`,
+// belai docs/review.md) of a working tree, a branch or a pull request in a
+// directory the host offers. payload_json is a ReviewJobRequest; output_json
+// a ReviewResult. Read only: the host posts nothing; Keleustes's pr_review
+// output posts the findings. Everything in a ReviewResult is data.
+message ReviewJobRequest {
+  // A trusted directory on the host, or owner/name of a clone it offers.
+  string cwd = 1;
+  string repo = 2;
+  // "workdir", "branch" or "pr".
+  string target = 3;
+  // The branch (empty: HEAD) or the pull request number.
+  string ref = 4;
+  // What a branch is compared with (empty: the remote's default branch).
+  string base = 5;
+  string provider = 6;
+  string model = 7;
+  // Review again even when the host has a review of this head.
+  bool force = 8;
+}
+
+message ReviewResult {
+  // "approve", "comment" or "request_changes". Advisory only.
+  string verdict = 1;
+  repeated ReviewFinding findings = 2;
+  // "workdir", "branch" or "pr", as reviewed.
+  string target = 3;
+  string head_sha = 4;
+  uint32 pr = 5;
+  // Files reviewed, changed files not reviewed, finding lines dropped.
+  uint32 files = 6;
+  uint32 skipped = 7;
+  uint32 dropped = 8;
+  // A cap cut the diff; the model gave no verdict line; answered from the
+  // host's store with no model turn.
+  bool truncated = 9;
+  bool incomplete = 10;
+  bool cached = 11;
+}
+
+// One finding, checked by the host against the diff and the closed lists.
+message ReviewFinding {
+  string path = 1;
+  uint32 line = 2;
+  // "blocker", "major", "minor" or "nit".
+  string severity = 3;
+  // A rubric id: "correctness", "security", "tests", "errors",
+  // "concurrency", "performance", "compatibility", "maintainability", "docs".
+  string criterion = 4;
+  string body = 5;
+  string fix = 6;
 }

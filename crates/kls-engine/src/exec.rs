@@ -255,6 +255,80 @@ pub fn event_matches(pattern: &str, filter: Option<&Value>, ev: &Event) -> bool 
         .all(|(path, want)| lookup(&ctx, path).is_some_and(|got| loose_eq(got, want)))
 }
 
+/// The fallback for a review job step on hosts without the job: the
+/// built-in pull request reviewer as a worker, writing a verdict note.
+fn review_agent(node: &Node) -> Node {
+    let mut n = node.clone();
+    n.kind = "crew".into();
+    for (k, v) in [
+        ("dispatch", json!("worker")),
+        ("agent", json!(REVIEW_AGENT)),
+        ("await", json!("session")),
+        ("brief", json!(REVIEW_AGENT_BRIEF)),
+        ("reviewPath", json!("agent")),
+    ] {
+        n.config.insert(k.into(), v);
+    }
+    n
+}
+
+/// The reviewer the `pr-review` default used before the review job.
+pub const REVIEW_AGENT: &str = "belai:pr-reviewer";
+pub const REVIEW_AGENT_BRIEF: &str =
+    "Review the pull request named in the Trigger event line of this card. Write a verdict note.";
+
+/// A review job step's request: the payload's `target`, `ref`, `base`,
+/// `cwd` and `force`, else the pull request the run is about.
+fn review_request(
+    payload: &Value,
+    repo: &str,
+    number: Option<i64>,
+    node: Option<&str>,
+    provider: &str,
+    model: &str,
+    st: &RunStep,
+) -> std::result::Result<kls_core::belai::review::Request, String> {
+    let s = |k: &str| match payload.get(k) {
+        Some(Value::String(v)) => v.trim().to_string(),
+        Some(Value::Number(n)) => n.to_string(),
+        _ => String::new(),
+    };
+    let mut target = s("target");
+    let mut reference = s("ref");
+    if target.is_empty() {
+        if number.is_none() {
+            return Err("the run names no pull request; set the payload's target".into());
+        }
+        target = "pr".into();
+    }
+    if target == "pr" && reference.is_empty() {
+        reference = number
+            .map(|n| n.to_string())
+            .ok_or("the run names no pull request to review")?;
+    }
+    let r = kls_core::belai::review::Request {
+        node_id: node.unwrap_or("").to_string(),
+        cwd: s("cwd"),
+        repo: match s("repo") {
+            r if !r.is_empty() && repo.is_empty() => r,
+            _ => repo.to_string(),
+        },
+        target,
+        reference,
+        base: s("base"),
+        provider: provider.to_string(),
+        model: model.to_string(),
+        force: payload
+            .get("force")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        run_id: st.run_id.clone(),
+        step_id: st.id.clone(),
+    };
+    r.check().map_err(|e| e.to_string())?;
+    Ok(r)
+}
+
 fn fill_message(tpl: &str, wf: &str, run: &Run, node: &Node, status: &str) -> String {
     tpl.replace("{workflow}", wf)
         .replace("{run}", &short_id(&run.id))
@@ -1612,10 +1686,12 @@ impl Engine {
         if step.is_none()
             && let Some(sid) = &session_id
         {
-            step =
-                s.steps_in(&["waiting"]).await?.into_iter().find(|x| {
-                    x.node_type == "crew" && x.session_id.as_deref() == Some(sid.as_str())
-                });
+            step = s.steps_in(&["waiting"]).await?.into_iter().find(|x| {
+                // A review job step that fell back to the reviewer agent
+                // waits on a session like a crew step.
+                matches!(x.node_type.as_str(), "crew" | "job")
+                    && x.session_id.as_deref() == Some(sid.as_str())
+            });
         }
         let Some(step) = step else {
             return Ok(());
@@ -1726,7 +1802,7 @@ impl Engine {
         }
         let s = self.core().store();
         for st in s.steps_in(&["waiting"]).await? {
-            if st.node_type != "scan" && st.node_type != "crew" {
+            if !matches!(st.node_type.as_str(), "scan" | "crew" | "job") {
                 continue;
             }
             let mut details: Value = serde_json::from_str(&st.details_json).unwrap_or(Value::Null);
@@ -2431,7 +2507,7 @@ impl Engine {
             }
             "profile" => self.store_profile(run, &node, &st, steps, ctx).await,
             "provision" => self.run_provision(run, &node, &st, prior).await,
-            "job" => self.start_job(run, &node, &st, prior).await,
+            "job" => self.start_job(run, &node, &st, prior, ctx).await,
             "card" => {
                 let card = match node.str("card") {
                     "" => run.card_id.clone(),
@@ -3083,13 +3159,17 @@ impl Engine {
                     "fields": fields.audit_json() }),
         )
         .await?;
-        let details = json!({
+        let mut details = json!({
             "dispatchId": dispatch_id, "nodeId": node_id, "kind": spec.kind,
             "agent": spec.agent, "crew": spec.crew, "briefChars": brief.chars().count(),
             "routeCardId": route_card, "provider": spec.provider, "model": spec.model,
             "tier": spec.tier, "modelFrom": route_source, "budget": spec.budget,
             "memberModels": spec.member_models, "fields": fields.audit_json(),
         });
+        // A review step that fell back to the reviewer agent says so.
+        if !node.str("reviewPath").is_empty() {
+            details["reviewPath"] = json!(node.str("reviewPath"));
+        }
         let s = self.core().store();
         s.update_step(
             &st.id,
@@ -3106,7 +3186,6 @@ impl Engine {
         }
         let timeout = node.int("timeoutMinutes").unwrap_or(240).clamp(1, 10_080);
         let timeout_at = now_ms() + timeout * 60_000;
-        let mut details = details;
         details["timeoutAt"] = json!(timeout_at);
         // A routing card nobody claims within `autonomy.claim_ttl_minutes`
         // fails the attempt (`card_unclaimed`).
@@ -3524,7 +3603,14 @@ impl Engine {
         }
     }
 
-    async fn start_job(&self, run: &Run, node: &Node, st: &RunStep, prior: Value) -> Result<()> {
+    async fn start_job(
+        &self,
+        run: &Run,
+        node: &Node,
+        st: &RunStep,
+        prior: Value,
+        ctx: Value,
+    ) -> Result<()> {
         if let Some(_why) = guard::held(self.core(), "job").await {
             guard::refuse_switch(
                 self.core(),
@@ -3549,6 +3635,28 @@ impl Engine {
             }
             None if online.is_empty() => return self.no_host(st, "no node is online", prior).await,
             _ => {}
+        }
+        // A code review where no online node advertises the `review` job
+        // (an older belai): the reviewer agent writes a verdict note on the
+        // card instead, which pr_review posts as before. Audited either way.
+        if node.str("job") == kls_core::belai::review::JOB {
+            let has_job =
+                kls_core::belai::review::offered(self.core(), &online, target.as_deref()).await;
+            let path = if has_job { "job" } else { "agent" };
+            guard::audit(
+                self.core(),
+                "review",
+                "review_step",
+                json!({ "runId": run.id, "stepId": st.id }),
+                &Origin::engine(json!({ "workflowId": run.workflow_id, "runId": run.id })),
+                path,
+                json!({ "nodeId": target.clone().unwrap_or_default(),
+                        "reason": if has_job { "review job offered" } else { "no online node offers the review job" } }),
+            )
+            .await?;
+            if !has_job {
+                return self.dispatch(run, &review_agent(node), st, prior).await;
+            }
         }
         // The budgets before the job (a job may call a model).
         let (jp, jm) = match node.str("model").split_once('/') {
@@ -3579,6 +3687,33 @@ impl Engine {
                 payload["repo"] = json!(run.repo);
             }
         }
+        // A code review (row 47): the pull request the run is about, unless
+        // the payload names another target. Its findings are kept by
+        // kls-core and feed the run's pr_review output.
+        let review = if kind == kls_core::belai::review::JOB {
+            let sc = StepContext {
+                run: run.clone(),
+                node: node.clone(),
+                step: st.clone(),
+                context: ctx,
+            };
+            let (repo, number) = crate::forge::pull_of(self.core(), &sc)
+                .await
+                .unwrap_or_default();
+            match review_request(&payload, &repo, number, target.as_deref(), &jp, &jm, st) {
+                Ok(r) => {
+                    payload = serde_json::from_str(&r.payload()).unwrap_or(payload);
+                    Some(r)
+                }
+                Err(why) => {
+                    return self
+                        .fail(st, "review_no_target", json!({ "job": kind, "why": why }))
+                        .await;
+                }
+            }
+        } else {
+            None
+        };
         let needs = JobNeeds {
             gh: node.bool("needsGh"),
             provider: Some(node.str("provider").to_string()).filter(|p| !p.is_empty()),
@@ -3588,6 +3723,7 @@ impl Engine {
         let engine = self.clone();
         let st = st.clone();
         let run_id = run.id.clone();
+        let by = format!("factory:{}", run.workflow_id);
         // The job may take minutes: the step stays running and the run is
         // advanced again when it answers.
         tokio::spawn(async move {
@@ -3601,6 +3737,34 @@ impl Engine {
                 )
                 .await;
             let r = match out {
+                Ok(o) if o.status == "ok" && review.is_some() => {
+                    let req = review.as_ref().expect("a review request");
+                    match kls_core::belai::review::record(
+                        engine.core(),
+                        req,
+                        &o.node_id,
+                        &o.output_json,
+                        &by,
+                    )
+                    .await
+                    {
+                        Ok(r) => {
+                            let output = serde_json::to_value(&r).unwrap_or(Value::Null);
+                            engine
+                                .succeed(&st, "", json!({ "job": kind, "output": output, "reviewId": r.id, "nodeId": o.node_id }))
+                                .await
+                        }
+                        Err(e) => {
+                            engine
+                                .fail(
+                                    &st,
+                                    "review_invalid",
+                                    json!({ "job": kind, "error": format!("{e:#}"), "nodeId": o.node_id }),
+                                )
+                                .await
+                        }
+                    }
+                }
                 Ok(o) if o.status == "ok" => {
                     let output: Value = serde_json::from_str(&o.output_json)
                         .unwrap_or(Value::String(o.output_json.clone()));

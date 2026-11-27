@@ -140,6 +140,13 @@ async fn target(core: &Core, ctx: &StepContext) -> Result<Target> {
     Ok(Target { repo, number, card })
 }
 
+/// The repository and issue or pull request number a step works on, as the
+/// outputs resolve them (a review job step reviews that pull request).
+pub(crate) async fn pull_of(core: &Core, ctx: &StepContext) -> Result<(String, Option<i64>)> {
+    let t = target(core, ctx).await?;
+    Ok((t.repo, t.number))
+}
+
 fn need_repo(t: &Target) -> Result<&str> {
     if !kls_github::valid_key(&t.repo) {
         bail!("the run names no repository");
@@ -616,16 +623,18 @@ impl GitHubForge {
         )
     }
 
-    /// `pr_review`: the reviewer's verdict note on the run's card
-    /// (`verdict:` and `finding: FILE:LINE: text`), posted once per run,
-    /// node and head as COMMENT or REQUEST_CHANGES (never APPROVE), with
-    /// findings on the diff lines they concern. Without a verdict note the
-    /// node's message is posted as before.
+    /// `pr_review`: the findings of the run's code review job (row 47,
+    /// kls-core `belai::review`) for this pull request, else the reviewer's
+    /// verdict note on the run's card (`verdict:` and `finding: FILE:LINE:
+    /// text`), posted once per run, node and head as COMMENT or
+    /// REQUEST_CHANGES (never APPROVE), with findings on the diff lines they
+    /// concern. Without either the node's message is posted as before.
     async fn pr_review(&self, c: &Client, ctx: &StepContext, t: &Target) -> Result<Value> {
         let repo = need_repo(t)?;
         let n = need_number(t)?;
         let who = caller(ctx);
         let api = c.api();
+        let job = kls_core::belai::review::latest_for_run(c.core(), &ctx.run.id, Some(n)).await;
         let notes: Vec<String> = t
             .card
             .as_ref()
@@ -637,7 +646,16 @@ impl GitHubForge {
                     .collect()
             })
             .unwrap_or_default();
-        let Some(verdict) = outputs::parse_verdict(&notes) else {
+        let (verdict, source) = match &job {
+            Some(r) => (Some(outputs::review_verdict(r)), "review"),
+            None => (outputs::parse_verdict(&notes), "note"),
+        };
+        // The review's findings ride on the step, for the run's findings panel.
+        let review = job
+            .as_ref()
+            .map(|r| serde_json::to_value(r).unwrap_or(Value::Null))
+            .unwrap_or(Value::Null);
+        let Some(verdict) = verdict else {
             // Never APPROVE from a workflow: a comment, or a request for changes.
             let event = match ctx.node.str("event").to_ascii_uppercase().as_str() {
                 "REQUEST_CHANGES" => "REQUEST_CHANGES",
@@ -666,7 +684,7 @@ impl GitHubForge {
         if posted {
             return Ok(
                 json!({ "skipped": "already_reviewed", "repo": repo, "number": n, "sha": sha,
-                              "verdict": verdict.verdict }),
+                              "verdict": verdict.verdict, "source": source, "review": review }),
             );
         }
         let mut diff = std::collections::BTreeMap::new();
@@ -686,7 +704,7 @@ impl GitHubForge {
         Ok(
             json!({ "repo": repo, "number": n, "reviewId": v.get("id"), "event": out.event,
                    "verdict": verdict.verdict, "sha": sha, "inline": out.comments.len(),
-                   "findings": verdict.findings.len() }),
+                   "findings": verdict.findings.len(), "source": source, "review": review }),
         )
     }
 

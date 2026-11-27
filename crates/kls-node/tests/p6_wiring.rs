@@ -1,8 +1,8 @@
 //! P6 wiring over real TLS on loopback: a budget push (#33) reaches the
 //! node as a `budget_update` frame; plan limits (row 48) from HostStatus and
-//! a session upsert land per node; a knowledge search (row 49) and an
-//! AGENTS.md draft (row 54) go out as jobs and come back through
-//! Jobs.Complete.
+//! a session upsert land per node; a knowledge search (row 49), an
+//! AGENTS.md draft (row 54) and a code review (row 47) go out as jobs and
+//! come back through Jobs.Complete.
 
 #![allow(dead_code, unused_imports)]
 
@@ -354,4 +354,123 @@ async fn knowledge_search_and_init_draft_go_out_as_jobs() {
     let d = draft.await.unwrap().unwrap();
     assert_eq!((d.status.as_str(), d.cwd.as_str()), ("pending", "/work"));
     assert_eq!(d.sha256, sha);
+}
+
+fn review_caps() -> pb::Capabilities {
+    pb::Capabilities {
+        remote_control: true,
+        job_kinds: ["review"].map(String::from).to_vec(),
+        ..Default::default()
+    }
+}
+
+#[tokio::test]
+async fn a_review_job_goes_to_a_node_that_runs_reviews_and_its_findings_are_kept() {
+    let h = start().await;
+    // A node that lists other job kinds is never picked for a review.
+    let old = join(&h, p6_caps()).await;
+    let (_otx, _odown) = old.link().await;
+    let n = join(&h, review_caps()).await;
+    let (_tx, mut down) = n.link().await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let picked = h
+        .hub
+        .pick_job_node(None, "review", &JobNeeds::default())
+        .await
+        .unwrap();
+    assert_eq!(picked, n.id);
+    let named = h
+        .hub
+        .pick_job_node(Some(&old.id), "review", &JobNeeds::default())
+        .await;
+    assert!(named.is_err(), "a node without the kind was picked by name");
+
+    let core = h.core().clone();
+    let req = kls_core::belai::review::Request {
+        repo: "acme/api".into(),
+        target: "pr".into(),
+        reference: "7".into(),
+        run_id: "run-1".into(),
+        ..Default::default()
+    };
+    let asked =
+        tokio::spawn(async move { kls_core::belai::review::request(&core, &req, "owner").await });
+    let f = next(&mut down).await;
+    let Some(server_frame::Body::Job(j)) = f.body else {
+        panic!("{f:?}")
+    };
+    assert_eq!(j.kind, "review");
+    let p: serde_json::Value = serde_json::from_str(&j.payload_json).unwrap();
+    assert_eq!(
+        (p["target"].as_str(), p["ref"].as_str()),
+        (Some("pr"), Some("7"))
+    );
+    // The host answers a ReviewResult as proto3 JSON (belai encodes it with
+    // protojson, which writes camelCase names).
+    let result = pb::ReviewResult {
+        verdict: "request_changes".into(),
+        target: "pr".into(),
+        head_sha: "ab".repeat(20),
+        pr: 7,
+        files: 2,
+        findings: vec![pb::ReviewFinding {
+            path: "src/a.rs".into(),
+            line: 4,
+            severity: "blocker".into(),
+            criterion: "security".into(),
+            body: "the token is logged".into(),
+            fix: String::new(),
+        }],
+        ..Default::default()
+    };
+    let f0 = &result.findings[0];
+    n.jobs()
+        .complete(pb::JobResult {
+            job_id: j.id,
+            status: "ok".into(),
+            output_json: serde_json::json!({
+                "verdict": result.verdict, "target": result.target, "headSha": result.head_sha,
+                "pr": result.pr, "files": result.files,
+                "findings": [{"path": f0.path, "line": f0.line, "severity": f0.severity,
+                              "criterion": f0.criterion, "body": f0.body}],
+            })
+            .to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let r = asked.await.unwrap().unwrap();
+    assert_eq!(
+        (r.node_id.as_str(), r.verdict.as_str(), r.head_sha.as_str()),
+        (n.id.as_str(), "request_changes", result.head_sha.as_str())
+    );
+    assert_eq!(r.findings.len(), 1);
+    assert_eq!(
+        kls_core::belai::review::latest_for_run(h.core(), "run-1", Some(7))
+            .await
+            .map(|x| x.id),
+        Some(r.id)
+    );
+
+    // Stopped, nothing goes out.
+    kls_core::control::stop(h.core(), "drill").await.unwrap();
+    let req = kls_core::belai::review::Request {
+        repo: "acme/api".into(),
+        target: "pr".into(),
+        reference: "8".into(),
+        ..Default::default()
+    };
+    assert!(
+        kls_core::belai::review::request(h.core(), &req, "owner")
+            .await
+            .is_err()
+    );
+    while let Ok(Ok(Some(f))) =
+        tokio::time::timeout(Duration::from_millis(300), down.message()).await
+    {
+        assert!(
+            !matches!(f.body, Some(server_frame::Body::Job(_))),
+            "a job went out under the kill switch: {f:?}"
+        );
+    }
 }

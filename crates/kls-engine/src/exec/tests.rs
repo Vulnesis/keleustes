@@ -681,6 +681,145 @@ async fn job_output_drives_a_condition() {
     assert_eq!(r.reason, "job_timeout:j");
 }
 
+/// Registers the fake gateway's online node with these job kinds.
+async fn node_a_runs(t: &T, kinds: &[&str]) {
+    let mut h = kls_store::HostInfo::default();
+    h.capabilities.job_kinds = kinds.iter().map(|k| k.to_string()).collect();
+    t.core
+        .store()
+        .insert_node("node-a", "alpha", &h, "s", "t")
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn a_review_step_falls_back_to_the_reviewer_agent_on_an_older_host() {
+    let t = setup().await;
+    // node-a is online but runs no review jobs (an older belai).
+    node_a_runs(&t, &["github", "model"]).await;
+    let wf = published(
+        &t.core,
+        simple(json!({"id":"b","type":"job","title":"Review","config":{
+            "job":"review","payload":{"target":"pr","ref":"7","repo":"acme/api"}}})),
+    )
+    .await;
+    let r = start(&t, &wf).await;
+    let sent = t.gw.dispatched.lock().unwrap().clone();
+    assert_eq!(sent.len(), 1, "the reviewer agent was dispatched");
+    assert_eq!(sent[0].1.agent, REVIEW_AGENT);
+    assert_eq!(sent[0].1.kind, "worker");
+    let st = steps(&t, &r.id).await;
+    let b = st.iter().find(|s| s.node_id == "b").unwrap();
+    assert_eq!(b.status, "waiting");
+    let d: Value = serde_json::from_str(&b.details_json).unwrap();
+    assert_eq!(d["reviewPath"], "agent");
+    assert!(
+        kls_core::belai::review::latest_for_run(&t.core, &r.id, None)
+            .await
+            .is_none()
+    );
+    // Which path was taken is audited.
+    let a = guard::audited(&t.core, "review").await;
+    let e = a
+        .iter()
+        .find(|e| e.subject["action"] == "review_step")
+        .expect("audited");
+    assert_eq!(e.payload["outcome"], "agent");
+    assert_eq!(e.subject["target"]["runId"], r.id.as_str());
+
+    // The agent's session ending finishes the step like any dispatch.
+    let ev = t
+        .core
+        .emit(
+            "dispatch.updated",
+            "d1",
+            &json!({"nodeId":"node-a","status":"started","sessionId":"s9","error":""}),
+        )
+        .await
+        .unwrap();
+    t.engine.on_event(&ev).await.unwrap();
+    let ev = t
+        .core
+        .emit("session.ended", "s9", &json!({"reason":"done"}))
+        .await
+        .unwrap();
+    t.engine.on_event(&ev).await.unwrap();
+    let st = steps(&t, &r.id).await;
+    assert_eq!(run(&t, &r.id).await.status, "succeeded", "{st:#?}");
+}
+
+#[tokio::test]
+async fn a_review_job_keeps_its_findings_for_the_run() {
+    let t = setup().await;
+    node_a_runs(&t, &["review"]).await;
+    *t.gw.job.lock().unwrap() = Some(JobOutcome {
+        status: "ok".into(),
+        output_json: json!({"verdict": "comment", "target": "pr", "pr": 7, "files": 2, "findings": [
+            {"path": "a.rs", "line": 3, "severity": "minor", "criterion": "docs", "body": "stale comment"},
+            {"path": "/etc/passwd", "line": 1, "severity": "major", "criterion": "security", "body": "x"}
+        ]})
+        .to_string(),
+        node_id: "node-a".into(),
+        ..Default::default()
+    });
+    let wf = published(
+        &t.core,
+        simple(json!({"id":"b","type":"job","title":"Review","config":{
+            "job":"review","payload":{"target":"pr","ref":"7","repo":"acme/api"}}})),
+    )
+    .await;
+    let r = start(&t, &wf).await;
+    wait_status(&t, &r.id, "succeeded").await;
+    let st = steps(&t, &r.id).await;
+    let b = st.iter().find(|s| s.node_id == "b").unwrap();
+    let d: Value = serde_json::from_str(&b.details_json).unwrap();
+    assert_eq!(d["job"], "review");
+    assert!(
+        guard::audited(&t.core, "review")
+            .await
+            .iter()
+            .any(|e| e.subject["action"] == "review_step" && e.payload["outcome"] == "job")
+    );
+    assert!(t.gw.dispatched.lock().unwrap().is_empty());
+    assert_eq!(d["output"]["findings"].as_array().unwrap().len(), 1);
+    assert_eq!(d["output"]["dropped"], 1);
+    let kept = kls_core::belai::review::latest_for_run(&t.core, &r.id, Some(7))
+        .await
+        .expect("the review is kept for the run");
+    assert_eq!(d["reviewId"], kept.id.as_str());
+    assert_eq!(
+        (kept.step_id.as_str(), kept.node_id.as_str()),
+        (b.id.as_str(), "node-a")
+    );
+
+    // A review with no pull request to name fails its step clearly.
+    let wf = published(
+        &t.core,
+        simple(json!({"id":"b","type":"job","title":"Review","config":{"job":"review"}})),
+    )
+    .await;
+    let r = start(&t, &wf).await;
+    let r = wait_status(&t, &r.id, "failed").await;
+    assert_eq!(r.reason, "review_no_target:b");
+
+    // An answer that does not parse is not kept.
+    *t.gw.job.lock().unwrap() = Some(JobOutcome {
+        status: "ok".into(),
+        output_json: "not json".into(),
+        node_id: "node-a".into(),
+        ..Default::default()
+    });
+    let wf = published(
+        &t.core,
+        simple(json!({"id":"b","type":"job","title":"Review","config":{
+            "job":"review","payload":{"target":"branch","ref":"feature","cwd":"/work"}}})),
+    )
+    .await;
+    let r = start(&t, &wf).await;
+    let r = wait_status(&t, &r.id, "failed").await;
+    assert_eq!(r.reason, "review_invalid:b");
+}
+
 #[tokio::test]
 async fn manual_gate_fails_back_to_crew() {
     let t = setup().await;
