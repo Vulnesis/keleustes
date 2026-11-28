@@ -114,7 +114,7 @@ docs for details.
 4. P8a: when `Dispatch.budget` and `Dispatch.tier` land, tell us. The
    engine fills them from `budget_gate`.
 
-### To the forge agent (`kls-github`, repos, conflicts, delivery)
+### To the forge agent (`kls-forge`, repos, conflicts, delivery)
 
 1. `signing.email`: read `Effective::load(core).signing_email` in the
    conflict commit.
@@ -169,7 +169,7 @@ docs for details.
     `Dispatch.budget`).
   - Engine and forge decision code: System One (`systemone.*`).
   - Engine `pick_node`: `hosts.run_on` and `hosts.run_on_fallback`.
-  - Forge agent (`kls-github/src/budget.rs`): GitHub quota
+  - Forge agent (`kls-forge/src/budget.rs`): GitHub quota
     (`forge.quota.on_exhausted`, `forge.calls_per_hour`,
     `forge.quota.proactive_writes_per_hour`). Also please expose
     per-workflow GitHub calls (callers `factory:<workflowId>`) through a
@@ -190,7 +190,7 @@ docs for details.
    (agent time as `sse`, decisions as `merge`). All export CSV.
 3. Done: every automated forge write (and each poll pass, conflict commit)
    calls `control::check(core, "provision", target, origin)` first
-   (`kls_github::forge::guard::check_kill`); a refusal also emits
+   (`kls_forge::forge::guard::check_kill`); a refusal also emits
    `forge.refused` and writes a `forge` ledger entry.
 
 ### From belai counterparts (WP-A/B/J)
@@ -298,7 +298,7 @@ docs for details.
 ### To the governance agent (`kls-core/src/audit/config.rs`) — WP3 forge outputs
 
 1. Remove from `config::PENDING`; each now has a reader in
-   `kls-engine/src/forge.rs` or `kls-github/src/forge/guard.rs`:
+   `kls-engine/src/forge.rs` or `kls-forge/src/forge/guard.rs`:
    `forge.pr_state` (`draft_pr` default state), `forge.protected`
    (`guard::protection_on` / `protected_branch`: `draft_pr` refuses a
    protected head), `approve.sensitive_paths` (`approve_ready`), and
@@ -339,9 +339,9 @@ docs for details.
    one `defaults.<key>.enabled` (Bool, default true) per default
    (`kls_engine::defaults::entries()`), or a list editor that writes them.
 
-### To WP3 (forge, kls-github)
+### To WP3 (forge, kls-forge)
 
-1. **Done (integration, 2026-11-22):** `kls_github::sync::{note_authored, factory_authored, Authored}`; the engine notes what `draft_pr`, `file_issues`, `repo_profile` and `issue_comment` open; pull and issue events carry `fromFactory` (labels added: whether the factory added them; else authorship) and `factoryAuthored`, comments `fromFactory`; tests `tests::pull_events_say_from_factory_*`, `tests::factory_authored_*`. Own-identity guard: set `fromFactory: true` on `github.pull.*`,
+1. **Done (integration, 2026-11-22):** `kls_forge::sync::{note_authored, factory_authored, Authored}`; the engine notes what `draft_pr`, `file_issues`, `repo_profile` and `issue_comment` open; pull and issue events carry `fromFactory` (labels added: whether the factory added them; else authorship) and `factoryAuthored`, comments `fromFactory`; tests `tests::pull_events_say_from_factory_*`, `tests::factory_authored_*`. Own-identity guard: set `fromFactory: true` on `github.pull.*`,
    `github.issue.*` and `github.issue.comment` events for pulls, issues and
    comments the factory itself authored (e.g. the PR `draft_pr` opened); the
    engine also skips bodies with `<!-- keleustes:` and authors in
@@ -374,7 +374,7 @@ under the kill switch).
    core at start-up (a `config::register_extra(&[Field])` hook WP1 can
    add), or edit them from the Workflows screen.
 3. **Owner of `kls-core/src/needs.rs`:** **Done (integration):** `CheckpointKind::QuotaEscalated` (`needs::quota_escalations`: newest per route while its reset window is open), opens Budgets > Usage (`cockpit::target`, a Usage button in Checkpoints); tests `needs::tests::quota_escalations_show_until_the_window_resets`, `cockpit::tests::quota_escalations_open_budget_usage`. `forge.quota.on_exhausted =
-   escalate` emits `github.quota.escalated` (`kls_github::budget::kinds`,
+   escalate` emits `github.quota.escalated` (`kls_forge::budget::kinds`,
    once per route and reset window; it already counts as an escalation for
    desktop and chat notices). It could appear in Needs you as a checkpoint
    that links to Budgets > Usage.

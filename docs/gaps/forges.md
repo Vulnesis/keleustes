@@ -2,7 +2,7 @@
 
 Last updated: 2026-11-21. Status: design. No code is changed by this file.
 
-Keleustes reaches GitHub only through `gh` (`crates/kls-github`): on this host
+Keleustes reaches GitHub only through `gh` (`crates/kls-forge`): on this host
 when `gh auth status --hostname github.com` succeeds (`LocalGh`), otherwise on
 a connected belai node that reports `gh_authenticated` (`NodeGh`, a `github`
 job). Keleustes holds no forge token. The web Software Factory
@@ -23,7 +23,7 @@ person pastes one, and forgets it.
 
 | Piece | File | GitHub-only because |
 |---|---|---|
-| `GitHub` trait (`route()`, `gh(args, stdin)`) | `kls-github/src/lib.rs` | names `gh`, one host |
+| `GitHub` trait (`route()`, `gh(args, stdin)`) | `kls-forge/src/lib.rs` | names `gh`, one host |
 | `LocalGh`, `LocalAuth` | `local.rs` | `--hostname github.com` hard-coded via `login::HOST` |
 | `WebLogin`, `login_with_token`, `ALL_SCOPES`, `token_url` | `login.rs` | gh flags, github.com device URL, classic scopes |
 | `Selector` | `select.rs` | one cached route per process; node filter `gh_authenticated` |
@@ -36,7 +36,7 @@ person pastes one, and forgets it.
 | Store | `migrations/*/0006_github.sql` | keys `owner/name`, `login`; quota/ETag keyed by route |
 | Node capability | `proto/keleustes/node/v1/node.proto` `Capabilities.gh_authenticated` | one bool, github.com only (belai `factorylink/host.go` runs `gh auth status --hostname github.com`) |
 | Node job | belai `docs/keleustes.md` "`github`" | runs `gh` only, allowlisted subcommands |
-| UI | `kls-ui/src/screens/repos.rs`, `gh_signin.rs` | one route tile, one sign-in dialog for github.com |
+| UI | `kls-ui/src/screens/repos.rs`, `forge_signin.rs` | one route tile, one sign-in dialog for github.com |
 
 Existing bug found while reading (independent of this gap): the engine's
 `check_run` action (`kls-engine/src/forge.rs`) POSTs
@@ -171,7 +171,7 @@ the token redacted by exact match).
 ### 3.1 Model
 
 ```rust
-// kls-github/src/forge/kind.rs  (crate renamed kls-forge in WP-11)
+// kls-forge/src/forge/kind.rs  (crate renamed from kls-github in WP-11)
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -546,7 +546,7 @@ stay out of scope: a desktop app has no public endpoint, as today.
 Port `forgecap.Catalogue()` as a static Rust table (`forge/cap.rs`) with the
 same ids and notes; pin it to a copy of
 `vdb-site/api/internal/forgecap/testdata/forge-capabilities.json` in
-`kls-github/testdata/` with a test that fails when they differ (same
+`kls-forge/testdata/` with a test that fails when they differ (same
 `FORGECAP_UPDATE` refresh). Desktop column adds the Keleustes mechanism.
 
 | id | github | ghes | gitea | forgejo | gitlab | Keleustes note |
@@ -683,7 +683,7 @@ an alias for `--kind github --host github.com`.
 ## 7. Independent work packages
 
 Ordered by dependency; packages on the same level run in parallel.
-Owners per `docs/WORKSTREAMS.md` (M4 owns kls-github, its store module and
+Owners per `docs/WORKSTREAMS.md` (M4 owns kls-forge, its store module and
 migrations; coordinator owns proto, kls-core lib/gateway, kls-store lib).
 
 | WP | Scope | Depends on | Owner |
@@ -794,51 +794,51 @@ migrations; coordinator owns proto, kls-core lib/gateway, kls-store lib).
 ## Status re-check (2026-11-22)
 
 Read-only pass over the current tree of both repos (files under
-`crates/kls-github`, `kls-engine`, `kls-ui` were being edited by another
+`crates/kls-forge`, `kls-engine`, `kls-ui` were being edited by another
 agent during the pass; line numbers can drift). Paths are relative to the
 keleustes root, `belai/` prefix for belai.
 
 | item | priority | status | evidence (file:line) | what's left |
 |---|---|---|---|---|
-| WP-1 Model & store | P0 | done | crates/kls-github/src/forge/kind.rs:13,221,345; crates/kls-store/src/github.rs:1653-1857 | — |
-| WP-2 CLI transport | P0 | done | crates/kls-github/src/forge/cli.rs:10; client.rs:214,500-523,711,754; exec.rs:33 | `Transport`/`RateHeaders` are functions in `Client`, not traits (fine) |
-| WP-3 Auth adapters | P0 | done | crates/kls-github/src/forge/auth.rs:127,148,255,434,667; login.rs:109,150,430 | — (tea token now in `GITEA_SERVER_TOKEN`, see §2.6 row) |
-| WP-4 GitLab dialect | P1 | done | crates/kls-github/src/forge/gitlab.rs:153-980 | MR list has no `updated_after` (inline review now uses `discussions`, see §4 Submit review) |
-| WP-5 Gitea dialect | P1 | done | crates/kls-github/src/forge/gitea.rs:167,596,658,874 | — (criss-cross refusal: see §4 Compare) |
-| WP-6 Selector & poller per connection | P0 | done | crates/kls-github/src/select.rs:97,147,208; poller.rs:72,94 | — |
-| WP-7 Engine | P1 | done (P6, 2026-11-22) | crates/kls-github/src/forge/kind.rs:473 (`pull_ref_of`: GitHub `/pull/N`, GitLab `/-/merge_requests/N` with nested groups, Gitea `/pulls/N`); crates/kls-engine/src/forge.rs:97 (`pull_number_of` uses it); tests kind.rs:504, kls-engine/src/forge/tests.rs:180; crates/kls-engine/src/ops.rs:1665 (run facts collect pulls through `pull_ref_of`: GitLab `/-/merge_requests/N` and Gitea `/pulls/N` too); test ops.rs:1769 `run_facts_collect_pull_urls_of_every_forge` | `GitHubForge` rename optional (cosmetic) |
-| WP-8 Conflict commit over git | P1 | done (P2, 2026-11-22) | crates/kls-github/src/conflicts.rs:71,77 (`forge`, `api_signed`), :260,512; forge/push.rs:132,306; crates/kls-ui/src/screens/conflicts.rs:436 ("Commit and push" off GitHub), :498 ("Unsigned push" chip), :922, :1032 | — |
+| WP-1 Model & store | P0 | done | crates/kls-forge/src/forge/kind.rs:13,221,345; crates/kls-store/src/github.rs:1653-1857 | — |
+| WP-2 CLI transport | P0 | done | crates/kls-forge/src/forge/cli.rs:10; client.rs:214,500-523,711,754; exec.rs:33 | `Transport`/`RateHeaders` are functions in `Client`, not traits (fine) |
+| WP-3 Auth adapters | P0 | done | crates/kls-forge/src/forge/auth.rs:127,148,255,434,667; login.rs:109,150,430 | — (tea token now in `GITEA_SERVER_TOKEN`, see §2.6 row) |
+| WP-4 GitLab dialect | P1 | done | crates/kls-forge/src/forge/gitlab.rs:153-980 | MR list has no `updated_after` (inline review now uses `discussions`, see §4 Submit review) |
+| WP-5 Gitea dialect | P1 | done | crates/kls-forge/src/forge/gitea.rs:167,596,658,874 | — (criss-cross refusal: see §4 Compare) |
+| WP-6 Selector & poller per connection | P0 | done | crates/kls-forge/src/select.rs:97,147,208; poller.rs:72,94 | — |
+| WP-7 Engine | P1 | done (P6, 2026-11-22) | crates/kls-forge/src/forge/kind.rs:473 (`pull_ref_of`: GitHub `/pull/N`, GitLab `/-/merge_requests/N` with nested groups, Gitea `/pulls/N`); crates/kls-engine/src/forge.rs:97 (`pull_number_of` uses it); tests kind.rs:504, kls-engine/src/forge/tests.rs:180; crates/kls-engine/src/ops.rs:1665 (run facts collect pulls through `pull_ref_of`: GitLab `/-/merge_requests/N` and Gitea `/pulls/N` too); test ops.rs:1769 `run_facts_collect_pull_urls_of_every_forge` | `GitHubForge` rename optional (cosmetic) |
+| WP-8 Conflict commit over git | P1 | done (P2, 2026-11-22) | crates/kls-forge/src/conflicts.rs:71,77 (`forge`, `api_signed`), :260,512; forge/push.rs:132,306; crates/kls-ui/src/screens/conflicts.rs:436 ("Commit and push" off GitHub), :498 ("Unsigned push" chip), :922, :1032 | — |
 | WP-9 belai + proto | P0 | done (P2, 2026-11-22) | proto/keleustes/node/v1/node.proto:297,302,482; crates/kls-core/src/gateway.rs:230; crates/kls-node/src/gateway.rs:81,90; belai/internal/factorylink/forgelogins.go:182; belai/internal/forgejob/forge.go:80 | — |
 | belai `forge` job (glab/tea api allowlists) | P0 | done (P2, 2026-11-22) | belai/internal/forgejob/forge.go:80 (`ParseForge`), :242 (glab/tea closed flag tables, one API path), :308 (gh: `--hostname` forced after `api`, `GH_HOST` otherwise, other-host `-R` refused), :387 (`Run`: no shell, scrubbed env, host env dropped, tea `-l` from `tea login list`); belai/internal/rc/factoryjobs.go:153, :57 (advertised); tests belai/internal/forgejob/forge_test.go, belai/internal/rc/factoryforgejob_test.go (audit `forge`/`tool`, kill switch); e2e belai/e2e/keleustes_forge_test.go | — |
-| NodeCli route gating | P0 | done (P2, 2026-11-22) | crates/kls-github/src/select.rs:248 (`node_reach`: `forge` job only when `job_kinds` lists `forge`, else `github` for github.com); crates/kls-node/src/gateway.rs:90 (`runs_kind`: no job of a kind a node does not list); tests crates/kls-github/src/tests.rs:204, gateway.rs `job_kind_tests` | — |
-| `forge_push` job | P1 | done | crates/kls-github/src/node.rs:147; belai/internal/forgejob/push.go:38; belai/internal/rc/factoryjobs.go:128 | — |
-| §1 check_run → commit status | P0 | done | crates/kls-engine/src/forge.rs:695; crates/kls-github/src/forge/api.rs:843 | — |
-| §3.1 ForgeKind / Dialect / CliKind | P0 | done | crates/kls-github/src/forge/kind.rs:13,22,30,108 | — |
-| §3.1 Connection + key helpers | P0 | done | crates/kls-github/src/forge/kind.rs:221,345,354,364,440 | — |
-| §3.2 ForgeCli (rename, alias) | P0 | done | crates/kls-github/src/lib.rs:122-145 | — |
-| §3.2 CliAuth + AuthState/Progress/TokenPage | P0 | done | crates/kls-github/src/forge/auth.rs:16-147 | — |
-| §3.2 ForgeApi + per-dialect impls | P0 | done | crates/kls-github/src/forge/api.rs:160,469,497; gitlab.rs:153; gitea.rs:177 | parse split lives in gitlab.rs/gitea.rs, not `parse/*.rs` (fine) |
-| §3.2 RateHeaders + counted budget | P1 | done | crates/kls-github/src/client.rs:124-160,711,754; crates/kls-store/src/github.rs:1847 | — |
-| §3.3 route order, TTL, per-conn cache | P0 | done | crates/kls-github/src/select.rs:35,97,147 | — |
-| §3.3 route keys per connection | P0 | done | crates/kls-github/src/forge/kind.rs:370 | — |
-| §3.3 `github.route` event with connection | P1 | done | crates/kls-github/src/select.rs:131-140 | — |
-| §3.3 `$KELEUSTES_*` and env per CLI | P1 | done | crates/kls-github/src/forge/kind.rs:46-77; exec.rs:33-40 | — |
+| NodeCli route gating | P0 | done (P2, 2026-11-22) | crates/kls-forge/src/select.rs:248 (`node_reach`: `forge` job only when `job_kinds` lists `forge`, else `github` for github.com); crates/kls-node/src/gateway.rs:90 (`runs_kind`: no job of a kind a node does not list); tests crates/kls-forge/src/tests.rs:204, gateway.rs `job_kind_tests` | — |
+| `forge_push` job | P1 | done | crates/kls-forge/src/node.rs:147; belai/internal/forgejob/push.go:38; belai/internal/rc/factoryjobs.go:128 | — |
+| §1 check_run → commit status | P0 | done | crates/kls-engine/src/forge.rs:695; crates/kls-forge/src/forge/api.rs:843 | — |
+| §3.1 ForgeKind / Dialect / CliKind | P0 | done | crates/kls-forge/src/forge/kind.rs:13,22,30,108 | — |
+| §3.1 Connection + key helpers | P0 | done | crates/kls-forge/src/forge/kind.rs:221,345,354,364,440 | — |
+| §3.2 ForgeCli (rename, alias) | P0 | done | crates/kls-forge/src/lib.rs:122-145 | — |
+| §3.2 CliAuth + AuthState/Progress/TokenPage | P0 | done | crates/kls-forge/src/forge/auth.rs:16-147 | — |
+| §3.2 ForgeApi + per-dialect impls | P0 | done | crates/kls-forge/src/forge/api.rs:160,469,497; gitlab.rs:153; gitea.rs:177 | parse split lives in gitlab.rs/gitea.rs, not `parse/*.rs` (fine) |
+| §3.2 RateHeaders + counted budget | P1 | done | crates/kls-forge/src/client.rs:124-160,711,754; crates/kls-store/src/github.rs:1847 | — |
+| §3.3 route order, TTL, per-conn cache | P0 | done | crates/kls-forge/src/select.rs:35,97,147 | — |
+| §3.3 route keys per connection | P0 | done | crates/kls-forge/src/forge/kind.rs:370 | — |
+| §3.3 `github.route` event with connection | P1 | done | crates/kls-forge/src/select.rs:131-140 | — |
+| §3.3 `$KELEUSTES_*` and env per CLI | P1 | done | crates/kls-forge/src/forge/kind.rs:46-77; exec.rs:33-40 | — |
 | §3.4 proto `forges` / `ForgeLogin` | P0 | done | proto/keleustes/node/v1/node.proto:297,302 | — |
 | §3.4 belai login listing | P0 | done | belai/internal/factorylink/forgelogins.go:182,219; host.go:62 | `glab -F json` not used (text parse) |
 | §3.4 `JobNeeds.forge` + gateway routing | P0 | done | crates/kls-core/src/gateway.rs:230; crates/kls-node/src/gateway.rs:81,140 | — |
 | §3.5 migration 0009 (both dialects) | P0 | done | crates/kls-store/migrations/sqlite/0009_forges.sql; postgres/0009_forges.sql | — |
-| §3.5 `forge.calls_per_hour` | P2 | done | crates/kls-github/src/client.rs:134; crates/kls-core/src/audit/config.rs:459 | — |
-| §3.6 merge commit over git, lease, CLI helper | P1 | done | crates/kls-github/src/forge/push.rs:132-306 | — |
-| §3.6 `unsigned_push` + resolution connection | P1 | done | crates/kls-github/src/conflicts.rs:402,512 | — |
-| §3.7 capability refusals | P1 | done | crates/kls-engine/src/forge.rs:1017,1043; crates/kls-github/src/forge/api.rs:1216 | — |
-| §3.7 events carry `connection` | P1 | done | crates/kls-github/src/sync.rs:86,139,312; events.rs | — |
-| §2.6 tea token: stdin/env detect, redaction | P1 | done (P2, 2026-11-22) | crates/kls-github/src/forge/auth.rs:99,103,759,849 (`TokenInput::Arg` removed; token in `GITEA_SERVER_TOKEN`); login.rs:430 (`tea login add --help` probe; an old tea is refused before the token goes anywhere); test login.rs `token_reaches_glab_on_stdin_and_tea_errors_are_redacted` (argv has no token) | — |
-| §2.3/2.4 server probe (version, Forgejo detect, GitLab ≥17.9) | P2 | done (2026-11-28) | crates/kls-github/src/forge/server.rs:18 (`GITLAB_DEVICE_MIN` 17.9), :55 (`device_flow`), :108 (`parse`: GitLab `/api/v4/version`, Gitea/Forgejo `/api/v1/version` with `+gitea-` → Forgejo, GHES `/api/v3/meta`), :147 (unauthenticated GET, 5 s); crates/kls-github/src/service.rs:302 (`probe` fills `CliProbe.server`), :315 (`server_probe`: through the route when signed in, else one unauthenticated GET; kill switch, audit `server_probe`, stored), :367; crates/kls-github/src/forge/auth.rs:26 (`CliProbe.server`), :571 (glab `--device` hidden on a GitLab older than 17.9, kept when the version is unknown, e.g. a 401); crates/kls-store/migrations/{sqlite,postgres}/0260_forge_server.sql (`server_json`), crates/kls-store/src/github.rs:1733,1746; tests server.rs:185, auth.rs:988 (17.8 → Token only, 17.9 → Device), forge/tests.rs:1387 (HTTP answer, audit, kill switch). Live: `Forgejo 13.0.5 via route` and `Gitea 1.22.6 via route` (live_forge.rs:42) | — |
+| §3.5 `forge.calls_per_hour` | P2 | done | crates/kls-forge/src/client.rs:134; crates/kls-core/src/audit/config.rs:459 | — |
+| §3.6 merge commit over git, lease, CLI helper | P1 | done | crates/kls-forge/src/forge/push.rs:132-306 | — |
+| §3.6 `unsigned_push` + resolution connection | P1 | done | crates/kls-forge/src/conflicts.rs:402,512 | — |
+| §3.7 capability refusals | P1 | done | crates/kls-engine/src/forge.rs:1017,1043; crates/kls-forge/src/forge/api.rs:1216 | — |
+| §3.7 events carry `connection` | P1 | done | crates/kls-forge/src/sync.rs:86,139,312; events.rs | — |
+| §2.6 tea token: stdin/env detect, redaction | P1 | done (P2, 2026-11-22) | crates/kls-forge/src/forge/auth.rs:99,103,759,849 (`TokenInput::Arg` removed; token in `GITEA_SERVER_TOKEN`); login.rs:430 (`tea login add --help` probe; an old tea is refused before the token goes anywhere); test login.rs `token_reaches_glab_on_stdin_and_tea_errors_are_redacted` (argv has no token) | — |
+| §2.3/2.4 server probe (version, Forgejo detect, GitLab ≥17.9) | P2 | done (2026-11-28) | crates/kls-forge/src/forge/server.rs:18 (`GITLAB_DEVICE_MIN` 17.9), :55 (`device_flow`), :108 (`parse`: GitLab `/api/v4/version`, Gitea/Forgejo `/api/v1/version` with `+gitea-` → Forgejo, GHES `/api/v3/meta`), :147 (unauthenticated GET, 5 s); crates/kls-forge/src/service.rs:302 (`probe` fills `CliProbe.server`), :315 (`server_probe`: through the route when signed in, else one unauthenticated GET; kill switch, audit `server_probe`, stored), :367; crates/kls-forge/src/forge/auth.rs:26 (`CliProbe.server`), :571 (glab `--device` hidden on a GitLab older than 17.9, kept when the version is unknown, e.g. a 401); crates/kls-store/migrations/{sqlite,postgres}/0260_forge_server.sql (`server_json`), crates/kls-store/src/github.rs:1733,1746; tests server.rs:185, auth.rs:988 (17.8 → Token only, 17.9 → Device), forge/tests.rs:1387 (HTTP answer, audit, kill switch). Live: `Forgejo 13.0.5 via route` and `Gitea 1.22.6 via route` (live_forge.rs:42) | — |
 | §4 Viewer / Accounts / Repos / Repo | P0 | done | gitlab.rs:157-195; gitea.rs:181-222 | — |
 | §4 Open pulls / Pull | P0 | done | gitlab.rs:197,211; gitea.rs:224,250 | — |
 | §4 Checks (statuses) | P1 | done | gitlab.rs:217; gitea.rs:261; api.rs:548 | — |
 | §4 Reviews / decision | P1 | done | gitlab.rs:230; gitea.rs:275 | — |
-| §4 Submit review | P1 | done (P2, 2026-11-22) | crates/kls-github/src/forge/gitlab.rs:156 (`diff_refs`), :550 (`review_inline`: `POST …/discussions` with a text position; note fallback without diff refs, on an older head, or on 400/422); gitea.rs:480,504; test forge/tests.rs:1072 (audit, kill switch) | — |
+| §4 Submit review | P1 | done (P2, 2026-11-22) | crates/kls-forge/src/forge/gitlab.rs:156 (`diff_refs`), :550 (`review_inline`: `POST …/discussions` with a text position; note fallback without diff refs, on an older head, or on 400/422); gitea.rs:480,504; test forge/tests.rs:1072 (audit, kill switch) | — |
 | §4 Draft / ready | P1 | done | api.rs:640; gitlab.rs:319; gitea.rs:353 | — |
 | §4 Update branch | P1 | done | gitlab.rs:339; gitea.rs:369 | — |
 | §4 Request reviewers | P2 | done | gitlab.rs:357 (teams refused); gitea.rs:387 | — |
@@ -851,51 +851,51 @@ keleustes root, `belai/` prefix for belai.
 | §4 Create issue | P1 | done | gitlab.rs:634; gitea.rs:615 | — |
 | §4 Status | P0 | done | gitlab.rs:655; gitea.rs:635 | — |
 | §4 Commits of pull | P2 | done | gitlab.rs:420; gitea.rs:429 | — |
-| §4 Compare / merge base | P1 | done (P6, 2026-11-22) | gitlab.rs:767-813; crates/kls-github/src/forge/gitea.rs:171 (`merge_bases`: best common ancestors by each commit's `parents`), :714 (more than one is refused as a criss-cross merge); test gitea.rs:1019 | GitLab takes the server's `repository/merge_base` (git's own pick); detecting a criss-cross there needs the commit graph, not fetched (P2) |
+| §4 Compare / merge base | P1 | done (P6, 2026-11-22) | gitlab.rs:767-813; crates/kls-forge/src/forge/gitea.rs:171 (`merge_bases`: best common ancestors by each commit's `parents`), :714 (more than one is refused as a criss-cross merge); test gitea.rs:1019 | GitLab takes the server's `repository/merge_base` (git's own pick); detecting a criss-cross there needs the commit graph, not fetched (P2) |
 | §4 File at sha | P1 | done | gitlab.rs:733; gitea.rs:701 | — |
 | §4 Conflict commit | P1 | done | conflicts.rs:260 | — |
 | §4 Permission / association | P2 | done | gitlab.rs:924; gitea.rs:874 | — |
 | §4 Rate budget | P1 | done | client.rs:124,711 | — |
-| §4 Polling cursors | P2 | done (2026-11-28) | crates/kls-github/src/sync.rs:399 (`PULLS_FULL_EVERY_MS`, a full pass every 30 min), :411 (`sync_pulls`: cursor `cursor\|<conn>\|pulls\|<repo>` = newest `updated_at` seen; closed pulls in a cursored list read once; unlisted pulls left alone unless mergeability or checks are settling), :415 (GitHub keeps full lists: ETag 304s); forge/api.rs:182 (`pulls_since`); gitlab.rs:230 (`state=all&updated_after=…&order_by=updated_at&sort=desc`); gitea.rs:294 (`state=all&sort=recentupdate`, stops at the cursor); client.rs:192 (`get_until`); test forge/tests.rs:1449; exercised live (second `sync_pulls` in live_forge.rs) | — |
-| §5 capability table pinned | P1 | done | crates/kls-github/src/forge/cap.rs:36,160,181; testdata/forge-capabilities.json | — |
-| §5 events "polled" on every kind | P2 | done | crates/kls-github/src/forge/tests.rs:469 | — |
+| §4 Polling cursors | P2 | done (2026-11-28) | crates/kls-forge/src/sync.rs:399 (`PULLS_FULL_EVERY_MS`, a full pass every 30 min), :411 (`sync_pulls`: cursor `cursor\|<conn>\|pulls\|<repo>` = newest `updated_at` seen; closed pulls in a cursored list read once; unlisted pulls left alone unless mergeability or checks are settling), :415 (GitHub keeps full lists: ETag 304s); forge/api.rs:182 (`pulls_since`); gitlab.rs:230 (`state=all&updated_after=…&order_by=updated_at&sort=desc`); gitea.rs:294 (`state=all&sort=recentupdate`, stops at the cursor); client.rs:192 (`get_until`); test forge/tests.rs:1449; exercised live (second `sync_pulls` in live_forge.rs) | — |
+| §5 capability table pinned | P1 | done | crates/kls-forge/src/forge/cap.rs:36,160,181; testdata/forge-capabilities.json | — |
+| §5 events "polled" on every kind | P2 | done | crates/kls-forge/src/forge/tests.rs:469 | — |
 | §6 icons | P2 | done | crates/kls-ui/src/icons.rs:118-123 | — |
 | §6.1 connections strip + menu | P1 | done | crates/kls-ui/src/screens/repos.rs:1751-1910 | github.com keeps its own route tile (strip lists others) |
 | §6.1 host chip | P2 | done | crates/kls-ui/src/screens/repos.rs:536 | — |
-| §6.2 Connect dialog | P1 | done | crates/kls-ui/src/screens/gh_signin.rs:638-816; server chip :94 (`✓ Forgejo 13.0`, `⚠` when the server is another kind than the one picked, `? Server` when unknown), :776; test :855 | — |
-| §6.2 CLI missing: install, Copy, Docs, Check again | P2 | done | gh_signin.rs:241,611-636 | — |
-| §6.3 device / browser tabs, countdown, Use token, Retry | P1 | done | gh_signin.rs:307-410 | — |
-| §6.3 token walk-through (steps, Copy list, expiry) | P1 | done | gh_signin.rs:444-510 | — |
-| §6.3 default tab per forge | P2 | done | crates/kls-github/src/forge/auth.rs:380,554,790 | — |
+| §6.2 Connect dialog | P1 | done | crates/kls-ui/src/screens/forge_signin.rs:638-816; server chip :94 (`✓ Forgejo 13.0`, `⚠` when the server is another kind than the one picked, `? Server` when unknown), :776; test :855 | — |
+| §6.2 CLI missing: install, Copy, Docs, Check again | P2 | done | forge_signin.rs:241,611-636 | — |
+| §6.3 device / browser tabs, countdown, Use token, Retry | P1 | done | forge_signin.rs:307-410 | — |
+| §6.3 token walk-through (steps, Copy list, expiry) | P1 | done | forge_signin.rs:444-510 | — |
+| §6.3 default tab per forge | P2 | done | crates/kls-forge/src/forge/auth.rs:380,554,790 | — |
 | §6 "merge request" wording (`pr_noun`) | P2 | done (P2, 2026-11-22) | crates/kls-ui/src/screens/repos.rs:151,1363,1489 (`pr_noun` on the repo detail) | cross-forge totals ("Open PRs", "PRs merged") keep the short form |
 | §6.4 headless `forge login/status`, github alias | P1 | done | crates/kls-app/src/forge_cmd.rs:14-182; main.rs:69 | — |
-| WP-10 rename `gh_signin.rs` → `forge_signin.rs` | P2 | missing | crates/kls-ui/src/screens/gh_signin.rs | cosmetic |
-| WP-11 crate rename `kls-github` → `kls-forge` | P2 | missing | crates/kls-github | rename + re-export shim |
+| WP-10 rename `gh_signin.rs` → `forge_signin.rs` | P2 | done (2026-11-28) | crates/kls-ui/src/screens/forge_signin.rs (`git mv`, contents unchanged but the modal id `forge_signin`); crates/kls-ui/src/screens/mod.rs:11 (`mod forge_signin`); repos.rs:91-92 (`super::forge_signin::{SignIn, Connect}`) | — |
+| WP-11 crate rename `kls-github` → `kls-forge` | P2 | done (2026-11-28) | crates/kls-forge (`git mv`; package `kls-forge`, lib `kls_forge`); Cargo.toml:18 (workspace dependency); kls-app, kls-engine, kls-ui Cargo.toml and every `kls_forge::` path; justfile:34; crates/kls-forge/live/forge-live.sh (`cargo test -p kls-forge`); shim crates/kls-github/src/lib.rs (`pub use kls_forge::*;`, deprecated, removed next release) | drop the `kls-github` shim next release |
 | WP-11 `docs/forges.md` | P2 | done | docs/forges.md | — |
-| §8.1 FakeCli gh/glab/tea | P1 | done | crates/kls-github/src/fake.rs:67,223-238 | — |
-| §8.1 per-row tests with recorded fixtures | P2 | done (P2, 2026-11-22) | crates/kls-github/testdata/gitlab/{merge_request,discussion,approvals}.json, testdata/gitea/{repo,labels}.json; loaded by `fixture` at forge/tests.rs:61 | more rows can move off inline JSON |
-| §8.1 fake sign-in binaries, token never on argv | P1 | done (P6, 2026-11-22) | crates/kls-github/src/login.rs:584-759; :689 `tea_oauth_60s_timeout_fails_with_teas_words` (Keleustes waits past tea's 60 s, tea's timeout is a failure with its words) | — |
-| §8.1 status parsers | P1 | done | crates/kls-github/src/forge/auth.rs:939-1082 | — |
-| §8.1 selector cases | P1 | done (P6, 2026-11-22) | forge/tests.rs:276,650; tests.rs:106-166, :204 (`github_com_node_without_forge_job_gets_the_github_job`); crates/kls-github/src/tests.rs:204 `preferred_node_offline_falls_back_then_returns` | — |
+| §8.1 FakeCli gh/glab/tea | P1 | done | crates/kls-forge/src/fake.rs:67,223-238 | — |
+| §8.1 per-row tests with recorded fixtures | P2 | done (P2, 2026-11-22) | crates/kls-forge/testdata/gitlab/{merge_request,discussion,approvals}.json, testdata/gitea/{repo,labels}.json; loaded by `fixture` at forge/tests.rs:61 | more rows can move off inline JSON |
+| §8.1 fake sign-in binaries, token never on argv | P1 | done (P6, 2026-11-22) | crates/kls-forge/src/login.rs:584-759; :689 `tea_oauth_60s_timeout_fails_with_teas_words` (Keleustes waits past tea's 60 s, tea's timeout is a failure with its words) | — |
+| §8.1 status parsers | P1 | done | crates/kls-forge/src/forge/auth.rs:939-1082 | — |
+| §8.1 selector cases | P1 | done (P6, 2026-11-22) | forge/tests.rs:276,650; tests.rs:106-166, :204 (`github_com_node_without_forge_job_gets_the_github_job`); crates/kls-forge/src/tests.rs:204 `preferred_node_offline_falls_back_then_returns` | — |
 | §8.1 store migration on 0008 db | P2 | done (2026-11-28) | crates/kls-store/src/github.rs:2352 `upgrade_from_0008_keeps_every_github_row` (`SQLITE_MIGRATIONS.run_to(8)`, GitHub rows in gh_orgs/gh_repos/gh_pulls/gh_quota/gh_resolutions, then `Store::open` runs 0009 onwards: every key and value kept, `connection` = github.com, the github.com connection row, `server_json` = `{}`) | SQLite only (Postgres runs the same SQL files) |
-| §8.1 conflict push with lease | P1 | done | crates/kls-github/src/forge/push.rs:398 | — |
-| §8.1 rules 1-4 (audit, kill switch) | P0 | done | crates/kls-github/src/forge/tests.rs:345; forge/guard.rs | — |
+| §8.1 conflict push with lease | P1 | done | crates/kls-forge/src/forge/push.rs:398 | — |
+| §8.1 rules 1-4 (audit, kill switch) | P0 | done | crates/kls-forge/src/forge/tests.rs:345; forge/guard.rs | — |
 | §8.1 belai tests (forge job allowlist, login listing) | P1 | done (P2, 2026-11-22) | belai/internal/factorylink/forgelogins_test.go; belai/internal/forgejob/push_test.go; belai/internal/forgejob/forge_test.go (allowlist, forced host, tea login) | — |
-| §8.2 live Gitea/Forgejo | P2 | done (live, 2026-11-28) | crates/kls-github/tests/live_forge.rs:17; crates/kls-github/live/forge-live.sh (podman or docker; random password and token per run, passed by env or file, never argv; `KLS_LIVE_TEA_RELEASE` runs a verified tea release in a runner image); justfile:33. Ran `forge-live.sh` with tea 0.16.0 (official release, sha256 9c142c8a…0636 matched checksums.txt) against `codeberg.org/forgejo/forgejo:13` (13.0.5+gitea-1.22.0) and `docker.io/gitea/gitea:1.22` (1.22.6) on 127.0.0.1:3300/3301: `live_gitea_family_plane ... ok` on both (discovery, pulls twice, statuses as checks, labels by id, issues, draft/ready, conflict commit pushed through `tea login helper`, stale push refused) | not wired into nightly CI (needs a runner with a container engine) |
-| §8.2 tea OAuth headless browser | P2 | done (live, 2026-11-28) | crates/kls-github/tests/live_forge.rs:210 `live_tea_oauth_headless`: Keleustes' own `WebLogin` (BrowserLoopback) runs the real `tea login add --oauth`; the test plays the browser with reqwest (form login as the e2e user, the authorize URL tea printed, the grant form, the redirect to tea's loopback). `tea OAuth approved headlessly in 501 ms` (Forgejo 13.0.5) and `in 403 ms` (Gitea 1.22.6). Also by hand with an OAuth2 app registered through `POST /api/v1/user/applications/oauth2` and tea `--client-id`/`--redirect-url`: approved; with an unregistered redirect Forgejo answers 400 in the browser and tea only says `Error: authorization failed: authentication timed out after 1m0s` (fixture auth.rs:1189) | — (no Playwright: plain HTTP is enough for Forgejo's form login and grant page) |
+| §8.2 live Gitea/Forgejo | P2 | done (live, 2026-11-28) | crates/kls-forge/tests/live_forge.rs:17; crates/kls-forge/live/forge-live.sh (podman or docker; random password and token per run, passed by env or file, never argv; `KLS_LIVE_TEA_RELEASE` runs a verified tea release in a runner image); justfile:33. Ran `forge-live.sh` with tea 0.16.0 (official release, sha256 9c142c8a…0636 matched checksums.txt) against `codeberg.org/forgejo/forgejo:13` (13.0.5+gitea-1.22.0) and `docker.io/gitea/gitea:1.22` (1.22.6) on 127.0.0.1:3300/3301: `live_gitea_family_plane ... ok` on both (discovery, pulls twice, statuses as checks, labels by id, issues, draft/ready, conflict commit pushed through `tea login helper`, stale push refused) | not wired into nightly CI (needs a runner with a container engine) |
+| §8.2 tea OAuth headless browser | P2 | done (live, 2026-11-28) | crates/kls-forge/tests/live_forge.rs:210 `live_tea_oauth_headless`: Keleustes' own `WebLogin` (BrowserLoopback) runs the real `tea login add --oauth`; the test plays the browser with reqwest (form login as the e2e user, the authorize URL tea printed, the grant form, the redirect to tea's loopback). `tea OAuth approved headlessly in 501 ms` (Forgejo 13.0.5) and `in 403 ms` (Gitea 1.22.6). Also by hand with an OAuth2 app registered through `POST /api/v1/user/applications/oauth2` and tea `--client-id`/`--redirect-url`: approved; with an unregistered redirect Forgejo answers 400 in the browser and tea only says `Error: authorization failed: authentication timed out after 1m0s` (fixture auth.rs:1189) | — (no Playwright: plain HTTP is enough for Forgejo's form login and grant page) |
 | §8.2 GitLab and github.com live | P2 | done (live, by the owner) | github.com: the `gh` sign-in flow run end to end on the desktop with the owner doing the browser steps, and `live_pr_review_posts_once_through_real_gh` (crates/kls-engine/src/forge/tests.rs) posting one review through real `gh` on Vulnesis/keleustes#3 (a rerun reports `already_reviewed`). GitLab: signed in and driven by hand by the owner. | - (no unattended CI suite for these two: it would need standing accounts and tokens in CI) |
-| §8.4.1 glab `--device` wording fixture | P1 | done | crates/kls-github/src/forge/auth.rs `glab_device_flow_recorded_wording` (glab 1.130.0 against gitlab.com, 2026-11-28: "First copy your one-time code: 4OWWB4CH" / "Then open this URL on any device to authorize: https://gitlab.com/oauth/device"; the code has no dash) | - (`--device` needs GitLab 17.9 or later, per glab's help) |
+| §8.4.1 glab `--device` wording fixture | P1 | done | crates/kls-forge/src/forge/auth.rs `glab_device_flow_recorded_wording` (glab 1.130.0 against gitlab.com, 2026-11-28: "First copy your one-time code: 4OWWB4CH" / "Then open this URL on any device to authorize: https://gitlab.com/oauth/device"; the code has no dash) | - (`--device` needs GitLab 17.9 or later, per glab's help) |
 | §8.4.2 `glab auth status -F json` | P2 | done | glab 1.130.0 has `-F/--output json`. Recorded: `glab auth status` exits 0 even when its API call fails with 401, so the exit code never proves a sign-in; the probe's `glab api user` check is what decides | - (json not needed: the `api user` result decides) |
-| §8.4.3 GHES device flow default | P2 | done (fallback recorded, 2026-11-28) | gh 2.102.0 against a stub GHES (nginx with TLS on `localhost`, `/login/device/code` answering 400 `device_flow_disabled`): gh falls back to its loopback web flow and prints only `Open this URL to continue in your web browser: https://<host>/login/oauth/authorize?client_id=…&redirect_uri=http%3A%2F%2Flocalhost%3A<port>%2F…` (cli/oauth treats 401/403/404/422, `device_flow_disabled` and `unauthorized_client` as "unsupported"). crates/kls-github/src/login.rs:86 (`gh_web_fallback_url`), :262 (the window turns that line into a browser step instead of waiting 15 min for a code); test login.rs:652 | whether the GHES "GitHub CLI" app has device flow on by default needs a real instance; Keleustes works either way now |
-| §8.4.4 tea OAuth app on Codeberg / Forgejo | P2 | partial (2026-11-28) | stock Forgejo 13.0.5 and Gitea 1.22.6 accept tea's pre-registered client id `d57cb8c4-630c-4168-8324-ec79935e18d4` with a `127.0.0.1:<port>` redirect (live_forge.rs:210, both passed); crates/kls-github/src/forge/auth.rs:886 (http authorize URLs read too) | Codeberg itself not checked (needs a Codeberg account) |
+| §8.4.3 GHES device flow default | P2 | done (fallback recorded, 2026-11-28) | gh 2.102.0 against a stub GHES (nginx with TLS on `localhost`, `/login/device/code` answering 400 `device_flow_disabled`): gh falls back to its loopback web flow and prints only `Open this URL to continue in your web browser: https://<host>/login/oauth/authorize?client_id=…&redirect_uri=http%3A%2F%2Flocalhost%3A<port>%2F…` (cli/oauth treats 401/403/404/422, `device_flow_disabled` and `unauthorized_client` as "unsupported"). crates/kls-forge/src/login.rs:86 (`gh_web_fallback_url`), :262 (the window turns that line into a browser step instead of waiting 15 min for a code); test login.rs:652 | whether the GHES "GitHub CLI" app has device flow on by default needs a real instance; Keleustes works either way now |
+| §8.4.4 tea OAuth app on Codeberg / Forgejo | P2 | partial (2026-11-28) | stock Forgejo 13.0.5 and Gitea 1.22.6 accept tea's pre-registered client id `d57cb8c4-630c-4168-8324-ec79935e18d4` with a `127.0.0.1:<port>` redirect (live_forge.rs:210, both passed); crates/kls-forge/src/forge/auth.rs:886 (http authorize URLs read too) | Codeberg itself not checked (needs a Codeberg account) |
 | §8.4.5 tea token stdin/env; `tea api` path root | P1 | done (2026-11-28) | tea 0.16.0 `login add --help`: `--token string, -t string  Access token … [$GITEA_SERVER_TOKEN]`; the live suite signs tea in with the token only in `GITEA_SERVER_TOKEN` (forge-live.sh); `tea api -l localhost:3300 /version` answered `{"version":"13.0.5+gitea-1.22.0"}`, so paths are relative to `/api/v1` (client.rs:262-277, server.rs `route_path`) | — |
 | §8.4.6 `tea login helper` argv | P2 | done (2026-11-28) | tea 0.16.0 `login helper --help`: commands `store, erase` (no-op), `setup`, `get` ("Return the stored token for a URL (git credential protocol)"); Keleustes sets `credential.http(s)://<host>.helper=!tea login helper` (auth.rs:898, push.rs:141-152) and git appends `get`. Live: the conflict commit pushed through it on Forgejo 13.0.5 and Gitea 1.22.6 (`signing = unsigned_push`, two parents), a second push refused as moved; belai/internal/forgejob/push.go:89 uses the same helper | — |
 
-Counts: done 87 · partial 1 · missing 2 · n-a 0 (90 rows, recounted 2026-11-28). Missing: the cosmetic renames (WP-10, WP-11). Partial: §8.4.4 on Codeberg itself (needs a Codeberg account).
+Counts: done 89 · partial 1 · missing 0 · n-a 0 (90 rows, recounted 2026-11-28). Missing: none (the WP-10 and WP-11 renames are done). Partial: §8.4.4 on Codeberg itself (needs a Codeberg account).
 
 ### Live check: Gitea and Forgejo in containers (2026-11-28)
 
-`crates/kls-github/live/forge-live.sh` with `KLS_LIVE_TEA_RELEASE` pointing at
+`crates/kls-forge/live/forge-live.sh` with `KLS_LIVE_TEA_RELEASE` pointing at
 the official tea 0.16.0 linux-amd64 release (sha256 checked against the
 release's `checksums.txt`), podman 6.1.4 rootless, images
 `codeberg.org/forgejo/forgejo:13` (13.0.5+gitea-1.22.0) and

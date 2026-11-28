@@ -57,7 +57,7 @@ person running the app is the owner. Timestamps are Unix ms as `i64`.
 | **M1 sessions** | `kls-store/src/sessions.rs`, migration `0002_sessions.sql`; `kls-core/src/sessions.rs`; `kls-node/src/sessions.rs`, `kls-node/src/jobs.rs`, a new `kls-node/src/gateway.rs` (the `NodeGateway` impl on `Hub`, plus job and dispatch routing); `kls-ui/src/screens/sessions.rs` |
 | **M2 coordination** | `kls-store/src/board.rs`, migration `0003_board.sql`; `kls-core/src/board.rs`; `kls-node/src/board.rs`; screens `cockpit.rs`, `board.rs`, `memory.rs` |
 | **M3 engine** | new crate `crates/kls-engine/` (workflow graph, validate, dry run, executor, cron, templates); `kls-store/src/engine.rs`, migration `0004_engine.sql`; `kls-core/src/engine.rs`; screens `workflows.rs`, `templates.rs`, `runs.rs`, `checkpoints.rs` |
-| **M4 GitHub** | new crate `crates/kls-github/`; `kls-store/src/github.rs`, migration `0006_github.sql`; `kls-core/src/github.rs`; screens `repos.rs`, `conflicts.rs`, `delivery.rs` |
+| **M4 GitHub** | new crate `crates/kls-forge/`; `kls-store/src/github.rs`, migration `0006_github.sql`; `kls-core/src/github.rs`; screens `repos.rs`, `conflicts.rs`, `delivery.rs` |
 | **M5 vault and workforce** | new crate `crates/kls-vault/`; `kls-store/src/vault.rs`, migration `0005_vault.sql`; `kls-core/src/vault.rs`; screens `budgets.rs`, `workforce.rs`, `library.rs` |
 | **M6 finish** | `kls-store/src/audit.rs`, migration `0007_audit.sql`; `kls-core/src/audit.rs`; `kls-node/src/teleport.rs`; screens `trust.rs`, `audit.rs`, `settings.rs`; packaging |
 

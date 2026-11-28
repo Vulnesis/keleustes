@@ -15,7 +15,7 @@ kls-core = { path = "crates/kls-core" }
 kls-node = { path = "crates/kls-node" }
 kls-ui = { path = "crates/kls-ui" }
 kls-vault = { path = "crates/kls-vault" }
-kls-github = { path = "crates/kls-github" }
+kls-forge = { path = "crates/kls-forge" }
 kls-engine = { path = "crates/kls-engine" }
 kls-libsearch = { path = "crates/kls-libsearch" }
 

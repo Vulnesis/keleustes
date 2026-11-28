@@ -119,9 +119,9 @@ type BundleLoader = ((String, i64), Loader<Vec<BundleEntry>>);
 
 type Slot<T> = Arc<Mutex<Option<Result<T, String>>>>;
 
-/// A signed-in local `gh`, budgeted by kls-github (WP8 boost).
+/// A signed-in local `gh`, budgeted by kls-forge (WP8 boost).
 struct GhBoost {
-    svc: Arc<kls_github::service::Service>,
+    svc: Arc<kls_forge::service::Service>,
     quota: Mutex<Option<(i64, i64)>>,
 }
 
@@ -129,7 +129,7 @@ struct GhBoost {
 impl GhApi for GhBoost {
     async fn get_json(&self, path: &str, class: Class) -> anyhow::Result<serde_json::Value> {
         let caller = match class {
-            Class::User => kls_github::service::USER,
+            Class::User => kls_forge::service::USER,
             Class::Background => "poller",
         };
         let v = self.svc.client().await?.get_json(path, caller).await?;
@@ -242,7 +242,7 @@ impl Discover {
         self.opened = true;
         let core = model.core().clone();
         model.rt.spawn(async move {
-            let svc = kls_github::service(&core);
+            let svc = kls_forge::service(&core);
             let gh: Option<Arc<dyn GhApi>> = if svc.local_auth().await.signed_in() {
                 Some(Arc::new(GhBoost {
                     svc,

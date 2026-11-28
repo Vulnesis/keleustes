@@ -150,15 +150,15 @@ enum NodesCmd {
 
 /// `keleustes github …`. Exit code 0 when signed in.
 async fn github_cmd(core: &Core, cmd: &GithubCmd) -> Result<i32> {
-    use kls_github::login::{self, WebLogin, WebState};
-    let svc = kls_github::service(core);
+    use kls_forge::login::{self, WebLogin, WebState};
+    let svc = kls_forge::service(core);
     match cmd {
         GithubCmd::Status => {
             let route = svc.recheck_route().await;
             println!("route\t{}", route.label());
             let local = svc.local_auth().await;
             match &local {
-                kls_github::LocalAuth::SignedIn { login, missing } => {
+                kls_forge::LocalAuth::SignedIn { login, missing } => {
                     println!("local gh\tsigned in as {login}");
                     if !missing.is_empty() {
                         println!(
@@ -167,7 +167,7 @@ async fn github_cmd(core: &Core, cmd: &GithubCmd) -> Result<i32> {
                         );
                     }
                 }
-                kls_github::LocalAuth::SignedOut(w) | kls_github::LocalAuth::Missing(w) => {
+                kls_forge::LocalAuth::SignedOut(w) | kls_forge::LocalAuth::Missing(w) => {
                     println!("local gh\t{w}")
                 }
             }
@@ -225,7 +225,7 @@ async fn github_cmd(core: &Core, cmd: &GithubCmd) -> Result<i32> {
         &serde_json::json!({ "route": route.label() }),
     )
     .await?;
-    kls_github::forge::guard::audit(
+    kls_forge::forge::guard::audit(
         core,
         "cli",
         "sign_in",
@@ -549,7 +549,7 @@ fn main() -> Result<()> {
         core.start_event_tail(std::time::Duration::from_millis(750));
     }
     // GitHub plane: route detection and the ETag poller (M4).
-    rt.block_on(async { kls_github::start(&core) });
+    rt.block_on(async { kls_forge::start(&core) });
 
     // Serve the node port in the background for the life of the process.
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();

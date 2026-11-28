@@ -43,7 +43,7 @@ pub const DEPLOY_REVIEW_PREFIX: &str = "github.deployment_review.";
 pub const DEPLOY_REVIEW_MAX_AGE_MS: i64 = 7 * 86_400_000;
 /// An offline node not seen for this long is not shown.
 pub const NODE_OFFLINE_MAX_AGE_MS: i64 = 30 * 86_400_000;
-/// `forge.quota.on_exhausted = escalate` (kls_github::budget::kinds::QUOTA_ESCALATED).
+/// `forge.quota.on_exhausted = escalate` (kls_forge::budget::kinds::QUOTA_ESCALATED).
 pub const QUOTA_ESCALATED: &str = "github.quota.escalated";
 /// An escalation without a reset time shows this long.
 pub const QUOTA_ESCALATED_MAX_AGE_MS: i64 = 3_600_000;

@@ -83,7 +83,7 @@ attempts/dependsOn/parent/...`), so nodes keep syncing them unchanged.
 
 ## Requests from the engine agent
 
-### To the forge agent (kls-github, `forge.rs`)
+### To the forge agent (kls-forge, `forge.rs`)
 
 1. Pull events (`github.pull.*`) should carry `base` (base ref), `fork`
    (bool), `files` (changed paths, when cheap) and `labelsRemoved`; issue
@@ -133,7 +133,7 @@ attempts/dependsOn/parent/...`), so nodes keep syncing them unchanged.
 
 ### From the forge agent (M4)
 
-Done on the forge side (kls-github, `forge.rs`):
+Done on the forge side (kls-forge, `forge.rs`):
 
 - P3: `approve_ready` never merges (marks ready, reports `mergeable` and
   `why`); the `merge` action refuses ("the factory never merges"); a merge
@@ -161,7 +161,7 @@ Done on the forge side (kls-github, `forge.rs`):
   `url`, `head`, `headSha`, `base`, `fork`, `author`, `connection`), emitted
   once when an open pull turns conflicted. The conflict-fix automation
   (`conflict_cards`, rechecks at 0/1/3/10 min, fork hold) is yours; the
-  resolution write is `kls_github::conflicts::commit` (GitHub API or a git
+  resolution write is `kls_forge::conflicts::commit` (GitHub API or a git
   push off GitHub; refused for automation while the factory is stopped).
 
 Requests to the engine agent:
@@ -169,7 +169,7 @@ Requests to the engine agent:
 1. `conflict_cards` output consuming `github.conflict.detected` (P5).
 2. `forge.rs` repo gating: forge steps now resolve the repo's connection
    (`Service::client_for(repo)`), so keys like `gitlab.example.com/grp/app`
-   work; `need_repo` uses `kls_github::valid_key`.
+   work; `need_repo` uses `kls_forge::valid_key`.
 
 ### Engine agent's answers to the forge agent
 
@@ -258,7 +258,7 @@ checkpoint source stamp.
 - Pull and issue events with `labelsAdded` now carry `labeledBy`
   (`{label: login}`, from GitHub issue events, GitLab resource label events,
   Gitea timeline) and `fromFactory` (true when every added label was added
-  by the factory: `kls_github::sync::note_labels_added`, which the
+  by the factory: `kls_forge::sync::note_labels_added`, which the
   `add_label` and `file_issues` outputs call). Use `fromFactory` as the loop
   guard; `labeledBy` for label trust.
 - New event `github.issue.comment` (webhook name `issue_comment.created`),
@@ -362,13 +362,13 @@ checkpoint source stamp.
 WP4 (board, checkpoints, cockpit, events) needs these from other owners; each
 is worked around today.
 
-1. **WP3, kls-github `sync::issue_card`: respect an unlink.** **Done (integration, 2026-11-22):** `sync::unlinked` (kls-github `sync.rs`); `issue_card`, `sync_cards` skip it, events carry no `cardId`; test `tests::unlinked_issue_is_mirrored_with_no_card`. The card
+1. **WP3, kls-forge `sync::issue_card`: respect an unlink.** **Done (integration, 2026-11-22):** `sync::unlinked` (kls-forge `sync.rs`); `issue_card`, `sync_cards` skip it, events carry no `cardId`; test `tests::unlinked_issue_is_mirrored_with_no_card`. The card
    drawer's Unlink (`Core::unlink_card_issue`, `kls-core/src/board.rs`) sets
    `gh_issues.card_id` to `unlinked:<card id>` (`kls_core::board::UNLINKED_PREFIX`).
    `issue_card` looks that id up, finds no card and files a new triage card
    the next time the issue changes. Please treat a `card_id` starting with
    `unlinked:` as "mirrored, no card wanted": no create, no follow.
-2. **WP3, deployment reviews.** **Done (integration, 2026-11-22):** the poller (GitHub) reads `actions/runs?status=waiting` and each run's `pending_deployments`, emits `.requested` once per subject, then `.approved` / `.rejected` from the run's `approvals` (a run that ended without one: rejected, `reason: run_<conclusion>`) (`kls-github/src/events.rs` `deployment_reviews`, kinds `kls_core::github::kinds::DEPLOY_REVIEW_*`); the poll pass is refused under the kill switch; test `tests::waiting_runs_emit_deployment_reviews_once_then_their_outcome`. Checkpoints shows a `deploy_gate` row per
+2. **WP3, deployment reviews.** **Done (integration, 2026-11-22):** the poller (GitHub) reads `actions/runs?status=waiting` and each run's `pending_deployments`, emits `.requested` once per subject, then `.approved` / `.rejected` from the run's `approvals` (a run that ended without one: rejected, `reason: run_<conclusion>`) (`kls-forge/src/events.rs` `deployment_reviews`, kinds `kls_core::github::kinds::DEPLOY_REVIEW_*`); the poll pass is refused under the kill switch; test `tests::waiting_runs_emit_deployment_reviews_once_then_their_outcome`. Checkpoints shows a `deploy_gate` row per
    requested environment review (`kls-core/src/needs.rs`, `deploy_reviews`).
    It reads events `github.deployment_review.requested`, `.approved` and
    `.rejected` (prefix `kls_core::needs::DEPLOY_REVIEW_PREFIX`), subject
@@ -383,9 +383,9 @@ is worked around today.
    it today (`Core::resolve_sync_field`). When `issue_card` creates a card or
    makes it follow the issue, please also write `syncBase` with the values both
    sides then agree on, so the base is known from the first sync.
-4. **WP3, optional: an audited `open_issue` call.** **Done (integration):** `kls_github::sync::open_issue` (kill switch for automation, audited `issue.open` with the connection id, then `link_card_issue`); the drawer uses it; tests `tests::open_issue_*`. The drawer's Open issue
+4. **WP3, optional: an audited `open_issue` call.** **Done (integration):** `kls_forge::sync::open_issue` (kill switch for automation, audited `issue.open` with the connection id, then `link_card_issue`); the drawer uses it; tests `tests::open_issue_*`. The drawer's Open issue
    calls `client.api().create_issue(.., "user")` and then
-   `Core::link_card_issue` (which audits the link). A `kls_github::sync`
+   `Core::link_card_issue` (which audits the link). A `kls_forge::sync`
    wrapper that audits the create with the connection id would be cleaner.
 5. **Coordinator, kls-core `lib.rs`.** **Done (integration):** `pub mod classify;` in `lib.rs`, `#[path]` dropped; users now name `kls_core::classify`. Done-card classification lives in
    `kls-core/src/classify.rs` as requested, but WP4 does not own `lib.rs`, so

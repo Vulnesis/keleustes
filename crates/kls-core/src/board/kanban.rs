@@ -7,7 +7,7 @@
 //! by `kanban.lists` (`factory list=board column`).
 //!
 //! - **Providers.** GitHub Projects and GitLab issue boards go through the
-//!   forge CLI plane (`kls-github` registers a [`Connector`]; Keleustes holds
+//!   forge CLI plane (`kls-forge` registers a [`Connector`]; Keleustes holds
 //!   no forge token). Linear and Jira Cloud are called over HTTPS
 //!   ([`linear`], [`jira`]) with a token sealed in the vault ([`TOKEN_BLOB`]),
 //!   never written to an event, the ledger or a log line.
@@ -255,7 +255,7 @@ pub trait Remote: Send + Sync {
 }
 
 /// Builds the [`Remote`] for a binding a crate outside `kls-core` serves
-/// (the forge providers, in `kls-github`). `Ok(None)`: not this one's.
+/// (the forge providers, in `kls-forge`). `Ok(None)`: not this one's.
 #[async_trait::async_trait]
 pub trait Connector: Send + Sync {
     async fn remote(&self, core: &Core, b: &Binding) -> Result<Option<Arc<dyn Remote>>>;

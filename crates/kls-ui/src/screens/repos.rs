@@ -13,9 +13,9 @@ use crate::theme;
 use egui_extras::{Column, TableBuilder};
 use kls_core::board::sync::{BACKFILL, BackfillCounts, FIELDS, MirrorRow};
 use kls_engine::triggers::RepoProfile;
-use kls_github::service::{ConnView, QuotaView};
-use kls_github::sync::PullAction;
-use kls_github::{Connection, RouteStatus};
+use kls_forge::service::{ConnView, QuotaView};
+use kls_forge::sync::PullAction;
+use kls_forge::{Connection, RouteStatus};
 use kls_store::github::{AUTONOMY_LEVELS, GhOrg, GhPull, GhRepo, Mirroring, RepoSettings};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
@@ -29,8 +29,8 @@ struct Data {
     open: BTreeMap<String, usize>,
     route: RouteStatus,
     quota: QuotaView,
-    last_poll: Option<kls_github::poller::PollReport>,
-    local: kls_github::LocalAuth,
+    last_poll: Option<kls_forge::poller::PollReport>,
+    local: kls_forge::LocalAuth,
     /// Every connection (github.com first) with its route, sign-in and budget.
     conns: Vec<ConnView>,
     /// Live workflows and the repositories their scope names.
@@ -88,8 +88,8 @@ pub struct Screen {
     reviewers: String,
     sort: SortBy,
     desc: bool,
-    signin: super::gh_signin::SignIn,
-    connect: super::gh_signin::Connect,
+    signin: super::forge_signin::SignIn,
+    connect: super::forge_signin::Connect,
     /// AGENTS.md drafts for the open repository (row 54).
     agents_md: super::init_draft::Window,
     /// Board project <-> repository mirror rows (`github.issue_mirror`).
@@ -145,11 +145,11 @@ impl Screen {
             model,
             &["github.", "node.", "forge.", "workflow."],
             |core| async move {
-                let svc = kls_github::service(&core);
+                let svc = kls_forge::service(&core);
                 let mut route = svc.route().await;
                 let local = svc.local_auth().await;
                 // Signed in elsewhere (the CLI, a terminal): take the local route now.
-                if local.signed_in() && route.route != kls_github::Route::Local {
+                if local.signed_in() && route.route != kls_forge::Route::Local {
                     route = svc.recheck_route().await;
                 }
                 let store = core.store();
@@ -193,7 +193,7 @@ impl Screen {
                 Ok(Detail {
                     repo: store.gh_repo(&repo).await?,
                     pulls: store.gh_pulls(Some(&repo), Some("open")).await?,
-                    noun: kls_github::service(&core)
+                    noun: kls_forge::service(&core)
                         .connection_of(&repo)
                         .await
                         .map(|c| c.kind.pr_noun())
@@ -279,7 +279,7 @@ impl Screen {
             }
             if kit::ghost_button(ui, &icons::label(icons::DOWNLOAD_SIMPLE, "Poll")).clicked() {
                 model.act(|m| async move {
-                    let r = kls_github::service(m.core()).poll_once().await?;
+                    let r = kls_forge::service(m.core()).poll_once().await?;
                     Ok(Some(Notice::Info(match r.refused {
                         Some(why) => format!("Poll stopped: {why}"),
                         None => format!(
@@ -294,7 +294,7 @@ impl Screen {
                 .clicked()
             {
                 model.act(|m| async move {
-                    let s = kls_github::service(m.core()).recheck_route().await;
+                    let s = kls_forge::service(m.core()).recheck_route().await;
                     Ok(Some(Notice::Info(format!("GitHub {}", s.label()))))
                 });
             }
@@ -395,7 +395,7 @@ impl Screen {
                     if ui.checkbox(&mut managed, "Managed").changed() {
                         let login = o.login.clone();
                         model.act(move |m| async move {
-                            kls_github::service(m.core())
+                            kls_forge::service(m.core())
                                 .set_org_managed(&login, managed)
                                 .await?;
                             Ok(None)
@@ -408,7 +408,7 @@ impl Screen {
                     {
                         let login = o.login.clone();
                         model.act(move |m| async move {
-                            let r = kls_github::service(m.core())
+                            let r = kls_forge::service(m.core())
                                 .refresh_org_repos(&login)
                                 .await?;
                             Ok(Some(Notice::Info(format!(
@@ -431,7 +431,7 @@ impl Screen {
                         let login = o.login.clone();
                         let on = !o.enabled;
                         model.act(move |m| async move {
-                            kls_github::service(m.core())
+                            kls_forge::service(m.core())
                                 .set_org_enabled(&login, on)
                                 .await?;
                             Ok(None)
@@ -733,7 +733,7 @@ impl Screen {
         ui.label(egui::RichText::new(format!("{n} selected")).color(p.muted));
         let run = |sel: Vec<String>, managed: bool| {
             model.act(move |m| async move {
-                let k = kls_github::service(m.core())
+                let k = kls_forge::service(m.core())
                     .set_repos_managed(&sel, managed)
                     .await?;
                 Ok(Some(Notice::Info(format!(
@@ -768,7 +768,7 @@ impl Screen {
                 })
                 .collect();
             model.act(move |m| async move {
-                let svc = kls_github::service(m.core());
+                let svc = kls_forge::service(m.core());
                 for (r, mir) in current {
                     svc.set_mirroring(&[r], mir).await?;
                 }
@@ -800,7 +800,7 @@ impl Screen {
         {
             let s = sel.clone();
             model.act(move |m| async move {
-                let res = kls_github::service(m.core()).sync_labels(&s).await?;
+                let res = kls_forge::service(m.core()).sync_labels(&s).await?;
                 let created: usize = res.iter().map(|r| r.created.len()).sum();
                 let failed: Vec<String> = res
                     .iter()
@@ -829,7 +829,7 @@ impl Screen {
                 .clicked()
         {
             model.act(move |m| async move {
-                let svc = kls_github::service(m.core());
+                let svc = kls_forge::service(m.core());
                 let n = watched.len();
                 for (r, s, rev) in watched {
                     svc.save_repo_settings(&r, &s, rev).await?;
@@ -895,7 +895,7 @@ impl Screen {
                 {
                     let r = open.clone();
                     model.act(move |m| async move {
-                        kls_github::service(m.core()).refresh_repo(&r).await?;
+                        kls_forge::service(m.core()).refresh_repo(&r).await?;
                         Ok(None)
                     });
                 }
@@ -1078,7 +1078,7 @@ impl Screen {
                             let rev = draft.revision;
                             let r = open.clone();
                             model.act(move |m| async move {
-                                kls_github::service(m.core())
+                                kls_forge::service(m.core())
                                     .save_repo_settings(&r, &s, rev)
                                     .await?;
                                 Ok(Some(Notice::Info(format!("Saved {r}"))))
@@ -1119,7 +1119,7 @@ impl Screen {
             if ui.checkbox(&mut managed, "Managed").changed() {
                 let r = open.clone();
                 model.act(move |mm| async move {
-                    kls_github::service(mm.core())
+                    kls_forge::service(mm.core())
                         .set_repos_managed(&[r], managed)
                         .await?;
                     Ok(None)
@@ -1138,9 +1138,7 @@ impl Screen {
         if changed {
             let r = open.clone();
             model.act(move |mm| async move {
-                kls_github::service(mm.core())
-                    .set_mirroring(&[r], m)
-                    .await?;
+                kls_forge::service(mm.core()).set_mirroring(&[r], m).await?;
                 Ok(None)
             });
         }
@@ -1656,7 +1654,7 @@ async fn attach_repos(core: &kls_core::Core, id: &str, repos: &[String]) -> anyh
 
 fn refresh_orgs(model: &Model) {
     model.act(|m| async move {
-        let r = kls_github::service(m.core()).refresh_orgs().await?;
+        let r = kls_forge::service(m.core()).refresh_orgs().await?;
         Ok(Some(Notice::Info(format!(
             "{} orgs, {} repositories of managed orgs ({} new)",
             r.orgs,
@@ -1750,7 +1748,7 @@ fn pull_card(
             let n = pr.number;
             let name = a.name();
             model.act(move |m| async move {
-                kls_github::service(m.core()).pull_action(&r, n, a).await?;
+                kls_forge::service(m.core()).pull_action(&r, n, a).await?;
                 Ok(Some(Notice::Info(format!("{r}#{n}: {name} done"))))
             });
         };
@@ -1808,7 +1806,7 @@ fn pull_card(
             let r = pr.repo.clone();
             let n = pr.number;
             model.act(move |m| async move {
-                kls_github::service(m.core()).refresh_pull(&r, n).await?;
+                kls_forge::service(m.core()).refresh_pull(&r, n).await?;
                 Ok(None)
             });
         }
@@ -1854,7 +1852,7 @@ fn status_tiles(ui: &mut egui::Ui, data: &Data) -> Option<bool> {
                         .color(p.muted),
                     );
                     match &data.local {
-                        kls_github::LocalAuth::SignedIn { login, missing } => {
+                        kls_forge::LocalAuth::SignedIn { login, missing } => {
                             if !login.is_empty() {
                                 kit::chip(ui, &icons::label(icons::USER, login), p.muted);
                             }
@@ -1872,7 +1870,7 @@ fn status_tiles(ui: &mut egui::Ui, data: &Data) -> Option<bool> {
                                 sign_in.set(Some(true));
                             }
                         }
-                        kls_github::LocalAuth::SignedOut(why) => {
+                        kls_forge::LocalAuth::SignedOut(why) => {
                             if theme::primary_button(
                                 ui,
                                 &icons::label(icons::KEY, "Sign in"),
@@ -1883,7 +1881,7 @@ fn status_tiles(ui: &mut egui::Ui, data: &Data) -> Option<bool> {
                                 sign_in.set(Some(false));
                             }
                         }
-                        kls_github::LocalAuth::Missing(why) => {
+                        kls_forge::LocalAuth::Missing(why) => {
                             ui.hyperlink_to(
                                 icons::label(icons::DOWNLOAD_SIMPLE, "Install gh"),
                                 "https://cli.github.com",
@@ -2080,8 +2078,8 @@ fn split_host(key: &str) -> (Option<&str>, &str) {
 }
 
 /// The icon of a forge kind (Codeberg has its own).
-pub(crate) fn kind_icon(kind: kls_github::ForgeKind, host: &str) -> &'static str {
-    use kls_github::ForgeKind as K;
+pub(crate) fn kind_icon(kind: kls_forge::ForgeKind, host: &str) -> &'static str {
+    use kls_forge::ForgeKind as K;
     match kind {
         K::Github => icons::GITHUB_LOGO,
         K::Ghes => icons::BUILDINGS,
@@ -2157,7 +2155,7 @@ fn connections_strip(ui: &mut egui::Ui, model: &Model, data: &Data) -> Option<St
                             v.conn.host
                         ));
                         match &v.auth {
-                            kls_github::forge::auth::AuthState::SignedIn {
+                            kls_forge::forge::auth::AuthState::SignedIn {
                                 login,
                                 missing,
                                 expires_at,
@@ -2188,7 +2186,7 @@ fn connections_strip(ui: &mut egui::Ui, model: &Model, data: &Data) -> Option<St
                                     .on_hover_text("Token expires");
                                 }
                             }
-                            kls_github::forge::auth::AuthState::Missing(why) => {
+                            kls_forge::forge::auth::AuthState::Missing(why) => {
                                 ui.hyperlink_to(
                                     icons::label(
                                         icons::DOWNLOAD_SIMPLE,
@@ -2236,8 +2234,7 @@ fn connections_strip(ui: &mut egui::Ui, model: &Model, data: &Data) -> Option<St
                                 {
                                     let c = v.conn.clone();
                                     model.act(move |m| async move {
-                                        let s =
-                                            kls_github::service(m.core()).recheck_conn(&c).await;
+                                        let s = kls_forge::service(m.core()).recheck_conn(&c).await;
                                         Ok(Some(Notice::Info(format!("{} {}", c.host, s.label()))))
                                     });
                                     ui.close();
@@ -2255,7 +2252,7 @@ fn connections_strip(ui: &mut egui::Ui, model: &Model, data: &Data) -> Option<St
                                     let on = !v.conn.enabled;
                                     let id = id.clone();
                                     model.act(move |m| async move {
-                                        kls_github::service(m.core())
+                                        kls_forge::service(m.core())
                                             .set_connection_enabled(&id, on, "user")
                                             .await?;
                                         Ok(None)
@@ -2265,7 +2262,7 @@ fn connections_strip(ui: &mut egui::Ui, model: &Model, data: &Data) -> Option<St
                                 if ui.button(icons::label(icons::TRASH, "Remove")).clicked() {
                                     let id = id.clone();
                                     model.act(move |m| async move {
-                                        kls_github::service(m.core())
+                                        kls_forge::service(m.core())
                                             .remove_connection(&id, "user")
                                             .await?;
                                         Ok(Some(Notice::Info("Connection removed".into())))
@@ -2276,7 +2273,7 @@ fn connections_strip(ui: &mut egui::Ui, model: &Model, data: &Data) -> Option<St
                             .response
                             .on_hover_text("Options");
                             if !v.auth.signed_in()
-                                && !matches!(v.auth, kls_github::forge::auth::AuthState::Missing(_))
+                                && !matches!(v.auth, kls_forge::forge::auth::AuthState::Missing(_))
                                 && theme::primary_button(ui, &icons::label(icons::KEY, "Sign in"))
                                     .clicked()
                             {

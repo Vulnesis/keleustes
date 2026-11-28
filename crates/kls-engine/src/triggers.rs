@@ -216,7 +216,7 @@ impl Facts {
     }
 }
 
-/// What a repository is built with: from its file paths (kls-github
+/// What a repository is built with: from its file paths (kls-forge
 /// `profile::refresh`) and the repo scout's `repo_profile` output.
 pub use kls_core::repo_profile::RepoProfile;
 

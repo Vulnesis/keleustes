@@ -602,11 +602,11 @@ impl Drop for EngineHandle {
 
 /// Starts the scheduler and executor with the default integrations: the
 /// core's board and GitHub through the process's GitHub plane
-/// (`kls_github::service`, the same instance `kls_github::start` polls with).
+/// (`kls_forge::service`, the same instance `kls_forge::start` polls with).
 pub async fn start(core: Core) -> Result<EngineHandle> {
     let integrations = Integrations {
         forge: Some(Arc::new(crate::forge::GitHubForge::new(
-            kls_github::service(&core),
+            kls_forge::service(&core),
         ))),
         board: Some(Arc::new(CoreBoard(core.clone()))),
     };

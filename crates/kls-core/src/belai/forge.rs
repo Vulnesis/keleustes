@@ -2,7 +2,7 @@
 //! push credential, a rate limit) files a request through its node. The
 //! request is identifiers, shas and enums plus the item title (untrusted);
 //! Keleustes keeps it and never unpacks or runs git on another host's data.
-//! The forge coordinator (kls-github) decides, and answers the worker with a
+//! The forge coordinator (kls-forge) decides, and answers the worker with a
 //! `steer` dispatch ([`Core::forge_steer`]): took over (with the pull request
 //! it opened), waiting until a time, or failed. Filing and steering are
 //! audited; the kill switch refuses a steer like any dispatch.

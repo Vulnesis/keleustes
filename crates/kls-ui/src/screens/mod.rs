@@ -8,7 +8,7 @@ pub mod checkpoints;
 pub mod cockpit;
 pub mod conflicts;
 pub mod delivery;
-pub(crate) mod gh_signin;
+pub(crate) mod forge_signin;
 pub mod harness_a2a;
 pub mod harness_picker;
 pub mod harness_screen;

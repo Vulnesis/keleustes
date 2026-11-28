@@ -7,7 +7,7 @@ use crate::exec::{CoreBoard, Engine, EngineConfig, Integrations};
 use crate::graph::Graph;
 use crate::ops::{self, NewWorkflow, StartRun, TriggerInfo};
 use kls_core::board::CardDraft;
-use kls_github::fake::FakeGh;
+use kls_forge::fake::FakeGh;
 use kls_store::engine::{Run, RunStep};
 use kls_store::github::GhRepo;
 
@@ -320,7 +320,7 @@ async fn approve_ready_marks_ready_and_never_merges() {
     register(&t.gh, 4, true, &["success"]);
     t.gh.on_cli(
         &["pr", "ready", "4"],
-        kls_github::GhOutput {
+        kls_forge::GhOutput {
             exit: 0,
             ..Default::default()
         },
@@ -1284,7 +1284,7 @@ async fn live_pr_review_posts_once_through_real_gh() {
     let (owner, name) = repo.split_once('/').unwrap();
     let dir = tempfile::tempdir().unwrap();
     let core = Core::open(dir.path(), None).await.unwrap();
-    let gh: Arc<dyn kls_github::ForgeCli> = Arc::new(kls_github::local::LocalGh::default());
+    let gh: Arc<dyn kls_forge::ForgeCli> = Arc::new(kls_forge::local::LocalGh::default());
     let f = GitHubForge::with_client(Client::new(gh, core.clone()));
     core.store()
         .gh_upsert_repo(&GhRepo {

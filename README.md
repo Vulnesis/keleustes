@@ -69,7 +69,7 @@ keyring (a 0600 `vault.key` file when there is none).
 | `kls-core` | domain: sessions, board, memory, A2A, needs, audit, trust, settings, event bus |
 | `kls-node` | local CA, join tokens, gRPC services (Node, Sessions, Board, Jobs, Teleport), gateway |
 | `kls-engine` | workflows: graph, validation, dry run, executor, cron, templates, approvals |
-| `kls-github` | GitHub through local `gh` or a node's `gh`: repos, pulls, issues, conflicts, delivery |
+| `kls-forge` | GitHub through local `gh` or a node's `gh`: repos, pulls, issues, conflicts, delivery |
 | `kls-vault` | provider keys sealed with XChaCha20-Poly1305; grants to nodes |
 | `kls-ui` | egui screens, ThreatCanary theme (light/dark), Phosphor icons |
 | `kls-app` | the `keleustes` binary: window, headless, CLI, deep links, notifications, packaging |

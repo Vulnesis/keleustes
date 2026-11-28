@@ -130,7 +130,7 @@ pub async fn engine(core: &Core) -> Result<Arc<Engine>> {
 }
 
 /// Sets (or clears) the signed-in `gh` the gh boost uses (WP8). The UI
-/// installs one built on `kls_github` when `gh auth status` is ok.
+/// installs one built on `kls_forge` when `gh auth status` is ok.
 pub async fn set_gh_api(core: &Core, gh: Option<Arc<dyn GhApi>>) -> Result<()> {
     *engine(core).await?.gh.write().unwrap() = gh;
     Ok(())

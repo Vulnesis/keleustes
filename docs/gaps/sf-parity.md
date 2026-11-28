@@ -57,7 +57,7 @@ Web: `website/src/pages/resolve/factory.vue` (FV), `components/factory/FactoryCo
 | KPI tile: Draft PRs opened | FC:472 | missing | none | gh_pulls mirror has the data. |
 | KPI tile: Gates holding | FC:473 | partial | cockpit.rs:259-266 | "Approvals" tile counts pending approvals only, not gates. |
 | KPI tile: Firewall blocks | FC:474 | n/a | — | Cloud firewall (out of scope). |
-| KPI tile: GitHub quota with source stamp | FC:475, 581; FV:690-695 | missing | none (quota shown in repos.rs) | kls-github QuotaView exists; not on cockpit. |
+| KPI tile: GitHub quota with source stamp | FC:475, 581; FV:690-695 | missing | none (quota shown in repos.rs) | kls-forge QuotaView exists; not on cockpit. |
 | KPI tile: Cache hit rate | FC:476, 589 | missing | none | |
 | KPI tile: merge conflicts (open PRs conflicting with base) | FV:698-706 | missing | none | gh_pulls.mergeable=="conflict" is stored. |
 | Extra Keleustes tiles: Nodes online, Needs you, In review, Open cards | — | done (extra) | cockpit.rs:229-285 | |
@@ -131,7 +131,7 @@ Web: `website/src/pages/resolve/factory-events.vue` (EV), `src/shared/factory-ev
 
 ## /resolve/factory-board (Board)
 
-Web: `website/src/pages/resolve/factory-board.vue` (FB), `components/factory/board/FactoryBoardColumns.vue` (COL), `FactoryBoardReview.vue` (REV), `FactoryBoardBacklog.vue` (BL), `FactoryBoardDone.vue` (DN), `FactoryBoardTriage.vue` (TRI), `FactoryBoardConflicts.vue` (BC), `FactoryCardDrawer.vue` (DR), `FactoryBoardRail.vue` (RAIL), `FactoryBoardDialogs.vue` (DLG), `FactorySendToWorkflow.vue` (SEND), `FactorySightingPanel.vue`, `components/belai/BelaiGithubPanel.vue` (GHP), `composables/belai-kanban-triage.ts` (TRK). Keleustes: `crates/kls-ui/src/screens/board.rs` (KB), `crates/kls-core/src/board.rs`, `crates/kls-store/src/board.rs`, `crates/kls-github/src/sync.rs`.
+Web: `website/src/pages/resolve/factory-board.vue` (FB), `components/factory/board/FactoryBoardColumns.vue` (COL), `FactoryBoardReview.vue` (REV), `FactoryBoardBacklog.vue` (BL), `FactoryBoardDone.vue` (DN), `FactoryBoardTriage.vue` (TRI), `FactoryBoardConflicts.vue` (BC), `FactoryCardDrawer.vue` (DR), `FactoryBoardRail.vue` (RAIL), `FactoryBoardDialogs.vue` (DLG), `FactorySendToWorkflow.vue` (SEND), `FactorySightingPanel.vue`, `components/belai/BelaiGithubPanel.vue` (GHP), `composables/belai-kanban-triage.ts` (TRK). Keleustes: `crates/kls-ui/src/screens/board.rs` (KB), `crates/kls-core/src/board.rs`, `crates/kls-store/src/board.rs`, `crates/kls-forge/src/sync.rs`.
 
 | Feature | Web source (file:line) | Keleustes | Keleustes file | Notes |
 |---|---|---|---|---|
@@ -217,10 +217,10 @@ Web: `website/src/pages/resolve/factory-checkpoints.vue` (CP), `components/facto
 | Row: status pill, title, repo, author with External marker, age (ISO title), linked card link | CP:620-700, DOC:61 | partial | checkpoints.rs:345-430 | No author/External marker; overdue marker extra. |
 | Row action menu: Resolve conflicts / Open conflict card / Retry / Mark ready / Convert to draft / Update branch / Request reviewers / Files and diff / Open on GitHub / Open on board / Unblock / Approve / Reject / File a card / Open | FCS:433-449, CP:700-730 | partial | checkpoints.rs:501-565 | Has Approve/Reject/Pass/Fail/Retry/Give up/Resume/Cancel, Merge, Answer, Open session/run/pull/card, GitHub. Missing ready/draft/update branch/reviewers here (they exist in repos.rs:954-986), Unblock, File a card, Resolve conflicts. |
 | Merge from checkpoint | — | done (extra) | checkpoints.rs:512-525 | Hard-codes "squash" instead of the repo's merge_method (repos.rs:986 uses settings). |
-| Bulk bar for ticked PRs (ready/draft/update/reviewers, ≤50, per-failure lines) | CP:519-540, FCS:531-540 | partial | checkpoints.rs:236-262, 369 | Bulk approve/reject of decidable kinds only; kls-github bulk_pull_action exists (sync.rs:420) unused here. |
+| Bulk bar for ticked PRs (ready/draft/update/reviewers, ≤50, per-failure lines) | CP:519-540, FCS:531-540 | partial | checkpoints.rs:236-262, 369 | Bulk approve/reject of decidable kinds only; kls-forge bulk_pull_action exists (sync.rs:420) unused here. |
 | Inline confirm under row (reviewers input ≤15, reject reason) one at a time | CP:542, 736, CheckpointConfirm.vue | partial | checkpoints.rs:487-495 | Note field in inspector; no reviewers form. |
 | Inspector: PR — state, review decision, merge state, head→base branch, changed files +/- | INS:130-200 | partial | checkpoints.rs:106-143 | Facts are workflow/run/step/repo/due/node/waiting; no PR facts. |
-| Inspector: PR files changed list | INS:370-420 | missing | none | Sandbox-sourced on web; Keleustes could read via kls-github. |
+| Inspector: PR files changed list | INS:370-420 | missing | none | Sandbox-sourced on web; Keleustes could read via kls-forge. |
 | Inspector: merge-conflict card status + attempt ledger (ConflictLedger) | INS:264-300, DOC:64 | missing | none | |
 | Inspector: card — list, checkpoint reason / blocked note, Open on board | INS:200-230 | partial | checkpoints.rs:553-557 | Open card yes; no blocked reason. |
 | Inspector: issue — number, comment count, Open on GitHub, File a card | INS:230-245, DOC:66 | missing | none | |
@@ -238,27 +238,27 @@ Web: `website/src/pages/resolve/factory-checkpoints.vue` (CP), `components/facto
 - [P0] Held-card checkpoints (`checkpoint:*` labels): Approve/Reject with reason in drawer and Checkpoints, reject → blocked — kls-core/src/board.rs (`decide_card`), needs.rs new `CardHeld` kind, board.rs drawer.
 - [P0] Board lists out of step with web (no Blocked list; triage/todo/doing vs in_progress) — align STATUSES in kls-core/src/board.rs or document the mapping; Blocked column needed for Triage.
 - [P0] Triage-by-cause for blocked cards (causes, Retry/Reassign/Edit/Dismiss/Snooze, suggested fix) — new Tab in kls-ui/src/screens/board.rs, cause parser in kls-core/src/board.rs from activity notes.
-- [P0] Checkpoint PR actions (ready, draft, update branch, request reviewers) + bulk PR bar — reuse kls-github sync::pull_action/bulk_pull_action in kls-ui/src/screens/checkpoints.rs.
+- [P0] Checkpoint PR actions (ready, draft, update branch, request reviewers) + bulk PR bar — reuse kls-forge sync::pull_action/bulk_pull_action in kls-ui/src/screens/checkpoints.rs.
 - [P1] Merge from Checkpoints uses hard-coded squash — read repo settings.merge_method as repos.rs:986 does (checkpoints.rs:522).
 - [P1] Assign card to worker/crew (Assign sheet) and Send to workflow (one run per card) — board.rs drawer + bulk; kls-engine ops start-run with card_id.
 - [P1] Multi-select + bulk bar on Board (move, priority, delete, send to workflow) — kls-ui/src/screens/board.rs.
 - [P1] Review tab semantics: Confirm→Backlog, Dismiss→Done `not-planned`, keys J/K/C/X — board.rs list(); kls-core/src/board.rs label helper.
-- [P1] Card GitHub tab: issue state/labels/comments, Sync now, unlink, mirror card / open issue (card→issue direction) — kls-github/src/sync.rs (create issue, push fields), board.rs drawer tab.
+- [P1] Card GitHub tab: issue state/labels/comments, Sync now, unlink, mirror card / open issue (card→issue direction) — kls-forge/src/sync.rs (create issue, push fields), board.rs drawer tab.
 - [P1] Drawer Add a note, Sessions tab, Run tab, Events-for-card link, copy link — board.rs; kls-core sessions by card_id, runs by card_id.
 - [P1] Events structured filters (run/card/repo/node/wf/session/needs) + deep link from other screens (`Events::focus(filter)`) — kls-ui/src/events.rs; Screen::Events arg in lib.rs.
 - [P1] Events time range + Load older (backward cursor) beyond the 500-event window — kls-store `events_before(id, limit)`, `events_between`; events.rs.
 - [P1] Event detail pane (facts, links, payload JSON) — events.rs side panel.
 - [P1] Event retention (30 days) pruning — kls-store/src/lib.rs periodic delete; kls-core start_event_tail.
-- [P1] Cockpit time range + token/spend/done-today/draft-PR/free-slot/quota/cache-hit KPIs — cockpit.rs; aggregates in kls-store/src/sessions.rs + engine.rs, quota from kls-github QuotaView.
+- [P1] Cockpit time range + token/spend/done-today/draft-PR/free-slot/quota/cache-hit KPIs — cockpit.rs; aggregates in kls-store/src/sessions.rs + engine.rs, quota from kls-forge QuotaView.
 - [P1] Running now: workflow-run lanes with node states, progress, tokens — cockpit.rs from kls-store/src/engine.rs runs.
-- [P1] Checkpoint kinds: draft PRs, external issues with no team reply, host (node) offline, deploy gates — kls-core/src/needs.rs (gh_pulls.draft, gh_issues authorAssociation, offline nodes, GitHub deployment reviews in kls-github).
-- [P1] Checkpoints repo + author filters, PR inspector facts (review decision, merge state, branches, +/-) and files list — checkpoints.rs; kls-github read_pull files.
+- [P1] Checkpoint kinds: draft PRs, external issues with no team reply, host (node) offline, deploy gates — kls-core/src/needs.rs (gh_pulls.draft, gh_issues authorAssociation, offline nodes, GitHub deployment reviews in kls-forge).
+- [P1] Checkpoints repo + author filters, PR inspector facts (review decision, merge state, branches, +/-) and files list — checkpoints.rs; kls-forge read_pull files.
 - [P1] Merge-conflict card ledger + Retry, and "Resolve conflicts" file-a-card from Checkpoints — kls-core/src/board.rs (ledger parser), checkpoints.rs, board.rs drawer.
 - [P1] Board lens (Needs me/Unrouted/P1/From a workflow) and Group by repo/workflow/crew swimlanes — board.rs.
 - [P2] Board header GitHub stamp (mirroring mode, lost access, last synced) + Board events link — board.rs header from kls-store/src/github.rs.
 - [P2] Board right rail (waiting on you, machines/workers, crews Start on) — board.rs when no drawer.
 - [P2] Backlog inline priority step, Unrouted/Stale modes; Done grouped by day with evidence modes + Reopen — board.rs list views.
-- [P2] Sync-conflicts tab (three-way field pick) — only needed once card↔issue sync is two-way; kls-github/src/sync.rs + new board tab.
+- [P2] Sync-conflicts tab (three-way field pick) — only needed once card↔issue sync is two-way; kls-forge/src/sync.rs + new board tab.
 - [P2] Cockpit HUD panels: System One decisions, token economy 14d, runs-by-hour heatmap, gates & provenance, touching — cockpit.rs; data from kls-store engine/sessions, kls-core/audit/trust.rs.
 - [P2] Cockpit Fleet/Health: workers table, run graph, repo eligibility (expose kls-node gateway `eligible()`), late-heartbeat state, version skew, friction, flow queues — fleet.rs / cockpit.rs.
 - [P2] Cockpit Needs-you counts-by-kind chips, need filter, secondary action, "New workflow" button, stream status indicator — cockpit.rs.
@@ -401,7 +401,7 @@ This audit covers builder UX only. Built-in profiles and automatic agent feature
 | Unanswered deliveries panel (GitHub events that started nothing, templates for each) | components/factory/FactoryUnansweredPanel.vue:1-4 | missing | none | Lives on the events page. Cross-ref the events auditor |
 | Review-back strip (firewall `?from=` back to card/run) | components/factory/FactoryReviewBack.vue:1-5 | n/a | | Firewall page, not SF desktop |
 | Source stamp (posture/webhook/github api tiers + call count) | components/factory/FactorySourceStamp.vue:1-8 | missing | none | No data-origin pill anywhere in kls-ui |
-| Priced action button ("· N GitHub calls") | components/factory/FactoryPricedAction.vue:1-7 | missing | none | Check how `kls-github/src/budget.rs` is used elsewhere |
+| Priced action button ("· N GitHub calls") | components/factory/FactoryPricedAction.vue:1-7 | missing | none | Check how `kls-forge/src/budget.rs` is used elsewhere |
 
 ## /resolve/factory-runs
 
@@ -473,7 +473,7 @@ This audit covers builder UX only. Built-in profiles and automatic agent feature
 - [P1] Crew thread / A2A UI: thread tab, Message crew, A2A rows with peer link and chips, thread expander, show/hide toggle. Build it on `kls-core/src/board.rs` `a2a_threads`/`a2a_thread`/`send_a2a`, with a Thread pane in `sessions.rs` and the drawer in `workforce.rs`.
 - [P1] Session controls strip + slash commands + shell mode. `queue_command` already takes any name. Add a controls row and composer parsing (`/`, `!`) in `kls-ui/src/screens/sessions.rs::composer_ui`, sourcing commands from host caps on the Node.
 - [P1] Answers with choices / plan review / pinned asks. Parse the ask meta (options, plan) from Entry meta_json in `sessions.rs::answer_ui` and send structured answers through `kls-core::sessions::queue_answer`.
-- [P1] Session factory context: run step, budgets, PR + checks with recheck, plus the session's kanban cards and todo list. Add a side panel in `sessions.rs`, read from `kls-engine::ops::run_detail`, `kls-core::board` and `kls-github`.
+- [P1] Session factory context: run step, budgets, PR + checks with recheck, plus the session's kanban cards and todo list. Add a side panel in `sessions.rs`, read from `kls-engine::ops::run_detail`, `kls-core::board` and `kls-forge`.
 - [P1] Per-field draft offers (Take/Drop/Undo/Take all) instead of overwrite. Keep `AgentDraft` beside the profile in `workforce.rs::Builder` and diff it per field.
 - [P1] Retry from a chosen step + cancel confirm in the run trace. Add a step ComboBox feeding `ops::retry_run(.., Some(step))` and a confirm row in `kls-ui/src/screens/runs.rs` (~line 426).
 - [P1] Run totals: budget %, est. cost, handoffs. Compute in `kls-engine/src/ops.rs::run_detail` from `kls-core::vault::budget_statuses` / usage rows, and show in `runs.rs::trace_body`.
@@ -488,7 +488,7 @@ This audit covers builder UX only. Built-in profiles and automatic agent feature
 - [P2] Evidence pack + Download evidence (SBOM/SARIF/PR checks) and vault grant names per run. Add a `kls-engine` evidence collector over `kls-core/src/artifacts.rs` blobs and a panel in `runs.rs`.
 - [P2] Builder extras: Get the files (markdown/JSON export, copy), Edit source (markdown import), agent files attachments, facts, palette/personality, tool groups with read-only preset, server checks (label producers, node budget fit). Put them in `workforce.rs` + `kls-core/src/vault.rs` (reuse `library_file`/`parse_library_file` for markdown).
 - [P2] Git strip actions: branch switch, git sync toggle, copy resume/teleport command; teleport on the session page. Wire `sessions.rs` to `queue_command` and `kls-core::audit::teleport_request`.
-- [P2] Wall mode, full-screen session, agent theming across screens (shared avatar/tag widget in `kls-ui/src/kit.rs`), source stamps and priced-action labels (`kls-github/src/budget.rs` call estimates).
+- [P2] Wall mode, full-screen session, agent theming across screens (shared avatar/tag widget in `kls-ui/src/kit.rs`), source stamps and priced-action labels (`kls-forge/src/budget.rs` call estimates).
 - [P2] Ask-Pix on failed run, Storage panel, Share links: low value for single-user desktop. Consider a local "Reveal in files" for run blobs instead.
 ## /resolve/factory-workflows (list + builder)
 
@@ -682,7 +682,7 @@ Web: `website/src/pages/resolve/factory-templates.vue` (FT). Keleustes: `crates/
 
 ## /resolve/factory-repos
 
-Web: `website/src/pages/resolve/factory-repos.vue` (FR), `components/factory/repos/*`. Keleustes: `crates/kls-ui/src/screens/repos.rs` (KR), `kls-github/src/{sync,poller,labels,budget}.rs`, `kls-store/src/github.rs`.
+Web: `website/src/pages/resolve/factory-repos.vue` (FR), `components/factory/repos/*`. Keleustes: `crates/kls-ui/src/screens/repos.rs` (KR), `kls-forge/src/{sync,poller,labels,budget}.rs`, `kls-store/src/github.rs`.
 
 | Feature | Web source (file:line) | Keleustes | Keleustes file | Notes |
 |---|---|---|---|---|
@@ -739,7 +739,7 @@ Web: `website/src/pages/resolve/factory-repos.vue` (FR), `components/factory/rep
 
 ## /resolve/factory-budgets
 
-Web: `website/src/pages/resolve/factory-budgets.vue` (FB), `components/factory/budgets/*`. Keleustes: `crates/kls-ui/src/screens/budgets.rs` (KB), `kls-core/src/vault.rs`, `kls-github/src/budget.rs`.
+Web: `website/src/pages/resolve/factory-budgets.vue` (FB), `components/factory/budgets/*`. Keleustes: `crates/kls-ui/src/screens/budgets.rs` (KB), `kls-core/src/vault.rs`, `kls-forge/src/budget.rs`.
 
 | Feature | Web source (file:line) | Keleustes | Keleustes file | Notes |
 |---|---|---|---|---|
@@ -773,7 +773,7 @@ Web: `website/src/pages/resolve/factory-budgets.vue` (FB), `components/factory/b
 | [07] GitHub quota: installation select | FactoryGithubQuota.vue:90 | n/a | none | One token |
 | GitHub quota: bar split this hour (enrichment / factory / people) | FactoryGithubQuota.vue:111 | partial | KR:1091-1150 | Shows remaining + factory poller calls; on Repos, not Budgets |
 | GitHub quota: which workflows the factory calls came from | FactoryGithubQuota.vue:4 | missing | none | `CallCount` has caller, not shown |
-| GitHub quota rules: factory share/hour, reserve for people, when share runs out | FactoryGithubQuota.vue:169-199 | missing (UI) | `kls-github/src/budget.rs:86` | Settings keys `forge.quota.factory_share`/`reserve` are read but no screen edits them; no on-exhausted policy |
+| GitHub quota rules: factory share/hour, reserve for people, when share runs out | FactoryGithubQuota.vue:169-199 | missing (UI) | `kls-forge/src/budget.rs:86` | Settings keys `forge.quota.factory_share`/`reserve` are read but no screen edits them; no on-exhausted policy |
 | Grants log + revoke | (n/a web on this page) | done (extra) | KB:520-610 | |
 
 ## /resolve/factory-trust
@@ -813,8 +813,8 @@ Web: `website/src/pages/resolve/factory-trust.vue` (FTr), `components/factory/tr
 - [P1] Publish panel with note + problem count, and "triggers after publish" list — `workflows.rs` header_ui; `ops.rs` publish already takes a note.
 - [P1] Template catalogue parity: add ci-failure-fixer, dependabot-triage, ui-polish-pass, security-patch-train, release-provenance — `kls-engine/src/templates.json`.
 - [P1] Template search box + run-budget field in Use form — `kls-ui/src/screens/templates.rs` (pass budget to `templates::use_template`).
-- [P1] Issue mirroring per board project: project↔repo mapping, inbound issues → Review cards, merge rules, escalation hours, existing-cards choice — `kls-github/src/sync.rs` + `kls-store/src/github.rs` mirroring table; section in repos.rs.
-- [P1] GitHub quota rules editor (factory share, reserve, on-exhausted policy) and per-workflow call breakdown — settings write of `forge.quota.*` in `kls-ui/src/screens/budgets.rs` (or settings.rs); policy in `kls-github/src/budget.rs`.
+- [P1] Issue mirroring per board project: project↔repo mapping, inbound issues → Review cards, merge rules, escalation hours, existing-cards choice — `kls-forge/src/sync.rs` + `kls-store/src/github.rs` mirroring table; section in repos.rs.
+- [P1] GitHub quota rules editor (factory share, reserve, on-exhausted policy) and per-workflow call breakdown — settings write of `forge.quota.*` in `kls-ui/src/screens/budgets.rs` (or settings.rs); policy in `kls-forge/src/budget.rs`.
 - [P1] Default workflow catalogue (origin system, Defaults filter, Customised badge, per-repo opt-out using existing `RepoSettings.defaults_off`) — seed in `kls-engine/src/templates.rs`/ops.rs; UI in workflows.rs and repos.rs detail. Cross-ref automatic-agent-features auditor.
 - [P1] Repo detail: workflows attached + bulk "attach workflow" — scope match via `ops::repo_in_scope` (`kls-engine/src/ops.rs:647`); repos.rs detail + bulk_bar.
 - [P2] System One decision node (model question, confidence threshold, fallback, abstain route, daily cap, rationale retention, 30-day stats) — new node kind in `kls-engine/src/graph.rs` + exec calling a provider via `kls-core/src/vault.rs` routing.
@@ -890,7 +890,7 @@ Page chrome and shared mechanics:
 | Kill switch with confirm dialog explaining effect + GitHub-call cost, reason for ledger | components/factory/settings/FactoryKillSwitch.vue:52,93-137 | partial | settings.rs:759-805, kls-core/src/board.rs:757 | no confirm dialog; one reason box shared with A2A |
 | Stop: cancel running steps, release kanban leases, revoke forge tokens, hold scheduled fires; result counts | FactoryKillSwitch.vue:3-7,70,112 | partial | kls-engine/src/exec.rs:522,664,977 | K only stops new schedule/trigger/dispatch work; running steps not cancelled, leases not released, no result summary |
 | A2A blackout with confirm + reason | components/factory/settings/FactoryA2ABlackout.vue:1-6,81-116 | done | settings.rs:806-845 | no confirm dialog when turning on |
-| sf: labels sync (create missing labels in named repos, priced) | components/factory/settings/FactoryLabelsSync.vue:1-4,85-106 | done | kls-github/src/labels.rs, kls-ui/src/screens/repos.rs | lives on Repos, not Settings |
+| sf: labels sync (create missing labels in named repos, priced) | components/factory/settings/FactoryLabelsSync.vue:1-4,85-106 | done | kls-forge/src/labels.rs, kls-ui/src/screens/repos.rs | lives on Repos, not Settings |
 | "No decision model available" empty state | factory-settings.vue (AiProviderEmptyState) | n/a | — | platform AI switches |
 | Keep min-confidence for new model prompt | factory-settings.vue:443 | missing | none | no systemone.model key in K |
 
@@ -983,7 +983,7 @@ Settings keys (shared/factory-settings.ts). "stored" = in K's document but nothi
 | Feature | Web source (file:line) | Keleustes | Keleustes file | Notes |
 |---|---|---|---|---|
 | Open a PR's conflicts by repo + number (`?repo=&pr=`) | pages/resolve/factory-conflicts.vue:1-18 | done | kls-ui/src/screens/conflicts.rs:136-160 | |
-| Server-side merge: clean hunks in, overlaps marked | factory-conflicts.vue:5-6 | done | kls-github/src/conflicts.rs:128, merge3.rs | K shows base / ours / theirs side by side |
+| Server-side merge: clean hunks in, overlaps marked | factory-conflicts.vue:5-6 | done | kls-forge/src/conflicts.rs:128, merge3.rs | K shows base / ours / theirs side by side |
 | File list with progress count | factory-conflicts.vue:198-215 | done | conflicts.rs:409-445 | |
 | Per block: accept current / incoming / both | components/factory/conflicts/ConflictFilePane.vue:1-5 | done | conflicts.rs:665-669 | K adds Base and Markers |
 | Accept all / whole file per side | — | done | conflicts.rs:583-611 | K extra |
@@ -995,7 +995,7 @@ Settings keys (shared/factory-settings.ts). "stored" = in K's document but nothi
 | Commit dialog: message + extended description | components/factory/conflicts/ConflictCommitDialog.vue:110-134 | partial | conflicts.rs:307,779 | message only |
 | Commits as the person, email choice | ConflictCommitDialog.vue:139-152 | partial | conflicts.rs:365 | commits as the gh user via the API; no email choice (signing.email not read) |
 | Signature: required/preferred, "Commit without a signature" | ConflictCommitDialog.vue:1-8,169 | partial | conflicts.rs:361,699 | always API-signed; shows Verified / Unverified after |
-| head_moved: nothing written; Reload keeps unchanged resolved files | factory-conflicts.vue:13-15, ConflictCommitDialog.vue:89 | partial | kls-github/src/conflicts.rs:378 | refuses; reload loses resolutions |
+| head_moved: nothing written; Reload keeps unchanged resolved files | factory-conflicts.vue:13-15, ConflictCommitDialog.vue:89 | partial | kls-forge/src/conflicts.rs:378 | refuses; reload loses resolutions |
 | Done panel: commit sha link, parents, signature, lockfiles, "waiting for GitHub mergeability" | factory-conflicts.vue:87-110 | partial | conflicts.rs:548-553 | notice with sha + verified only |
 | Open PR on GitHub | factory-conflicts.vue (Open #n) | done | conflicts.rs:246 | |
 | "Use Update branch" when nothing overlaps | factory-conflicts.vue:139 | done | conflicts.rs:414 | |
@@ -1040,7 +1040,7 @@ Settings keys (shared/factory-settings.ts). "stored" = in K's document but nothi
 | Directory table (works on, outcomes, started, decided, reviewed, signed off, signed %, time, last active) | components/factory/delivery/ContributorTable.vue:1-4 | done | delivery.rs:764-773 | |
 | By repository (outcomes, contributors) | factory-contributors.vue:140 | done | delivery.rs:368 | |
 | Where people step in (share of outcomes) | factory-contributors.vue:185 | done | delivery.rs:726 | |
-| Internal by company email domain | shared/factory-delivery-settings.ts:378 | partial | kls-github/src/parse.rs:286 | K uses GitHub author association only |
+| Internal by company email domain | shared/factory-delivery-settings.ts:378 | partial | kls-forge/src/parse.rs:286 | K uses GitHub author association only |
 
 ## /resolve/factory-contributor
 
@@ -1070,7 +1070,7 @@ Settings keys (shared/factory-settings.ts). "stored" = in K's document but nothi
 
 ### Gaps
 
-- [P0] Settings that save but do nothing: autonomy.max, autonomy.default, concurrency, max_attempts, claim_ttl_minutes, no_host_ttl_hours (hard-coded 1 h in the engine against a 6 h default), ask_permission, plan_approval, belai.mode, defaults.enabled, approve.sensitive_paths, forge.branch_prefix/pr_state/protected, signing.email, schedules.tz (UTC fallback), schedules.missed, budget.on_exceed/alerts, persistence.retention, audit.calls, notify.events — load these into `EngineConfig` and the forge/approval paths when the engine starts and when a `settings.saved` event arrives (kls-engine/src/exec.rs, kls-engine/src/forge.rs, kls-github), read notify.events in kls-app/src/desktop.rs; until each is wired, hide or mark it in kls-core/src/audit/config.rs.
+- [P0] Settings that save but do nothing: autonomy.max, autonomy.default, concurrency, max_attempts, claim_ttl_minutes, no_host_ttl_hours (hard-coded 1 h in the engine against a 6 h default), ask_permission, plan_approval, belai.mode, defaults.enabled, approve.sensitive_paths, forge.branch_prefix/pr_state/protected, signing.email, schedules.tz (UTC fallback), schedules.missed, budget.on_exceed/alerts, persistence.retention, audit.calls, notify.events — load these into `EngineConfig` and the forge/approval paths when the engine starts and when a `settings.saved` event arrives (kls-engine/src/exec.rs, kls-engine/src/forge.rs, kls-forge), read notify.events in kls-app/src/desktop.rs; until each is wired, hide or mark it in kls-core/src/audit/config.rs.
 - [P0] The kill switch does not cancel running steps or release kanban leases, and has no confirm dialog — add `Core::stop_factory` in kls-core/src/board.rs that cancels running dispatches through kls-node jobs, releases leases and returns counts; add a confirm window in kls-ui/src/screens/settings.rs control_ui.
 - [P1] Audit entry has no "open" links to its card, run, session, workflow or events — map subject fields to `Model::go(Screen, focus)` in kls-ui/src/screens/audit.rs entry_detail (port shared/factory-audit.ts entryLinks).
 - [P1] Audit filters for card, agent, repo, workflow/run and vuln — add the fields to `LedgerQuery` (kls-store/src/audit.rs:169) as subject JSON matches, plus inputs in audit.rs ledger_ui.
@@ -1080,11 +1080,11 @@ Settings keys (shared/factory-settings.ts). "stored" = in K's document but nothi
 - [P1] System One section: model, fallback, below_threshold, on_abstain, retention, override — config.rs keys read by the decision code in kls-core/src/github.rs:490 and kls-engine.
 - [P1] Default run-on host + fallback, and a maintenance window — config.rs keys; kls-engine/src/exec.rs node selection and fire_schedules check.
 - [P1] Schedule blackout windows (schedules.blackout) — new Kind::Blackout in config.rs; skip or hold fires in kls-engine/src/exec.rs fire_schedules.
-- [P1] Conflict editor: lockfile handling (take the base copy, flag regeneration), keep resolutions across a head_moved reload, extended description — kls-github/src/conflicts.rs (lockfile list, merge into the new set) and kls-ui/src/screens/conflicts.rs.
+- [P1] Conflict editor: lockfile handling (take the base copy, flag regeneration), keep resolutions across a head_moved reload, extended description — kls-forge/src/conflicts.rs (lockfile list, merge into the new set) and kls-ui/src/screens/conflicts.rs.
 - [P1] Outcome detail screen (timeline, cost by model, people) — add `outcome(key)` to kls-core/src/github.rs and a Tab::Outcome in kls-ui/src/screens/delivery.rs opened from an Outcomes row click.
 - [P1] Project overrides (per node + directory belai prefs, layer shown, save and wait for the node's ack) — add an RPC in kls-proto/kls-node and a section in kls-ui/src/screens/settings.rs.
-- [P2] Kanban binding settings (mode, opt-out label, comment on sync conflict) — config.rs keys read by kls-github/src/sync.rs.
-- [P2] Forge quota extras: proactive_writes_per_hour, calls_per_hour, on_exhausted — kls-github/src/budget.rs.
+- [P2] Kanban binding settings (mode, opt-out label, comment on sync conflict) — config.rs keys read by kls-forge/src/sync.rs.
+- [P2] Forge quota extras: proactive_writes_per_hour, calls_per_hour, on_exhausted — kls-forge/src/budget.rs.
 - [P2] Audit: day grouping, cursor paging past 5000, multi-select session delete, fact-filter chips, vuln links, agent avatars — kls-ui/src/screens/audit.rs.
 - [P2] Delivery estimate model (delivery.* rates, role multipliers, manual baselines, company domain), team-equivalent figures, Decisions by-kind person time, factory-vs-team contrast, capture coverage — a `delivery` settings section in config.rs plus an estimate fn in kls-core/src/github.rs; render in delivery.rs.
 - [P2] Delivery ranges today and MTD; contributor part filter; contributor agents list; slowest-tenth answer time — kls-ui/src/screens/delivery.rs, kls-core/src/github.rs.
@@ -1267,15 +1267,15 @@ Web sources are vdb-site (`api/internal/handler/*`, `docs/*`) unless prefixed `w
 
 | Behaviour | Web/API source (file:line) | Keleustes | Keleustes file | Notes |
 |---|---|---|---|---|
-| Event ingest (App webhooks; poll fallback every 1/10 min) | docs/factory.md:3634,3684; belai_github_scheduler.go:34 | done | kls-github/src/poller.rs:45; service.rs:180 | Poller replaces webhooks; `github.poll_interval_s` default 120 s, `github.poll` on/off. |
-| ETag conditional reads; 304 not counted | docs/factory.md:3692 | done | kls-github/src/client.rs | |
-| Mirrored event kinds: pulls (+checks, reviews), issues, labels | docs/factory.md:3634 table | done | kls-github/src/sync.rs:234,451,613 | |
+| Event ingest (App webhooks; poll fallback every 1/10 min) | docs/factory.md:3634,3684; belai_github_scheduler.go:34 | done | kls-forge/src/poller.rs:45; service.rs:180 | Poller replaces webhooks; `github.poll_interval_s` default 120 s, `github.poll` on/off. |
+| ETag conditional reads; 304 not counted | docs/factory.md:3692 | done | kls-forge/src/client.rs | |
+| Mirrored event kinds: pulls (+checks, reviews), issues, labels | docs/factory.md:3634 table | done | kls-forge/src/sync.rs:234,451,613 | |
 | Mirrored event kinds: push, release, workflow_run, standalone check_run/suite, pull_request_review, issue_comment, repository, dependabot/code-scanning/secret-scanning alerts, deployment_status, registry_package, merge_group, review comments | docs/factory.md:3634 table, 4667 (12.7) | missing | kls-engine/src/forge.rs:496 (`webhook_events`) maps only PR/issue/label | Webhook triggers on these events can be saved but never fire. |
-| Quota guard classes `user` / `time_critical` / `deferrable`, factory share, reserve, secondary limit | docs/factory.md:3692 | done | kls-github/src/budget.rs:104 | |
-| Factory live reads classed `deferrable` | docs/factory.md:3692 | partial | kls-github/src/budget.rs:24 | Every `factory:*` caller is `TimeCritical`; only the poller is deferrable. |
+| Quota guard classes `user` / `time_critical` / `deferrable`, factory share, reserve, secondary limit | docs/factory.md:3692 | done | kls-forge/src/budget.rs:104 | |
+| Factory live reads classed `deferrable` | docs/factory.md:3692 | partial | kls-forge/src/budget.rs:24 | Every `factory:*` caller is `TimeCritical`; only the poller is deferrable. |
 | Refusal action `onQuotaLow` / `forge.quota.on_exhausted` (use_cached, defer with `quota_resume` wake, escalate approval) | docs/factory-engine.md:709 | missing | none | A refused call fails the step. |
 | Per-run cap `limits.githubCallsPerRun.max` (`run_cap`) | docs/factory-engine.md:709 | missing | none | |
-| Quota events `share_threshold` 50/80/100, `exhausted`, `reset` | docs/factory.md:3740 | partial | kls-github/src/client.rs:200,257 | Only `observed` and `limited`. |
+| Quota events `share_threshold` 50/80/100, `exhausted`, `reset` | docs/factory.md:3740 | partial | kls-forge/src/client.rs:200,257 | Only `observed` and `limited`. |
 | `forge.quota.proactive_writes_per_hour` (60) | website/.repo/software-factory.md:206 | missing | none | |
 | Webhook trigger fires on event name | docs/factory.md:4346 | done | kls-engine/src/exec.rs:713 | |
 | Trigger conditions at fire time (`subject`, `origin` same_repo/fork, branches, author, paths, `profile`, `severity`, `environment`, `packageType`) | docs/factory.md:4346, 4667; website/.repo/software-factory.md:175 | missing | none | Only the event name (or label) is matched. |
@@ -1283,14 +1283,14 @@ Web sources are vdb-site (`api/internal/handler/*`, `docs/*`) unless prefixed `w
 | Safeguard: coalescing window (`debounceSeconds`, 30 s for push/synchronize) | docs/factory.md:4483 | missing | none | Each poll diff starts a run. |
 | Safeguard: `maxRunsPerHour` per trigger (60) | docs/factory.md:4483 | missing | none | |
 | Safeguard: fork PR must pass a human node (`fork_needs_human`) | docs/factory.md:4483 | missing | none | |
-| Managed repo / enabled org gate | docs/factory.md:4483 | done | kls-github/src/poller.rs:69; kls-engine/src/ops.rs:555 | Unmanaged repos produce no events; scope checked at start. |
+| Managed repo / enabled org gate | docs/factory.md:4483 | done | kls-forge/src/poller.rs:69; kls-engine/src/ops.rs:555 | Unmanaged repos produce no events; scope checked at start. |
 | Label trigger (case-insensitive) | docs/factory.md:4695 | done | kls-engine/src/exec.rs:718 | |
 | Label trust (`label_untrusted_sender`, `allowBots`, `fromFactory`) | docs/factory.md:4695 | missing | none | Poller does not record who added a label. |
 | Slash command `/sf <name>` from OWNER/MEMBER/COLLABORATOR | docs/factory.md:4695 | missing | none | Comments not mirrored. |
 | Unlabel cancels queued runs; `sf:stop` cancels every open run on the subject | docs/factory.md:4695 | missing | none | |
 | Fan-out order by trigger `priority`, `factory.fanoutCap` (6) | docs/factory.md:4695 | missing | none | |
 | `trigger.skipped` events with reason, hourly dedupe | docs/factory.md:4483 | partial | kls-engine/src/exec.rs:578,763 | `schedule.skipped` for overlap/missed/errors only. |
-| `sf:` label set (34) synced into managed repos | docs/factory.md:4723 | done | kls-github/src/labels.rs; poller.rs:85 | |
+| `sf:` label set (34) synced into managed repos | docs/factory.md:4723 | done | kls-forge/src/labels.rs; poller.rs:85 | |
 | Cron fan-out: one run per in-scope repo that an online host has, staggered over 6 h | factory_cron_stagger.go:21,41; docs/factory-engine.md:357 (`fwPlanFanout`) | missing | none | A cron fire makes one run with no repo. |
 
 ### Defaults, autonomy, outputs
@@ -1309,7 +1309,7 @@ Web sources are vdb-site (`api/internal/handler/*`, `docs/*`) unless prefixed `w
 
 | Behaviour | Web/API source (file:line) | Keleustes | Keleustes file | Notes |
 |---|---|---|---|---|
-| Inbound: open issue → triage card; close → done; reopen → triage; title follows | belai_github_scheduler.go:221; website/.repo/belai-github-sync.md | done | kls-github/src/sync.rs:532 (`issue_card`) | |
+| Inbound: open issue → triage card; close → done; reopen → triage; title follows | belai_github_scheduler.go:221; website/.repo/belai-github-sync.md | done | kls-forge/src/sync.rs:532 (`issue_card`) | |
 | Outbound: card → issue (open the issue, push title/body/list/priority/labels, every 30 s) | belai_github_scheduler.go:112,131 | missing | none | One-way only. |
 | Retry queue for failed pushes (15 s), `lost_access` backoff (15 min) | belai_github_scheduler.go:120,192 | missing | none | |
 | Edit conflicts held per field with policies (priority follows board, rest ask) | website/.repo/belai-github-sync.md:57 | missing | none | Inbound sync overwrites the card title. |
@@ -1338,7 +1338,7 @@ Web sources are vdb-site (`api/internal/handler/*`, `docs/*`) unless prefixed `w
 | Audit ledger fold from events and host audit lines | docs/factory-engine.md:776 | done | kls-core/src/audit.rs:893 | |
 | `audit.calls` (record each GitHub call in the ledger) | config key | missing | none | Inert. |
 | Lifecycle ledger sweep (stage episodes, `lifecycle` entered/exited events, Flow reads, 5 min) | factory_lifecycle_sweep.go:25,44; docs/factory-lifecycle.md:131 | missing | none | Cockpit Flow panel has no data source. |
-| Delivery derivation (outcomes, decisions, commit links, people) | factory_delivery_sweep.go:45,290 | done | kls-core/src/github.rs:276,485,637; kls-github/src/sync.rs:718 | Computed on read plus capture at poll; no 3-day backfill window needed locally. |
+| Delivery derivation (outcomes, decisions, commit links, people) | factory_delivery_sweep.go:45,290 | done | kls-core/src/github.rs:276,485,637; kls-forge/src/sync.rs:718 | Computed on read plus capture at poll; no 3-day backfill window needed locally. |
 | Firewall sightings subscriber (package seen/blocked, capability, egress → triage; 10 min batch; 7 d retention) | factory_sources.go:46-50,173 | missing | none | Keleustes has no firewall source; P2. |
 | Vault auto-rotation when due and deletion of the old key after grace (15 min) | vault_derived.go:293; vault_service.go:1492 | missing | kls-core/src/vault.rs:180 (manual rotate only) | |
 | Vault entry expiry (expiring in 14 d, expired → retrieval denied) | website/src/pages/resolve/vault.vue:67 | partial | kls-vault/src/lib.rs:616 | Grants expire; entries do not. |
@@ -1350,7 +1350,7 @@ Counts: done 30, partial 13, missing 59.
 
 - [P0] Budget enforcement: no budget ever stops or pauses work — in `kls-engine/src/exec.rs` `dispatch()` call `kls_core::vault::check_budget_now` with the node's planned tokens; map Block → `hard_stop` fail / `pause_run` (ops::pause_run) / `escalate_human` approval; also enforce `limits.runBudgetTokens` against `run.tokens`.
 - [P0] Autonomy enforcement on outputs (`observe`/`draft_pr`/approve; `autonomy.default`, `autonomy.max`; gate or drop `merge`) — check `RepoSettings.autonomy` in `kls-engine/src/forge.rs::action` before `draft_pr`/`approve_ready`/`merge`/`pr_review`.
-- [P0] Trigger safeguards: own-branch/own-identity, coalescing (`debounceSeconds`), `maxRunsPerHour` — in `kls-engine/src/exec.rs::fire_event_triggers`; poll events need `headRef`/`author` in data from `kls-github/src/sync.rs`.
+- [P0] Trigger safeguards: own-branch/own-identity, coalescing (`debounceSeconds`), `maxRunsPerHour` — in `kls-engine/src/exec.rs::fire_event_triggers`; poll events need `headRef`/`author` in data from `kls-forge/src/sync.rs`.
 - [P0] Webhook trigger conditions (subject, origin/fork, branches, author, paths) evaluated at fire time — add a condition matcher in `kls-engine/src/forge.rs` next to `webhook_matches`; include fork-needs-human check.
 - [P0] Session lost when a node vanishes — in `kls-node/src/server.rs` on `NODE_OFFLINE` (+10 min grace) end its live sessions via `kls-store/src/sessions.rs`, emitting `session.ended` so crew steps settle.
 - [P1] Notify node, run-failed and session-finished OS notices — extend `kls-app/src/desktop.rs::start_notifications` to consume `run.notify`, `run.finished` (failed, with cause text from walker reason) and `session.ended`; honour `notify.events`.
@@ -1360,12 +1360,12 @@ Counts: done 30, partial 13, missing 59.
 - [P1] Read inert engine settings: `autonomy.concurrency`, `autonomy.max_attempts`, `autonomy.claim_ttl_minutes`, `autonomy.no_host_ttl_hours`, `schedules.tz`, `schedules.missed`, `budget.on_exceed` — load into `EngineConfig` from settings in `kls-engine/src/exec.rs::start`.
 - [P1] Card claim TTL (`card_unclaimed`) and capacity wait — in `kls-engine/src/exec.rs::settle_dispatch`/`on_wake`, fail retryably when no session after claim TTL; treat node "full" refusals as `deferred:capacity`.
 - [P1] Crew handoff following (`agent.parent`) — `kls-engine/src/exec.rs::settle_dispatch` should check child cards via `kls-core/src/board.rs` before succeeding the step.
-- [P1] Outbound card → issue sync with retry and field conflicts — new `kls-github/src/sync.rs` outbound pass in `poller::poll_once`; conflict rows in `kls-store/src/github.rs`; escalation notice.
+- [P1] Outbound card → issue sync with retry and field conflicts — new `kls-forge/src/sync.rs` outbound pass in `poller::poll_once`; conflict rows in `kls-store/src/github.rs`; escalation notice.
 - [P1] Gate woken by PR/check updates — in `exec.rs::on_event`, on `github.pull.updated` with `checksCompleted` wake waiting gate steps for that repo/PR.
 - [P1] Event retention (30 d) and `persistence.retention` — daily prune in `kls-core/src/audit.rs::start` sweep arm, store helpers in `kls-store/src/lib.rs`.
-- [P1] Mirror more GitHub event kinds (push, release, workflow_run, review submitted, issue_comment, alerts) — `kls-github/src/sync.rs` + `kinds` in `kls-core/src/github.rs`, mapped in `kls-engine/src/forge.rs::webhook_events`.
-- [P1] Label controls: unlabel cancels queued runs, `sf:stop`, `/sf <name>` slash commands, label trust — `kls-engine/src/exec.rs::fire_event_triggers`; needs `labelsRemoved` and comments from `kls-github/src/sync.rs`.
-- [P2] Quota refusal actions (`onQuotaLow`, `on_exhausted`, `run_cap`), deferrable factory reads, threshold events — `kls-github/src/budget.rs` (class by call kind), `kls-engine/src/forge.rs` (defer with wake at reset).
+- [P1] Mirror more GitHub event kinds (push, release, workflow_run, review submitted, issue_comment, alerts) — `kls-forge/src/sync.rs` + `kinds` in `kls-core/src/github.rs`, mapped in `kls-engine/src/forge.rs::webhook_events`.
+- [P1] Label controls: unlabel cancels queued runs, `sf:stop`, `/sf <name>` slash commands, label trust — `kls-engine/src/exec.rs::fire_event_triggers`; needs `labelsRemoved` and comments from `kls-forge/src/sync.rs`.
+- [P2] Quota refusal actions (`onQuotaLow`, `on_exhausted`, `run_cap`), deferrable factory reads, threshold events — `kls-forge/src/budget.rs` (class by call kind), `kls-engine/src/forge.rs` (defer with wake at reset).
 - [P2] Cron fan-out per repo with 6 h stagger — `kls-engine/src/exec.rs::fire_one`, iterate `g.scope.repos` × managed repos.
 - [P2] Blackout windows and `held` run status with reason — `kls-engine/src/exec.rs::stopped()` → hold check returning a cause; window_end as a step/schedule wake.
 - [P2] Fan-out priority and cap per event — sort schedules by `priority` in `fire_event_triggers`, cap at `factory.fanoutCap`.
@@ -1391,7 +1391,7 @@ Each item is tagged with its area. The section-level `### Gaps` lists above hold
 
 1. **[Vault] Key test that only indicates and never blocks saving.** Add `probe_key(provider, value)` and `probe_stored(id)` in `kls-core/src/vault.rs`, with a reqwest/rustls client, a 10 s timeout, and a `base_url`/`probe_url` column on `Provider` via a kls-store migration. In `kls-ui/src/screens/budgets.rs`, `key_dialog` gets a Test button and a result chip (accepted N ms / refused HTTP N / not tested). Save stays enabled. After save, a background re-test stores `last_test_*`, shown as a dot in `key_row`.
 2. **[Background] Budget enforcement.** In `kls-engine/src/exec.rs` `dispatch()`, call `check_budget_now`. Map Block to a hard fail, `ops::pause_run` or an approval. Also enforce `limits.runBudgetTokens`.
-3. **[Settings/Background] Wire the inert settings into the engine.** Load them into `EngineConfig` at engine start and on `settings.saved` (`kls-engine/src/exec.rs`, `forge.rs`, kls-github). Read `notify.events` in `kls-app/src/desktop.rs`. Until a key is wired, hide it in `kls-core/src/audit/config.rs`. Keys:
+3. **[Settings/Background] Wire the inert settings into the engine.** Load them into `EngineConfig` at engine start and on `settings.saved` (`kls-engine/src/exec.rs`, `forge.rs`, kls-forge). Read `notify.events` in `kls-app/src/desktop.rs`. Until a key is wired, hide it in `kls-core/src/audit/config.rs`. Keys:
    - `autonomy.max`, `autonomy.default`, `autonomy.concurrency`, `autonomy.max_attempts`, `autonomy.claim_ttl_minutes`, `autonomy.no_host_ttl_hours`
    - `schedules.tz`, `schedules.missed`
    - `budget.on_exceed`, `budget.alerts`
@@ -1406,7 +1406,7 @@ Each item is tagged with its area. The section-level `### Gaps` lists above hold
 10. **[Checkpoints] Held-card checkpoints.** For `checkpoint:*` labels, add Approve, and Reject with a reason (reject moves the card to blocked). Use `kls-core/src/board.rs` `decide_card`, a `CardHeld` need kind in `needs.rs`, and the board drawer.
 11. **[Board] Lists out of step with the web.** There is no Blocked list, and Keleustes uses triage/todo/doing where the web uses in_progress. Align `STATUSES` in `kls-core/src/board.rs`.
 12. **[Board] Triage by cause for blocked cards.** Cards need a cause plus Retry, Reassign, Edit, Dismiss, Snooze and a suggested fix. Add a new tab in `kls-ui/src/screens/board.rs`, with a cause parser in `kls-core/src/board.rs`.
-13. **[Checkpoints] PR actions and bulk PR bar.** Actions are ready, draft, update branch and request reviewers. Reuse `kls-github` `sync::pull_action`/`bulk_pull_action` in `kls-ui/src/screens/checkpoints.rs`.
+13. **[Checkpoints] PR actions and bulk PR bar.** Actions are ready, draft, update branch and request reviewers. Reuse `kls-forge` `sync::pull_action`/`bulk_pull_action` in `kls-ui/src/screens/checkpoints.rs`.
 14. **[Workforce] Saved agents and crews never reach a node.** Add a push/install RPC in `kls-proto` `node.proto`, served from `kls-node/src/gateway.rs` and triggered by `kls-core::vault::save_agent`.
 15. **[Agent builder] Structured builder fields.** Fields are mode, autonomy, max_iterations, effort, guardrails, ask_permission, kanban handoffs, workspace, budget/memory and knowledge_paths. Make them typed fields on AgentProfile in `kls-store/src/vault.rs` instead of `meta_json`, with section forms in `kls-ui/src/screens/workforce.rs`.
 
@@ -1423,7 +1423,7 @@ Each item is tagged with its area. The section-level `### Gaps` lists above hold
   - Assign sheet (worker or crew), and Send to workflow (one run per card) via kls-engine ops `start_run` with `card_id`.
   - Multi-select with a bulk bar (move, priority, delete, send).
   - Review tab semantics: Confirm moves to Backlog, Dismiss moves to Done `not-planned`; keys J/K/C/X.
-  - Card GitHub tab: issue state, labels, comments, Sync now, unlink, mirror card / open issue. Use `kls-github/src/sync.rs`.
+  - Card GitHub tab: issue state, labels, comments, Sync now, unlink, mirror card / open issue. Use `kls-forge/src/sync.rs`.
   - Drawer: add a note, Sessions and Run tabs, an Events-for-card link, copy link.
   - Board lens (Needs me / Unrouted / P1 / From a workflow) and swimlanes by repo, workflow or crew.
 - **[Events]**
@@ -1465,10 +1465,10 @@ Each item is tagged with its area. The section-level `### Gaps` lists above hold
   - Add ci-failure-fixer, dependabot-triage, ui-polish-pass, security-patch-train and release-provenance to `kls-engine/src/templates.json`.
   - Template search, and a run budget in the Use form.
 - **[Repos]**
-  - Issue mirroring per board project (`kls-github/src/sync.rs` plus a mirroring table).
+  - Issue mirroring per board project (`kls-forge/src/sync.rs` plus a mirroring table).
   - Repo detail: attached workflows and bulk attach.
   - Default workflow catalogue, seeding per managed repo, and honouring `RepoSettings.defaults_off` (`kls-engine/src/templates.rs`).
-- **[Budgets]** GitHub quota rules editor (share, reserve, on-exhausted) with a per-workflow call breakdown (`kls-github/src/budget.rs`).
+- **[Budgets]** GitHub quota rules editor (share, reserve, on-exhausted) with a per-workflow call breakdown (`kls-forge/src/budget.rs`).
 - **[Audit]**
   - Open links from an entry to its card, run, session, workflow or events.
   - Filters for card, agent, repo, workflow/run and vuln (`LedgerQuery`, `kls-store/src/audit.rs:169`).
@@ -1480,7 +1480,7 @@ Each item is tagged with its area. The section-level `### Gaps` lists above hold
   - Default run-on node, fallback and maintenance window.
   - Schedule blackout windows.
   - Project overrides per node and directory, with ack.
-- **[Conflicts]** Lockfile handling, keeping resolutions across a `head_moved` reload, extended description (`kls-github/src/conflicts.rs`).
+- **[Conflicts]** Lockfile handling, keeping resolutions across a `head_moved` reload, extended description (`kls-forge/src/conflicts.rs`).
 - **[Delivery]** Outcome detail screen (timeline, cost by model, people): `outcome(key)` in `kls-core/src/github.rs` and a tab in `delivery.rs`.
 - **[Background]**
   - OS notices for notify nodes, failed runs and finished sessions (`kls-app/src/desktop.rs::start_notifications`).
@@ -1599,7 +1599,7 @@ Cross-cutting findings:
 | budget.alerts | Settings | P0 | done | kls-core/src/vault.rs:1252-1257, :1272-1279 | - |
 | forge.branch_prefix | Settings | P0 | done | own-branch guard kls-engine/src/exec.rs:1116-1121; names the factory branch in `draft_pr` (kls-engine/src/forge.rs:229 `branch_name`, :338-345); test forge/tests.rs:1057 | - (PENDING entry removal requested from governance) |
 | forge.pr_state | Settings | P0 | done | kls-engine/src/forge.rs:397-401 (node `prState`, else `Effective.pr_ready`); test kls-engine/src/forge/tests.rs:1057 | - (PENDING entry removal requested) |
-| forge.protected | Settings | P0 | done | kls-github/src/forge/guard.rs:110-147 (`protection_on` with the repo switch, `protected_branch`: default branch or forge-protected); `draft_pr` refuses + audits kls-engine/src/forge.rs:358-362; conflict commits kls-github/src/conflicts.rs (`commit`); test forge/tests.rs:1057 | - |
+| forge.protected | Settings | P0 | done | kls-forge/src/forge/guard.rs:110-147 (`protection_on` with the repo switch, `protected_branch`: default branch or forge-protected); `draft_pr` refuses + audits kls-engine/src/forge.rs:358-362; conflict commits kls-forge/src/conflicts.rs (`commit`); test forge/tests.rs:1057 | - |
 | approve.sensitive_paths | Settings | P0 | done | kls-engine/src/forge/outputs.rs:596-625 (built-in globs + setting), used by `approve_ready` kls-engine/src/forge.rs:499; test forge/tests.rs:954 | - |
 | persistence.retention | Settings | P0 | done | kls-core/src/sweeps.rs:122-141 (deletes ended sessions), started kls-app/src/main.rs:569 | - |
 | notify.events | Settings | P0 | done | kls-app/src/desktop.rs:454 `notify_allows(&eff.notify_events, ..)` | - |
@@ -1623,7 +1623,7 @@ Cross-cutting findings:
 | Vault own screen + route vault.* events | Vault | P1 | done | kls-ui/src/lib.rs:55,140 `Screen::Vault`; kls-ui/src/events.rs:889 `"vault" => S::Vault` | - |
 | Per-entry integrity check + Run checks | Vault | P1 | done | kls-core/src/vault.rs:274 `verify_secret`, :401 `verify_all`; kls-store/src/vault.rs:273 `verified_at`; kls-ui/src/screens/vault.rs:149 Run checks, :1226-1241 Verified/Check failed chip | - (a chip, not a separate column) |
 | Vault activity log with All/Changes/Denied | Vault | P1 | done | kls-core/src/vault.rs:433 `vault_activity`, :441 `activity_of`; kls-ui/src/screens/vault.rs:401-421 | - |
-| GitHub quota rules editor + per-workflow call breakdown | Budgets | P1 | done | on_exhausted enforced kls-github/src/client.rs:356 `on_exhausted` (defer / use_cached / escalate, kill switch first, every outcome audited); per-workflow count public kls-github/src/budget.rs:172 `calls_this_hour` / `workflow_calls_this_hour`; shown in Budgets > Usage kls-ui/src/screens/budgets.rs:581 "GitHub calls · this hour" | - (WP1; the editor itself stays in Settings > GitHub quota) |
+| GitHub quota rules editor + per-workflow call breakdown | Budgets | P1 | done | on_exhausted enforced kls-forge/src/client.rs:356 `on_exhausted` (defer / use_cached / escalate, kill switch first, every outcome audited); per-workflow count public kls-forge/src/budget.rs:172 `calls_this_hour` / `workflow_calls_this_hour`; shown in Budgets > Usage kls-ui/src/screens/budgets.rs:581 "GitHub calls · this hour" | - (WP1; the editor itself stays in Settings > GitHub quota) |
 | Audit entry links to card/run/session/workflow/events | Audit | P1 | done | kls-ui/src/screens/audit.rs:1314 `entry_links`, :779-780 `model.go` | - |
 | Audit filters card/agent/repo/workflow/run/vuln | Audit | P1 | done | kls-store/src/audit.rs:183-185 `facts`; kls-ui/src/screens/audit.rs:575-580 facts field, :217 | - (one free-text facts field, not per-type pickers) |
 | Signed export with range picker and save dialog | Audit | P1 | done | kls-ui/src/screens/audit.rs:224-271 export dialog (path field, 30/90/400/All pills, `audit_export_to`), :277-301 | - (path text field; no native file picker in the repo) |
@@ -1636,7 +1636,7 @@ Cross-cutting findings:
 | Assign sheet + Send to workflow | Board | P1 | done | `kls-ui/src/screens/board/bulk.rs:317` assign_menu (crews/workers), used `kls-ui/src/screens/board.rs:1197`; `kls-ui/src/screens/board/claims.rs:291-340` Send to workflow (start_run w/ card_id); `bulk.rs:230-290` one run per card | - |
 | Multi-select bulk bar | Board | P1 | done | `kls-ui/src/screens/board.rs:216,343,694` selection + bulk_bar; `kls-ui/src/screens/board/bulk.rs:175` Move, `:192` Priority, `:249` Send, `:293` Delete | - |
 | Review tab semantics + keys | Board | P1 | done | Confirm -> backlog, Dismiss -> dismiss_card; J/K move a row cursor, C confirms, X dismisses (`kls-ui/src/screens/board.rs:862`, keys `kls-ui/src/screens/board/tabs.rs:376` `review_key`, ignored while a text field has focus; test `review_keys_through_egui`) | - |
-| Card GitHub tab | Board | P1 | done | drawer GitHub tab `kls-ui/src/screens/board/github.rs:72`: issue state, labels, comment count and mirrored comments (`Core::issue_comments` `kls-core/src/board.rs:610`), Sync now (`sync_issues`), Unlink (`Core::unlink_card_issue` `:705`, audited), Open issue mirrors the card to a new issue and links it (`github.rs:197`, `Core::link_card_issue` `:648`, audited); test `link_unlink_and_three_way_sync` | kls-github `issue_card` should honour the `unlinked:` marker (request WP4 #1 in requests-engine.md) |
+| Card GitHub tab | Board | P1 | done | drawer GitHub tab `kls-ui/src/screens/board/github.rs:72`: issue state, labels, comment count and mirrored comments (`Core::issue_comments` `kls-core/src/board.rs:610`), Sync now (`sync_issues`), Unlink (`Core::unlink_card_issue` `:705`, audited), Open issue mirrors the card to a new issue and links it (`github.rs:197`, `Core::link_card_issue` `:648`, audited); test `link_unlink_and_three_way_sync` | kls-forge `issue_card` should honour the `unlinked:` marker (request WP4 #1 in requests-engine.md) |
 | Drawer: note, Sessions/Run tabs, Events link, copy link | Board | P1 | done | drawer tabs Card/GitHub/Sessions/Run/Activity `kls-ui/src/screens/board/tabs.rs:27`, Sessions `:91`, Run `:127` (runs and sessions with the card id); Copy link `keleustes://board/<key>` and Events for this card (`card:<id>`) `kls-ui/src/screens/board.rs:1126,1133`; Add note `board/claims.rs` | - |
 | Board lens + swimlanes | Board | P1 | done | `kls-ui/src/screens/board/bulk.rs:17-70` Lens (Needs me/Unrouted/P1/From a workflow), `:73-127` Group (repo/workflow/crew); `kls-ui/src/screens/board.rs:330,390,405-424` | - |
 | Structured filters + Events::focus deep link | Events | P1 | done | `kls-ui/src/events.rs` key:value filters and `focus`; deep links from Board (drawer `card:<id>`, `kls-ui/src/screens/board.rs:1133`), Checkpoints (inspector Events, `events_filter` `kls-ui/src/screens/checkpoints.rs:66`), Cockpit (latest events `kind:<kind>` `cockpit.rs:667`, HUD panels `kind:decision.` / `needs`, Fleet/Health `kind:node.`), Audit | - |
@@ -1660,7 +1660,7 @@ Cross-cutting findings:
 | Autosave + "Continue your draft" | Agent builder | P1 | done | `DRAFT_KEY`/`AUTOSAVE_MS` at `kls-ui/src/screens/workforce/offers.rs:9-11`. Autosave at `kls-ui/src/screens/workforce.rs:1210-1226`. "Continue draft" at `:258-261`. Cleared on save at `:1197` | - |
 | Retry from chosen step + cancel confirm | Runs | P1 | done | "Retry from here" `ops::retry_run(.., Some(&sid))`: `kls-ui/src/screens/runs.rs:782-791`. Two-click cancel: `:461-479` | - |
 | Run totals (budget %, est. cost, handoffs) | Runs | P1 | done | `RunDetail::totals` at `kls-engine/src/ops.rs:1324-1359`. UI: budget % `kls-ui/src/screens/runs.rs:561`, handoffs `:570`, model cost `:584` | - |
-| Lockfile handling, keep resolutions across head_moved, extended description | Conflicts | P1 | done | kls-github/src/conflicts.rs (`LOCKFILES`, `regenerate_command`, `unchanged_files`, `describe`); kls-ui/src/screens/conflicts.rs (lockfile Keep ours/theirs, Head moved chip, multi-line message); tests kls-github/src/conflicts_tests.rs | - |
+| Lockfile handling, keep resolutions across head_moved, extended description | Conflicts | P1 | done | kls-forge/src/conflicts.rs (`LOCKFILES`, `regenerate_command`, `unchanged_files`, `describe`); kls-ui/src/screens/conflicts.rs (lockfile Keep ours/theirs, Head moved chip, multi-line message); tests kls-forge/src/conflicts_tests.rs | - |
 | Outcome detail screen (timeline, cost by model, people) | Delivery | P1 | done | `kls-core/src/github.rs:1601` (`outcome(core, key)`: timeline, cost by model, people, links), test `:2414`; Outcome tab `kls-ui/src/screens/delivery.rs:423`, `:2093` (`outcome_view`), opened from an Outcomes row (`:233`) | - |
 | Per-trigger enable switches | Workflows | P1 | done | `kls-engine/src/ops.rs:465` (`set_schedule_enabled`); `kls-ui/src/screens/workflows.rs:857-861` (checkbox in Schedules table) | - (no switch in builder header itself) |
 | Schedules view: create, re-time, delete, kind filter | Workflows | P1 | done | `kls-ui/src/screens/workflows.rs:768` (kind filter), `workflows.rs:811` (`add_cron_schedule`), `workflows.rs:896` (`retime_schedule`), `workflows.rs:956` (`delete_schedule`); `kls-engine/src/ops.rs:1204,1245,1299` | - |
@@ -1675,16 +1675,16 @@ Cross-cutting findings:
 | Template security-patch-train | Templates | P1 | done | `kls-engine/src/templates.json:1124` (cron trigger, gate, draft PR) | - |
 | Template release-provenance | Templates | P1 | done | `kls-engine/src/templates.json:1228` (manual trigger, files ticket) | - (all templates validated by `kls-engine/src/templates.rs:135`) |
 | Template search + run budget in Use form | Templates | P1 | done | `kls-ui/src/screens/templates.rs:114,382` (search with synonyms), `templates.rs:278-303` (run budget passed); `kls-engine/src/templates.rs:96-110` (`use_template` sets `run_budget_tokens`) | - |
-| Issue mirroring per board project | Repos | P1 | done | `github.issue_mirror` rows (project, repo, inbound list, outbound, merge rules, escalate hours, existing cards `backfill` none/recent/all + `backfilled_at`) kls-core/src/board/sync.rs:400, candidates :469, kept across saves :513 (`save_issue_mirrors` :570), done mark (audited) :597, counts :633, tests :857, :910; backfill pass (at most 20 issues a pass through `open_issue`: kill switch, audit, link; `project:` labels stay on the board) kls-github/src/sync.rs:1197, run after `sync_cards` by the poller kls-github/src/poller.rs:258, tests kls-github/src/tests.rs:1626, :1709; editor in the repo panel (project, inbound, outbound, merge rule per field, escalate hours, existing cards with counts, Save mirror / Stop mirroring) kls-ui/src/screens/repos.rs:1227 (called :1126), test :2276 | - |
+| Issue mirroring per board project | Repos | P1 | done | `github.issue_mirror` rows (project, repo, inbound list, outbound, merge rules, escalate hours, existing cards `backfill` none/recent/all + `backfilled_at`) kls-core/src/board/sync.rs:400, candidates :469, kept across saves :513 (`save_issue_mirrors` :570), done mark (audited) :597, counts :633, tests :857, :910; backfill pass (at most 20 issues a pass through `open_issue`: kill switch, audit, link; `project:` labels stay on the board) kls-forge/src/sync.rs:1197, run after `sync_cards` by the poller kls-forge/src/poller.rs:258, tests kls-forge/src/tests.rs:1626, :1709; editor in the repo panel (project, inbound, outbound, merge rule per field, escalate hours, existing cards with counts, Save mirror / Stop mirroring) kls-ui/src/screens/repos.rs:1227 (called :1126), test :2276 | - |
 | Repo detail: attached workflows + bulk attach | Repos | P1 | done | `kls-ui/src/screens/repos.rs:1045` (detail lists workflows whose scope names the repo, `attached_workflows` `:1133`); bulk Attach menu `:768` -> `attach_repos` `:1274` (scope, save_draft, publish, audited `workflow.attach` actor owner), test `:1958` | - |
 | Default workflow catalogue, per-repo seeding, defaults_off | Repos | P1 | done | `kls-engine/src/defaults.rs:91` (core + 34 CLI defaults), `defaults.rs:422-440` (`gate` honours defaults_off/autonomy), `defaults.rs:447-545` (`seed` per managed repo, upgrade unless customised); `kls-engine/src/exec.rs:885-891` (re-seed on repo/settings events); UI `kls-ui/src/screens/repos.rs:709-790`, list chips `workflows.rs:475-484` | - |
 | OS notices: notify nodes, failed runs, finished sessions | Background | P1 | done | `kls-app/src/desktop.rs:364-381` (`run.notify`, failed `run.finished`, `session.ended`), `desktop.rs:491-520` (`start_notifications`), `desktop.rs:440-454` (notify.events filter) | - |
 | Repo-aware node choice + no_host_for_repo admission | Background | P1 | done | kls-engine/src/route.rs:137 `NO_HOST_FOR_REPO`, :205 (every offering node lists dirs, none holds the repo, none can clone); exec.rs:2786 refuses (audited) and fails the step (not retried, walker.rs); tests route.rs `node_choice_prefers_offer_and_repo`, `no_host_for_repo_is_refused` | - |
 | Card claim TTL and capacity wait | Background | P1 | done | `deferred:capacity` on a full node; an unclaimed routing card waits (`waiting:unclaimed`, `route.unclaimed` audited) each claim TTL until the step timeout, then `card_unclaimed` kls-engine/src/exec.rs:3600-3648 | - |
 | Crew handoff following (agent.parent) | Background | P1 | done | `kls-engine/src/exec.rs:1429-1434` (handoffWait), `exec.rs:1461-1484` (`open_children` via claim parent), `exec.rs:1538-1554` | - |
-| Outbound card-to-issue sync with retry and field conflicts | Background | P1 | done | three-way `plan` kls-core/src/board/sync.rs:283; `sync_cards` / `push` / `retry_backoff` kls-github/src/sync.rs:1041,907,792 (kill switch first, retry 1 min..1 h, close on done, ISSUE_PUSHED / ISSUE_PUSH_FAILED, audited); tests kls-github/src/tests.rs:1208,1325,1363 | - |
+| Outbound card-to-issue sync with retry and field conflicts | Background | P1 | done | three-way `plan` kls-core/src/board/sync.rs:283; `sync_cards` / `push` / `retry_backoff` kls-forge/src/sync.rs:1041,907,792 (kill switch first, retry 1 min..1 h, close on done, ISSUE_PUSHED / ISSUE_PUSH_FAILED, audited); tests kls-forge/src/tests.rs:1208,1325,1363 | - |
 | Gates woken by PR/check updates | Background | P1 | done | kls-engine/src/exec.rs:998 `wake_gates` (`github.pull.*` / `github.workflow_run` for the run's repo and pull wake `deferred:checks` gates now); test `forge_gate_wakes_on_a_pull_update` | - |
-| Mirror more GitHub event kinds | Background | P1 | done | REVIEW_SUBMITTED kls-github/src/sync.rs:341, PACKAGE_PUBLISHED events.rs:306, RISK events.rs:468,554; webhook names kls-engine/src/forge.rs:1166-1172; tests kls-github/src/tests.rs:1478,1522 | - |
+| Mirror more GitHub event kinds | Background | P1 | done | REVIEW_SUBMITTED kls-forge/src/sync.rs:341, PACKAGE_PUBLISHED events.rs:306, RISK events.rs:468,554; webhook names kls-engine/src/forge.rs:1166-1172; tests kls-forge/src/tests.rs:1478,1522 | - |
 | Label controls: unlabel cancels, sf:stop, /sf, label trust | Background | P1 | done | `kls-engine/src/exec.rs:1203-1252` (`label_controls`: removed label cancels queued, `sf:stop`), `kls-engine/src/triggers.rs:263,276` (`/sf <name>`), `triggers.rs:298` + `exec.rs:1092-1113` (trust/bot checks) | - |
 | Expiry presets/custom/never, expiring/expired | Vault | P2 | done | custom expiry kls-core/src/vault/lineage.rs:121 `parse_expiry` (date, date+time, Nd/Nh, never) and `set_expiry`; UI kls-ui/src/screens/vault.rs:1035 Custom field beside the presets; tests `expiry_text`, `custom_expiry_is_kept_and_never_leaks` (lineage.rs:657) | - (WP1) |
 | Per-node grant scoping | Vault | P2 | done | kls-core/src/vault.rs:323 `set_secret_scope`, :565 `grant_for_node`; kls-node/src/gateway.rs:188,260,643; kls-ui/src/screens/vault.rs:673-690, :922 | - |
@@ -1700,9 +1700,9 @@ Cross-cutting findings:
 | Alert crossings, downgrade to fast model | Budgets | P2 | done | kls-store/src/vault.rs:754 `budget_alert_once`; kls-core/src/vault.rs:1280-1293 `budget.alert`, :1297-1325 Downgrade; kls-engine/src/exec.rs:2586-2592 | - (crossings are events, no list on the Budgets screen) |
 | Matrix totals, evidence index export, egress host list | Trust | P2 | done | kls-core/src/audit/trust.rs:439, :489, :524; kls-ui/src/screens/trust.rs:73-80, :157-183, :284 | - |
 | Firewall/egress review strip, sightings -> review cards | Trust | P2 | done | kls-core/src/audit/review.rs:74 `egress_review` (pending until reviewed, back when refused again), :133 `file_card` (card with the sighting as origin, label `egress-review`), `dismiss`; each audited (`trust` ledger kind, `trust.egress_reviewed`); strip kls-ui/src/screens/trust.rs:162 with Card / Dismiss / card link | - (WP1) |
-| Kanban binding, forge quota extras, setting-change link, chat notifications, quiet hours | Settings | P2 | done | kanban binding (agent A, 2026-11-22): settings kls-core/src/audit/config.rs:309 read by `Binding::from_settings` (kls-core/src/board/kanban.rs), dropped from `PENDING` (config.rs:527); three-way merge per field against a stored base `plan` kanban.rs:469, pass `sync_with` :607 (kill switch `control::check("job")` first, refusal audited; import of new outside items into triage with cleaned text `clean_body` :375, label `kanban:<provider>`, origin URL + SHA-256 in card meta `import` :888; conflicts held, never overwritten, `resolve_conflict` :1035), tick `start` :1159 every 5 min started from `kls_github::start` (kls-github/src/service.rs:84 via kls-github/src/kanban.rs:31); providers: GitHub Projects + GitLab boards over the forge CLI (kls-github/src/kanban.rs:218, :436; writes kill-switch-checked, write-capped and audited by `Client::request`), Linear and Jira Cloud over HTTPS with the token sealed in the vault (kls-core/src/board/kanban/linear.rs:117, jira.rs:180, `set_token` kanban.rs:319); links + last pass in migration 0243_a_kanban_links.sql (kls-store/src/board/kanban.rs); UI status chip, Sync now, token Seal/forget and held-field Keep board / Take outside kls-ui/src/screens/settings.rs:1184 `kanban_ui`; tests kls-core/src/board/kanban/tests.rs (11, fake remote and fake HTTP), kls-github/src/kanban.rs tests (3, fake gh/glab), kls-store/src/board/kanban.rs (1); chat channel `notify.chat`/`notify.chat_events` + sealed webhook kls-core/src/audit/notify.rs (`set_webhook` seals the address in the vault, `post` :191 checks the kill switch first, honours quiet hours, audits every outcome; started from `audit::start`), UI kls-ui/src/screens/settings.rs:1090 `chat_ui` (Seal / Send test / forget); quota extras enforced (on_exhausted, proactive write cap kls-github/src/client.rs:318); quiet hours as before | Kanban: comments/notes are not mirrored, labels and priority are not synced (title, body, column only); GitHub Projects reads go through `POST graphql`, so each read counts toward the proactive write cap |
+| Kanban binding, forge quota extras, setting-change link, chat notifications, quiet hours | Settings | P2 | done | kanban binding (agent A, 2026-11-22): settings kls-core/src/audit/config.rs:309 read by `Binding::from_settings` (kls-core/src/board/kanban.rs), dropped from `PENDING` (config.rs:527); three-way merge per field against a stored base `plan` kanban.rs:469, pass `sync_with` :607 (kill switch `control::check("job")` first, refusal audited; import of new outside items into triage with cleaned text `clean_body` :375, label `kanban:<provider>`, origin URL + SHA-256 in card meta `import` :888; conflicts held, never overwritten, `resolve_conflict` :1035), tick `start` :1159 every 5 min started from `kls_forge::start` (kls-forge/src/service.rs:84 via kls-forge/src/kanban.rs:31); providers: GitHub Projects + GitLab boards over the forge CLI (kls-forge/src/kanban.rs:218, :436; writes kill-switch-checked, write-capped and audited by `Client::request`), Linear and Jira Cloud over HTTPS with the token sealed in the vault (kls-core/src/board/kanban/linear.rs:117, jira.rs:180, `set_token` kanban.rs:319); links + last pass in migration 0243_a_kanban_links.sql (kls-store/src/board/kanban.rs); UI status chip, Sync now, token Seal/forget and held-field Keep board / Take outside kls-ui/src/screens/settings.rs:1184 `kanban_ui`; tests kls-core/src/board/kanban/tests.rs (11, fake remote and fake HTTP), kls-forge/src/kanban.rs tests (3, fake gh/glab), kls-store/src/board/kanban.rs (1); chat channel `notify.chat`/`notify.chat_events` + sealed webhook kls-core/src/audit/notify.rs (`set_webhook` seals the address in the vault, `post` :191 checks the kill switch first, honours quiet hours, audits every outcome; started from `audit::start`), UI kls-ui/src/screens/settings.rs:1090 `chat_ui` (Seal / Send test / forget); quota extras enforced (on_exhausted, proactive write cap kls-forge/src/client.rs:318); quiet hours as before | Kanban: comments/notes are not mirrored, labels and priority are not synced (title, body, column only); GitHub Projects reads go through `POST graphql`, so each read counts toward the proactive write cap |
 | Day grouping, paging past 5000, multi-delete, fact chips, signed decision ledger, weekly report | Audit | P2 | done | decision ledger kls-core/src/audit/report.rs:54 `export_decisions` (approval, decision, factory_control, override entries in the signed export format; `verify_export` checks it); weekly report :97 `weekly_report`, `render_markdown`, :228 `weekly_tick` (last week's report written once to `<data>/reports/`, audited `audit.report`); UI tabs kls-ui/src/screens/audit.rs:390 Decisions, :457 Weekly | - (WP1) |
-| Quota refusal actions and deferrable reads | Background | P2 | done | kls-github/src/client.rs:356 `on_exhausted`: defer (refuse until the reset), use_cached (answer from the ETag cache, else defer), escalate (refuse and notify once per reset window, `github.quota.escalated` counts as an escalation for notifications); each refused under the kill switch first and audited; proactive write cap :318 `check_write_cap`; tests client.rs:937, :957 | - (WP1) |
+| Quota refusal actions and deferrable reads | Background | P2 | done | kls-forge/src/client.rs:356 `on_exhausted`: defer (refuse until the reset), use_cached (answer from the ETag cache, else defer), escalate (refuse and notify once per reset window, `github.quota.escalated` counts as an escalation for notifications); each refused under the kill switch first and audited; proactive write cap :318 `check_write_cap`; tests client.rs:937, :957 | - (WP1) |
 | Lifecycle ledger | Background | P2 | done (2026-11-28) | Stored and swept: `kls-core/src/github.rs:2065` `lifecycle_sweep`, five-minute sweep `kls-core/src/sweeps.rs:167`, `ledger_flow` :2398, coverage report `lifecycle_coverage` :2250 (Delivery › Lifecycle "Ledger coverage · 7d"); cockpit Flow chips read the ledger's 7-day median wait per stage beside the live board count: `kls-ui/src/screens/cockpit.rs:140` (loader), :1087 `flow_chip`; test :1963 | - (see builtin-agents.md 2.6 Lifecycle ledger) |
 | Approval re-notify | Background | P2 | done | kls-engine/src/exec.rs:3272-3291 (`approval.renotified` on SLA); kls-app/src/desktop.rs:517-519 re-shows notice | - |
 | Header GitHub stamp | Board | P2 | done | `kls-ui/src/screens/board.rs:313-329` "poll mirror · N repos · synced X" | - |

@@ -8,7 +8,7 @@ description = "Keleustes workflow engine: graph, validation, dry run, executor, 
 [dependencies]
 kls-core.workspace = true
 kls-store.workspace = true
-kls-github.workspace = true
+kls-forge.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

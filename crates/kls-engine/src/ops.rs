@@ -1838,7 +1838,7 @@ impl RunDetail {
             for k in ["url", "prUrl", "pr"] {
                 let u = get(k);
                 // GitHub `/pull/N`, GitLab `/-/merge_requests/N`, Gitea `/pulls/N`.
-                if kls_github::forge::kind::pull_ref_of(&u).is_some() {
+                if kls_forge::forge::kind::pull_ref_of(&u).is_some() {
                     push_unique(&mut f.pulls, &u);
                 }
             }

@@ -13,7 +13,7 @@
 //!   never overwritten; the owner resolves it ([`Core::resolve_sync_conflict`]),
 //!   which moves the base so the next pass pushes or takes.
 //!
-//! The pushes themselves (forge writes, with retry) are in `kls-github`
+//! The pushes themselves (forge writes, with retry) are in `kls-forge`
 //! (`sync::sync_cards`); this module is pure planning plus the mirror config.
 
 use crate::Core;
@@ -51,7 +51,7 @@ pub struct SyncConflict {
     pub fields: Vec<FieldConflict>,
 }
 
-/// The board title of a mirrored issue (`#<n> <title>`, kls-github `card_title`).
+/// The board title of a mirrored issue (`#<n> <title>`, kls-forge `card_title`).
 pub fn issue_title(i: &GhIssue) -> String {
     format!("#{} {}", i.number, i.title.trim())
         .chars()

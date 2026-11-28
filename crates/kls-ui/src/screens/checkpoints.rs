@@ -14,7 +14,7 @@ use egui::RichText;
 use kls_core::board::OWNER;
 use kls_core::needs::{self, Checkpoint, CheckpointKind};
 use kls_engine::ops;
-use kls_github::sync::PullAction;
+use kls_forge::sync::PullAction;
 use kls_store::board::Card;
 use kls_store::github::GhPull;
 use kls_store::now_ms;
@@ -514,7 +514,7 @@ impl Screen {
                         {
                             let targets = pulls.clone();
                             model.act(move |m| async move {
-                                let res = kls_github::service(m.core())
+                                let res = kls_forge::service(m.core())
                                     .bulk_pull_action(&targets, action)
                                     .await?;
                                 let failed: Vec<String> = res
@@ -548,7 +548,7 @@ impl Screen {
                         self.reviewers.clear();
                         self.ticked.clear();
                         model.act(move |m| async move {
-                            let res = kls_github::service(m.core())
+                            let res = kls_forge::service(m.core())
                                 .bulk_pull_action(&targets, PullAction::RequestReviewers(who))
                                 .await?;
                             let failed: Vec<String> = res
@@ -858,7 +858,7 @@ impl Screen {
                 let files = Loader::new(model, &[], move |core| {
                     let repo = r2.clone();
                     async move {
-                        let gh = kls_github::service(&core);
+                        let gh = kls_forge::service(&core);
                         let cl = gh.client_for(&repo).await?;
                         cl.api().pull_files(&cl, &repo, n, "user").await
                     }
@@ -1071,7 +1071,7 @@ impl Screen {
             let pr = |label: &'static str, action: PullAction| {
                 let repo = repo.clone();
                 model.act(move |m| async move {
-                    kls_github::service(m.core())
+                    kls_forge::service(m.core())
                         .pull_action(&repo, n, action)
                         .await?;
                     Ok(Some(Notice::Info(format!("{repo}#{n}: {label}"))))
@@ -1092,7 +1092,7 @@ impl Screen {
                         .map(|r| r.settings.merge_method)
                         .filter(|x| !x.is_empty())
                         .unwrap_or_else(|| "squash".into());
-                    kls_github::service(m.core())
+                    kls_forge::service(m.core())
                         .pull_action(&repo, n, PullAction::Merge(method.clone()))
                         .await?;
                     Ok(Some(Notice::Info(format!("{repo}#{n} merged ({method})"))))

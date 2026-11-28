@@ -2566,7 +2566,7 @@ fn forge_panel(
                                     } else {
                                         String::new()
                                     };
-                                    let pr = kls_github::forge::pull_ref_of(&pr_url)
+                                    let pr = kls_forge::forge::pull_ref_of(&pr_url)
                                         .map(|x| x.number as i32)
                                         .unwrap_or(0);
                                     let until = if event == "waiting" {

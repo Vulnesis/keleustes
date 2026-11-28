@@ -4,9 +4,9 @@
 use anyhow::{Result, bail};
 use clap::Subcommand;
 use kls_core::Core;
-use kls_github::forge::auth::{SignInMethod, auth_for};
-use kls_github::login::{WebLogin, WebState};
-use kls_github::{Connection, ForgeKind};
+use kls_forge::forge::auth::{SignInMethod, auth_for};
+use kls_forge::login::{WebLogin, WebState};
+use kls_forge::{Connection, ForgeKind};
 
 #[derive(Subcommand)]
 pub enum ForgeCmd {
@@ -64,7 +64,7 @@ fn kind_host(kind: &str, host: Option<&str>) -> Result<(ForgeKind, String)> {
 }
 
 pub async fn run(core: &Core, cmd: &ForgeCmd) -> Result<i32> {
-    let svc = kls_github::service(core);
+    let svc = kls_forge::service(core);
     match cmd {
         ForgeCmd::List => {
             for c in svc.connections().await? {
@@ -94,7 +94,7 @@ pub async fn run(core: &Core, cmd: &ForgeCmd) -> Result<i32> {
                 let route = svc.recheck_conn(&c).await;
                 let auth = svc.auth_state(&c).await;
                 let missing = match &auth {
-                    kls_github::forge::auth::AuthState::SignedIn { missing, .. } => {
+                    kls_forge::forge::auth::AuthState::SignedIn { missing, .. } => {
                         missing.join(",")
                     }
                     _ => String::new(),
@@ -156,7 +156,7 @@ pub async fn run(core: &Core, cmd: &ForgeCmd) -> Result<i32> {
             };
             let method = match want {
                 // gh's browser sign-in is its device code.
-                Some(SignInMethod::BrowserLoopback) if conn.cli() == kls_github::CliKind::Gh => {
+                Some(SignInMethod::BrowserLoopback) if conn.cli() == kls_forge::CliKind::Gh => {
                     SignInMethod::DeviceCode
                 }
                 Some(m) if methods.contains(&m) => m,

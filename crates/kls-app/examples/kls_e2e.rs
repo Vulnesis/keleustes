@@ -375,17 +375,17 @@ async fn run(args: Vec<String>) -> Result<Value> {
                 .node(arg(a, 0)?)
                 .await?
                 .ok_or_else(|| anyhow!("no node"))?;
-            let conn = kls_github::Connection::github_com();
-            let sel = kls_github::Selector::new(core.clone(), kls_github::LocalGh::default());
+            let conn = kls_forge::Connection::github_com();
+            let sel = kls_forge::Selector::new(core.clone(), kls_forge::LocalGh::default());
             let (_, cli) = sel
                 .node_runner(&conn, &node)
                 .ok_or_else(|| anyhow!("node {} cannot reach github.com", node.name))?;
-            let job =
-                if kls_github::select::node_reach(&node.host.capabilities, &conn) == Some(true) {
-                    "forge"
-                } else {
-                    "github"
-                };
+            let job = if kls_forge::select::node_reach(&node.host.capabilities, &conn) == Some(true)
+            {
+                "forge"
+            } else {
+                "github"
+            };
             let out = cli.run(&["api".into(), arg(a, 1)?.into()], None).await?;
             Ok(json!({"job": job, "exit": out.exit, "stdout": out.stdout, "stderr": out.stderr}))
         }
